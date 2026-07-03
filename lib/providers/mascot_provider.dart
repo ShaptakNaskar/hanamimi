@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../audio/models/audio_state.dart';
 import '../ui/components/mascot/hanamimi_widget.dart';
 import 'audio_provider.dart';
+import 'sleep_timer_provider.dart';
 
 /// Derives the mascot's state from playback, holding a transient
 /// [MascotState.changing] head-tilt for 1.2s on every track change.
@@ -15,6 +16,9 @@ class MascotNotifier extends Notifier<MascotState> {
   @override
   MascotState build() {
     ref.onDispose(() => _changingTimer?.cancel());
+
+    // Fading out to sleep trumps everything — she's dozing off.
+    if (ref.watch(sleepTimerProvider).isFading) return MascotState.sleeping;
 
     final audio = ref.watch(audioStateProvider).value;
     if (audio == null) return MascotState.idle;

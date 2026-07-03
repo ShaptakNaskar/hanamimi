@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../audio/models/queue_mode.dart';
 import '../../../providers/audio_provider.dart';
+import '../../../providers/sleep_timer_provider.dart';
 import '../../../providers/theme_provider.dart';
 import '../../../theme/theme_tokens.dart';
 
@@ -153,7 +154,9 @@ class _PlaybackControlsState extends ConsumerState<PlaybackControls>
             _IconOnly(
               icon: Icons.nightlight_outlined,
               size: 20,
-              color: theme.textMuted,
+              color: ref.watch(sleepTimerProvider).isActive
+                  ? theme.primary
+                  : theme.textMuted,
               onTap: widget.onSleepTimer ?? () {},
             ),
             _IconOnly(

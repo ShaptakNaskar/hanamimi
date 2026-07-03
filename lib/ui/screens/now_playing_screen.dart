@@ -19,6 +19,7 @@ import '../components/now_playing/playback_controls.dart';
 import '../components/now_playing/seek_bar_widget.dart';
 import '../components/now_playing/visualizer_widget.dart';
 import '../modals/lyrics_sheet.dart';
+import '../modals/sleep_timer_modal.dart';
 
 class NowPlayingScreen extends ConsumerWidget {
   const NowPlayingScreen({super.key});
@@ -100,7 +101,9 @@ class NowPlayingScreen extends ConsumerWidget {
                   const SizedBox(height: Space.s4),
                   _SeekBarSection(theme: theme),
                   const SizedBox(height: Space.s6),
-                  const PlaybackControls(),
+                  PlaybackControls(
+                    onSleepTimer: () => showSleepTimerModal(context),
+                  ),
                   const SizedBox(height: Space.s4),
                   const VisualizerWidget(height: 56),
                   const Spacer(flex: 1),

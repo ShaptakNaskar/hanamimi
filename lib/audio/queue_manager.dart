@@ -23,6 +23,10 @@ class QueueManager {
   /// User setting; Duration.zero = crossfade off.
   Duration crossfadeDuration = Duration.zero;
 
+  /// Sleep timer "end of track" mode: finish the current song, then
+  /// pause instead of advancing.
+  bool pauseAtTrackEnd = false;
+
   Timer? _crossfadeTimer;
   int? _pendingCursor;
   Track? _pendingTrack;
@@ -201,6 +205,7 @@ class QueueManager {
     if (_crossfading ||
         crossfadeDuration == Duration.zero ||
         !_primary.playing ||
+        pauseAtTrackEnd ||
         _mode == QueueMode.repeatOne) {
       return;
     }
@@ -322,8 +327,19 @@ class QueueManager {
       _finishCrossfade();
       return;
     }
+    if (pauseAtTrackEnd) {
+      pauseAtTrackEnd = false;
+      await _primary.pause();
+      await _primary.seek(Duration.zero);
+      _state.add(state.copyWith(status: PlaybackStatus.paused));
+      onSleepTimerFired?.call();
+      return;
+    }
     await next(byUser: false);
   }
+
+  /// Notifies the sleep timer that end-of-track mode completed.
+  void Function()? onSleepTimerFired;
 
   Future<void> _playCurrent() async {
     final track = _currentTrack;
