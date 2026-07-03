@@ -10,6 +10,7 @@ import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../providers/visualizer_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
@@ -569,6 +570,42 @@ class _SoundSettings extends ConsumerWidget {
                       ),
                     ],
                   ),
+          ),
+          Divider(height: Space.s6, color: theme.divider),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Visualizer sensitivity',
+                  style: AppText.rowSongTitle(theme)),
+              Text('Turn up for songs that barely move it',
+                  style: AppText.caption(theme)),
+              Row(
+                children: [
+                  Icon(Icons.graphic_eq, size: 16, color: theme.primary),
+                  Expanded(
+                    child: Slider(
+                      value: ref
+                          .watch(visualizerSensitivityProvider)
+                          .clamp(0.5, 3.0)
+                          .toDouble(),
+                      min: 0.5,
+                      max: 3.0,
+                      divisions: 10,
+                      onChanged: (v) => ref
+                          .read(visualizerSensitivityProvider.notifier)
+                          .set(v),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 40,
+                    child: Text(
+                      '${ref.watch(visualizerSensitivityProvider).toStringAsFixed(2)}×',
+                      style: AppText.caption(theme),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
           Divider(height: Space.s6, color: theme.divider),
           Row(

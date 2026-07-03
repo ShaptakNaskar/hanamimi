@@ -9,8 +9,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <!-- Lyrics fetching (LRCLIB) -->
     <uses-permission android:name="android.permission.INTERNET"/>
-    <!-- Visualizer FFT capture reads the audio output mix -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- No RECORD_AUDIO: the visualizer decodes the audio file itself
+         (FftExtractorChannel) instead of tapping the output mix. -->
 
     <application
         android:label="Hanamimi"
@@ -36,6 +36,14 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!-- Appear in "open audio file with…" pickers -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
+                <data android:mimeType="audio/*"/>
             </intent-filter>
         </activity>
         <!-- audio_service: foreground playback service + media buttons -->

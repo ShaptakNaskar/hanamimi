@@ -259,7 +259,7 @@ class QueueManager {
     _pendingTrack = track;
 
     try {
-      await incoming.setFilePath(track.filePath);
+      await _setSource(incoming, track);
     } catch (_) {
       await incoming.dispose();
       _incoming = null;
@@ -376,7 +376,7 @@ class QueueManager {
       status: PlaybackStatus.loading,
     ));
     try {
-      await _primary.setFilePath(track.filePath);
+      await _setSource(_primary, track);
       await _primary.setVolume(1);
       await _primary.play();
       trackStarted.add(track);
@@ -385,4 +385,12 @@ class QueueManager {
       await next(byUser: false);
     }
   }
+
+  /// Tracks opened from other apps carry a content:// uri instead of a
+  /// filesystem path.
+  static Future<Duration?> _setSource(AudioPlayer player, Track track) =>
+      track.filePath.startsWith('content://')
+          ? player.setAudioSource(
+              AudioSource.uri(Uri.parse(track.filePath)))
+          : player.setFilePath(track.filePath);
 }

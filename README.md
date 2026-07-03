@@ -25,6 +25,7 @@ Hanamimi plays the music already on your phone — no accounts, no streaming, no
 - Playlists with pastel covers: play all, swipe-left to remove a song, delete with confirm
 - Library-wide search across songs, albums, folders and playlists
 - **Excluded folders** — hide any directory from the scan (You → More → Excluded folders)
+- Registers as an audio handler — "open with Hanamimi" works from file managers and other apps
 - Sleep timer with moon-phase presets: countdown or end-of-track, 30 s volume fade with screen dimming
 
 **Lyrics (the fun part)**
@@ -38,7 +39,7 @@ Hanamimi plays the music already on your phone — no accounts, no streaming, no
 - Source picker on the quality badge — force embedded / Musixmatch / LRCLIB per track; sources are probed on open, and ones with nothing for the song are greyed out
 
 **Visualizer & mascot**
-- Real FFT from the Android `Visualizer` API (30 Hz, 12 log-spaced bands), styled per theme: pastel bars, falling raindrops, radial starburst, waveform
+- Real FFT computed from the decoded audio itself (60 fps, 12 log-spaced bands, per-track disk cache, **no microphone permission**), styled per theme: pastel bars, falling raindrops, radial starburst, waveform — with a sensitivity control for quiet songs
 - Hanamimi the beagle is drawn and animated entirely in code (`CustomPainter`): blink scheduler, amplitude-driven head bop with lagging-ear physics, head-tilt on track change, snoring with floating z's
 - Accessories unlocked by listen time (bow → headphones → flower → crown)
 
@@ -89,15 +90,14 @@ lib/
 ├── theme/        design tokens + the four HanamimiTheme palettes
 └── ui/           screens, mascot painter/animator, lyrics sheet, modals
 
-android/…/app/    MainActivity + MediaStoreChannel.kt + VisualizerChannel.kt
+android/…/app/    MainActivity + MediaStoreChannel.kt + FftExtractorChannel.kt
 ```
 
 Design and technical specs live in [`DESIGN.md`](DESIGN.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md); the build log with every milestone and deviation is in [`PROGRESS.md`](PROGRESS.md).
 
 ## Notes
 
-- **Android only** (v1). The visualizer channel uses the Android `Visualizer` API; iOS would need an `AVAudioEngine` tap.
-- The `RECORD_AUDIO` permission is only used by the system Visualizer to read the *output* mix for the FFT — nothing is recorded.
+- **Android only** (v1). The visualizer decodes each track itself (`MediaExtractor`/`MediaCodec` → FFT at 60 fps, disk-cached per track) — **no microphone / RECORD_AUDIO permission**, and it stays accurate regardless of the output mix.
 - Musixmatch is accessed through its unofficial desktop-app API, best-effort with graceful fallback — intended for personal use.
 - Word timings come keyed to specific releases; local files that are a different master can drift, which is what the per-track sync offset is for.
 

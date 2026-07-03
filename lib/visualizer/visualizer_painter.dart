@@ -57,24 +57,34 @@ class VisualizerPainter extends CustomPainter {
     final colW = size.width / n;
     for (var i = 0; i < n; i++) {
       final intensity = bands[i];
-      if (intensity < 0.06) continue;
-      // Bass: large slow drops; treble: small fast ones.
-      final speed = 0.25 + (i / n) * 0.9 + intensity * 0.4;
-      final phase = (time * speed + i * 0.37) % 1.0;
-      final y = phase * size.height;
-      final r = (2.0 + (1 - i / n) * 4.0) * (0.5 + intensity * 0.8);
-      final x = colW * (i + 0.5) + math.sin(i * 7.3) * colW * 0.2;
-      final color = Color.lerp(theme.primary, theme.accent, intensity)!
-          .withValues(alpha: (1 - phase) * 0.9);
+      // Fall speed is CONSTANT per column (bass slow, treble quick) —
+      // the music modulates size and brightness only. Folding intensity
+      // into the speed made phase jump every frame, teleporting drops;
+      // and culling below a threshold blinked them out mid-fall.
+      final speed = 0.3 + (i / n) * 0.55;
+      // Two half-phase drops per column keep the sky populated.
+      for (var d = 0; d < 2; d++) {
+        final phase = (time * speed + i * 0.37 + d * 0.5) % 1.0;
+        final y = phase * size.height;
+        final x = colW * (i + 0.5) +
+            math.sin(i * 7.3 + d * 3.1) * colW * 0.18;
+        final r = (1.8 + (1 - i / n) * 3.6) * (0.4 + intensity * 1.1);
+        // Loud band → bright drop; quiet → ghost. Fades as it falls.
+        final alpha =
+            (0.10 + intensity * 0.85).clamp(0.0, 0.95) * (1 - phase * 0.6);
+        if (alpha < 0.03) continue;
+        final color = Color.lerp(theme.primary, theme.accent, intensity)!
+            .withValues(alpha: alpha);
 
-      // Teardrop: circle + triangle tail upward.
-      final paint = Paint()..color = color;
-      canvas.drawCircle(Offset(x, y), r, paint);
-      final tail = Path()
-        ..moveTo(x - r * 0.8, y - r * 0.4)
-        ..quadraticBezierTo(x, y - r * 2.6, x + r * 0.8, y - r * 0.4)
-        ..close();
-      canvas.drawPath(tail, paint);
+        // Teardrop: circle + tail trailing upward.
+        final paint = Paint()..color = color;
+        canvas.drawCircle(Offset(x, y), r, paint);
+        final tail = Path()
+          ..moveTo(x - r * 0.8, y - r * 0.4)
+          ..quadraticBezierTo(x, y - r * 2.6, x + r * 0.8, y - r * 0.4)
+          ..close();
+        canvas.drawPath(tail, paint);
+      }
     }
   }
 
