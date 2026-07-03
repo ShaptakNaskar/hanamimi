@@ -400,6 +400,20 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
 
   static Duration _min(Duration a, Duration b) => a < b ? a : b;
 
+  /// Tap a line → jump the song there. The offset is added back since
+  /// entry times live in lyrics-time, not player-time.
+  void _seekToEntry(_Entry entry) {
+    var target = entry.start + widget.offset;
+    if (target < Duration.zero) target = Duration.zero;
+    ref.read(audioHandlerProvider).seek(target);
+    // Snap the local clock immediately so the highlight doesn't lag
+    // behind the tap while waiting for the next position report.
+    _lastPosition = target;
+    _sinceReport
+      ..reset()
+      ..start();
+  }
+
   Duration get _smoothPosition {
     final playing =
         ref.read(audioStateProvider).value?.isPlaying ?? false;
@@ -493,19 +507,26 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
 
               if (entry.isInterlude) {
                 return RepaintBoundary(
-                  child: _InterludeDots(
-                    start: entry.start,
-                    end: entry.interludeEnd!,
-                    position: position,
-                    active: isActive,
-                    color: bright,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _seekToEntry(entry),
+                    child: _InterludeDots(
+                      start: entry.start,
+                      end: entry.interludeEnd!,
+                      position: position,
+                      active: isActive,
+                      color: bright,
+                    ),
                   ),
                 );
               }
 
               final lineIndex = entry.lineIndex!;
               return RepaintBoundary(
-                child: AnimatedScale(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _seekToEntry(entry),
+                  child: AnimatedScale(
                   scale: isActive ? 1.0 : 0.92,
                   duration: const Duration(milliseconds: 350),
                   curve: Curves.easeOut,
@@ -531,6 +552,7 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
                                   alpha: isPast ? 0.45 : 0.51),
                             ),
                           ),
+                    ),
                   ),
                 ),
               );
