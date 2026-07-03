@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../library/models/playlist.dart';
+import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../theme/app_theme.dart';
@@ -95,6 +96,8 @@ class _SongsTab extends ConsumerWidget {
             onAction: () => ref.read(libraryProvider.notifier).rescan(),
           );
         }
+        final playingId =
+            ref.watch(audioStateProvider).value?.currentTrack?.id;
         return RefreshIndicator(
           color: theme.primary,
           onRefresh: () => ref.read(libraryProvider.notifier).rescan(),
@@ -106,9 +109,10 @@ class _SongsTab extends ConsumerWidget {
             itemBuilder: (context, i) => TrackRow(
               track: tracks[i],
               theme: theme,
-              onTap: () {
-                // Playback lands in M5.
-              },
+              isPlaying: tracks[i].id == playingId,
+              onTap: () => ref
+                  .read(audioHandlerProvider)
+                  .playTracks(tracks, startIndex: i),
             ),
           ),
         );
@@ -138,9 +142,8 @@ class _AlbumsTab extends ConsumerWidget {
       itemCount: albums.length,
       itemBuilder: (context, i) => AlbumCard(
         album: albums[i],
-        onTap: () {
-          // Album detail / play lands with the audio engine.
-        },
+        onTap: () =>
+            ref.read(audioHandlerProvider).playTracks(albums[i].tracks),
       ),
     );
   }

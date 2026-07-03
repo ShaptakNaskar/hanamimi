@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/theme_provider.dart';
 import '../theme/theme_tokens.dart';
+import 'components/mini_player.dart';
 import 'components/shared/bottom_nav.dart';
 import 'screens/library_screen.dart';
 import 'screens/now_playing_screen.dart';
@@ -68,7 +69,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Mini player slot — lands with the audio engine (M5).
+          MiniPlayer(onOpen: () => _onNavChanged(1)),
           HanamimiBottomNav(
             activeIndex: _index,
             onChanged: _onNavChanged,
