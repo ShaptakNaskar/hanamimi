@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../library/models/track.dart';
 import '../../providers/audio_provider.dart';
+import '../../providers/companion_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
 import '../../providers/theme_provider.dart';
@@ -127,6 +128,7 @@ class NowPlayingScreen extends ConsumerWidget {
                   HanamimiMascot(
                     state: ref.watch(mascotStateProvider),
                     amplitude: ref.watch(amplitudeProvider),
+                    accessory: ref.watch(activeAccessoryProvider),
                     size: 90,
                   ),
                   const SizedBox(height: Space.s2),

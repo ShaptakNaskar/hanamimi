@@ -35,6 +35,7 @@ class HanamimiMascot extends StatefulWidget {
     this.amplitude = 0,
     this.size = 100,
     this.fullBody = false,
+    this.accessory = Accessory.none,
     this.onTap,
   });
 
@@ -44,6 +45,7 @@ class HanamimiMascot extends StatefulWidget {
   final double amplitude;
   final double size;
   final bool fullBody;
+  final Accessory accessory;
   final VoidCallback? onTap;
 
   @override
@@ -124,6 +126,7 @@ class _HanamimiMascotState extends State<HanamimiMascot>
           sleepPhase: widget.state == MascotState.sleeping
               ? (_time * 0.4) % 1.0
               : null,
+          accessory: widget.accessory,
         ),
       ),
     );

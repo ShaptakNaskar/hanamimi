@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../providers/companion_provider.dart';
+import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
@@ -9,6 +11,7 @@ import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
 import '../../theme/themes.dart';
 import '../components/mascot/hanamimi_widget.dart';
+import '../components/mascot/mascot_painter.dart';
 
 class YouScreen extends ConsumerWidget {
   const YouScreen({super.key});
@@ -47,26 +50,204 @@ class YouScreen extends ConsumerWidget {
           const SizedBox(height: Space.s8),
           Text('YOUR COMPANION', style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
-          Container(
-            padding: const EdgeInsets.all(Space.s4),
-            decoration: BoxDecoration(
-              color: theme.surface,
-              borderRadius: BorderRadius.circular(Radii.lg),
-              border: Border.all(color: theme.divider, width: 0.5),
-            ),
-            child: Center(
-              child: HanamimiMascot(
-                state: ref.watch(mascotStateProvider),
-                size: 130,
-                fullBody: true,
-              ),
-            ),
-          ),
+          const _CompanionCard(),
           const SizedBox(height: Space.s8),
           Text('SOUND', style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
           const _SoundSettings(),
+          const SizedBox(height: Space.s8),
+          Text('MORE', style: AppText.sectionLabel(theme)),
+          const SizedBox(height: Space.s3),
+          const _MoreCard(),
           const SizedBox(height: Space.s12),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompanionCard extends ConsumerWidget {
+  const _CompanionCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    final listened = ref.watch(listenTimeProvider);
+    final active = ref.watch(activeAccessoryProvider);
+
+    return Container(
+      padding: const EdgeInsets.all(Space.s4),
+      decoration: BoxDecoration(
+        color: theme.surface,
+        borderRadius: BorderRadius.circular(Radii.lg),
+        border: Border.all(color: theme.divider, width: 0.5),
+      ),
+      child: Column(
+        children: [
+          HanamimiMascot(
+            state: ref.watch(mascotStateProvider),
+            size: 130,
+            fullBody: true,
+            accessory: active,
+          ),
+          const SizedBox(height: Space.s2),
+          Text(
+            '${listened.inHours}h ${listened.inMinutes.remainder(60)}m listened together',
+            style: AppText.caption(theme),
+          ),
+          const SizedBox(height: Space.s4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              for (final info in accessoryCatalog)
+                _AccessoryChip(
+                  info: info,
+                  unlocked: isUnlocked(info, listened),
+                  active: active == info.accessory,
+                  onTap: () => ref
+                      .read(activeAccessoryProvider.notifier)
+                      .toggle(info.accessory),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AccessoryChip extends ConsumerWidget {
+  const _AccessoryChip({
+    required this.info,
+    required this.unlocked,
+    required this.active,
+    required this.onTap,
+  });
+
+  final AccessoryInfo info;
+  final bool unlocked;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    return GestureDetector(
+      onTap: unlocked
+          ? onTap
+          : () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(Radii.md)),
+                content: Text(info.unlockLabel,
+                    style: const TextStyle(fontFamily: 'Nunito')),
+              )),
+      child: Opacity(
+        opacity: unlocked ? 1 : 0.35,
+        child: Column(
+          children: [
+            AnimatedContainer(
+              duration: Anim.minTransition,
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: theme.background,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: active ? theme.primary : theme.divider,
+                  width: active ? 2 : 0.5,
+                ),
+              ),
+              child: unlocked
+                  ? CustomPaint(
+                      painter: _AccessoryPreviewPainter(info.accessory))
+                  : Icon(Icons.lock_outline,
+                      size: 18, color: theme.textMuted),
+            ),
+            const SizedBox(height: Space.s1),
+            SizedBox(
+              width: 64,
+              child: Text(
+                unlocked ? info.name : '${info.unlockHours}h',
+                style: AppText.caption(theme).copyWith(fontSize: 10),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Tiny mascot head wearing just the accessory, as a chip preview.
+class _AccessoryPreviewPainter extends CustomPainter {
+  _AccessoryPreviewPainter(this.accessory);
+
+  final Accessory accessory;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final painter = MascotPainter(
+      pose: const MascotPose(
+          eyes: EyeKind.smile, brow: BrowKind.none, mouth: MouthKind.neutral),
+      accessory: accessory,
+    );
+    canvas.save();
+    // Zoom on the top half of the head where accessories sit.
+    canvas.translate(size.width * 0.5, size.height * 0.62);
+    canvas.scale(0.55);
+    canvas.translate(-60, -60);
+    painter.paint(canvas, const Size(120, 132));
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_AccessoryPreviewPainter old) =>
+      old.accessory != accessory;
+}
+
+class _MoreCard extends ConsumerWidget {
+  const _MoreCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.surface,
+        borderRadius: BorderRadius.circular(Radii.md),
+        border: Border.all(color: theme.divider, width: 0.5),
+      ),
+      child: Column(
+        children: [
+          ListTile(
+            leading:
+                Icon(Icons.refresh, size: 20, color: theme.textMuted),
+            title: Text('Rescan library',
+                style: AppText.rowSongTitle(theme)),
+            onTap: () {
+              ref.read(libraryProvider.notifier).rescan();
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(Radii.md)),
+                content: const Text('Scanning your music…',
+                    style: TextStyle(fontFamily: 'Nunito')),
+              ));
+            },
+          ),
+          Divider(height: 0.5, color: theme.divider),
+          ListTile(
+            leading: Icon(Icons.info_outline,
+                size: 20, color: theme.textMuted),
+            title: Text('About', style: AppText.rowSongTitle(theme)),
+            subtitle: Text('Hanamimi 花耳 0.1 — named after a real dog',
+                style: AppText.caption(theme)),
+          ),
         ],
       ),
     );

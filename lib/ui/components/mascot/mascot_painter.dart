@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 /// Hanamimi's palette, ported from the design prototype (Mascot.jsx).
@@ -12,6 +14,8 @@ abstract final class HanaColors {
   static const blush = Color(0xFFF4A7B9);
   static const tongue = Color(0xFFF08CA0);
 }
+
+enum Accessory { none, bow, headphones, flower, crown, catEars }
 
 enum EyeKind { open, wide, smile, half, closed }
 
@@ -47,6 +51,7 @@ class MascotPainter extends CustomPainter {
     this.bodyBounce = 0, // vertical offset in local units
     this.fullBody = false,
     this.sleepPhase, // 0..1 → floating zzz when non-null
+    this.accessory = Accessory.none,
   });
 
   final MascotPose pose;
@@ -56,6 +61,7 @@ class MascotPainter extends CustomPainter {
   final double bodyBounce;
   final bool fullBody;
   final double? sleepPhase;
+  final Accessory accessory;
 
   static const _w = 120.0;
 
@@ -82,10 +88,102 @@ class MascotPainter extends CustomPainter {
     _drawEars(canvas);
     _drawHead(canvas);
     _drawFace(canvas);
+    _drawAccessory(canvas);
 
     canvas.restore();
     canvas.restore();
   }
+
+  void _drawAccessory(Canvas canvas) {
+    switch (accessory) {
+      case Accessory.none:
+        return;
+      case Accessory.bow:
+        final pink = Paint()..color = HanaColors.blush;
+        final deep = Paint()..color = const Color(0xFFE8829B);
+        // Two loops + knot, perched top-right of the head.
+        final left = Path()
+          ..moveTo(78, 30)
+          ..quadraticBezierTo(66, 20, 68, 32)
+          ..quadraticBezierTo(70, 39, 78, 30)
+          ..close();
+        final right = Path()
+          ..moveTo(78, 30)
+          ..quadraticBezierTo(90, 18, 90, 30)
+          ..quadraticBezierTo(89, 38, 78, 30)
+          ..close();
+        canvas.drawPath(left, pink);
+        canvas.drawPath(right, pink);
+        canvas.drawCircle(const Offset(78, 30), 4, deep);
+      case Accessory.headphones:
+        final band = Paint()
+          ..color = const Color(0xFF8A6FD1)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 5
+          ..strokeCap = StrokeCap.round;
+        canvas.drawArc(
+            Rect.fromCircle(center: const Offset(60, 52), radius: 42),
+            3.34, 2.75, false, band);
+        final cup = Paint()..color = const Color(0xFF8A6FD1);
+        canvas.drawOval(
+            Rect.fromCenter(
+                center: const Offset(21, 62), width: 13, height: 20),
+            cup);
+        canvas.drawOval(
+            Rect.fromCenter(
+                center: const Offset(99, 62), width: 13, height: 20),
+            cup);
+      case Accessory.flower:
+        final petal = Paint()..color = const Color(0xFFFFC9DE);
+        for (var i = 0; i < 5; i++) {
+          final a = i * 2 * math.pi / 5;
+          canvas.drawCircle(
+              Offset(92 + 6 * math.cos(a), 34 + 6 * math.sin(a)), 5, petal);
+        }
+        canvas.drawCircle(
+            const Offset(92, 34), 4, Paint()..color = const Color(0xFFFFD580));
+      case Accessory.crown:
+        final gold = Paint()..color = const Color(0xFFFFD580);
+        final crown = Path()
+          ..moveTo(46, 26)
+          ..lineTo(48, 14)
+          ..lineTo(55, 22)
+          ..lineTo(60, 10)
+          ..lineTo(65, 22)
+          ..lineTo(72, 14)
+          ..lineTo(74, 26)
+          ..close();
+        canvas.drawPath(crown, gold);
+      case Accessory.catEars:
+        final fur = Paint()..color = HanaColors.cap;
+        final inner = Paint()..color = HanaColors.blush;
+        final leftEar = Path()
+          ..moveTo(34, 30)
+          ..lineTo(38, 12)
+          ..lineTo(50, 24)
+          ..close();
+        final rightEar = Path()
+          ..moveTo(86, 30)
+          ..lineTo(82, 12)
+          ..lineTo(70, 24)
+          ..close();
+        canvas.drawPath(leftEar, fur);
+        canvas.drawPath(rightEar, fur);
+        final leftIn = Path()
+          ..moveTo(38, 27)
+          ..lineTo(40, 17)
+          ..lineTo(47, 24)
+          ..close();
+        final rightIn = Path()
+          ..moveTo(82, 27)
+          ..lineTo(80, 17)
+          ..lineTo(73, 24)
+          ..close();
+        canvas.drawPath(leftIn, inner);
+        canvas.drawPath(rightIn, inner);
+    }
+  }
+
 
   void _drawBody(Canvas canvas) {
     final tan = Paint()..color = HanaColors.tan;
@@ -323,5 +421,6 @@ class MascotPainter extends CustomPainter {
       old.earSwing != earSwing ||
       old.bodyBounce != bodyBounce ||
       old.fullBody != fullBody ||
-      old.sleepPhase != sleepPhase;
+      old.sleepPhase != sleepPhase ||
+      old.accessory != accessory;
 }
