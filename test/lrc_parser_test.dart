@@ -62,6 +62,42 @@ void main() {
     });
   });
 
+  group('enhanced LRC (word timings)', () {
+    test('parses word tags into LyricWords', () {
+      final l = LrcParser.parseSynced(
+          '[00:12.00]<00:12.00>Do <00:12.30>you <00:12.60>think');
+      final line = l.lines.single;
+      expect(line.hasWordTimings, isTrue);
+      expect(line.text, 'Do you think');
+      expect(line.words!.map((w) => w.text).toList(),
+          ['Do', 'you', 'think']);
+      expect(line.words![1].start,
+          const Duration(seconds: 12, milliseconds: 300));
+      expect(l.hasWordTimings, isTrue);
+      expect(l.quality, 2);
+    });
+
+    test('line-synced without word tags has quality 1', () {
+      final l = LrcParser.parseSynced('[00:10.00] plain synced line');
+      expect(l.lines.single.hasWordTimings, isFalse);
+      expect(l.quality, 1);
+    });
+  });
+
+  group('parseAuto', () {
+    test('detects LRC-formatted embedded text as synced', () {
+      final l = LrcParser.parseAuto('[00:05.00] embedded but synced');
+      expect(l.isSynced, isTrue);
+    });
+
+    test('treats untimestamped text as plain', () {
+      final l = LrcParser.parseAuto('just some words\nanother line');
+      expect(l.isSynced, isFalse);
+      expect(l.quality, 0);
+      expect(l.lines.length, 2);
+    });
+  });
+
   test('parsePlain marks unsynced and strips blanks', () {
     final l = LrcParser.parsePlain('line one\n\n  line two  \n');
     expect(l.isSynced, isFalse);

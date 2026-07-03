@@ -4,10 +4,17 @@ import 'package:http/http.dart' as http;
 
 import '../library/library_repository.dart';
 import '../library/models/track.dart';
+import 'embedded_lyrics.dart';
 import 'lrc_parser.dart';
 import 'models/lyric_line.dart';
 
-/// Fetches lyrics from LRCLIB (free, keyless) with a 30-day local cache.
+/// Resolves lyrics for a track from two sources and picks the best:
+///
+///   word-synced > line-synced > plain,  ties go to embedded (offline).
+///
+/// Embedded lyrics are read from the file's own tags (ID3 USLT / FLAC
+/// comments — frequently LRC-formatted). LRCLIB (free, keyless) fills
+/// the gaps, with a 30-day local cache.
 class LyricsService {
   LyricsService(this._repo);
 
@@ -16,6 +23,22 @@ class LyricsService {
 
   /// Returns null when no lyrics exist for the track.
   Future<Lyrics?> fetchFor(Track track) async {
+    final embeddedText = await EmbeddedLyricsReader.read(track.filePath);
+    final embedded = embeddedText == null
+        ? null
+        : LrcParser.parseAuto(embeddedText, source: LyricsSource.embedded);
+
+    // Word-synced embedded lyrics can't be beaten — skip the network.
+    if (embedded != null && embedded.quality == 2) return embedded;
+
+    final fetched = await _fromLrclib(track);
+
+    if (embedded == null) return fetched;
+    if (fetched == null) return embedded;
+    return fetched.quality > embedded.quality ? fetched : embedded;
+  }
+
+  Future<Lyrics?> _fromLrclib(Track track) async {
     final cached = await _repo.cachedLyrics(track.title, track.artist);
     if (cached != null) {
       final age = DateTime.now().difference(

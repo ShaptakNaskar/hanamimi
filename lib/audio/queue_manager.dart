@@ -60,7 +60,10 @@ class QueueManager {
       player.processingStateStream.listen((ps) {
         if (ps == ProcessingState.completed) _onTrackCompleted();
       }),
-      player.playingStream.listen((_) => _emitStatus(player)),
+      // playerStateStream fires on BOTH playing and processingState
+      // changes. playingStream alone misses track switches while already
+      // playing (playing stays true), leaving the UI stuck on "paused".
+      player.playerStateStream.listen((_) => _emitStatus(player)),
       player.durationStream.listen((d) {
         if (d != null) _state.add(state.copyWith(duration: d));
       }),
@@ -166,6 +169,18 @@ class QueueManager {
       _cursor = orderIndex;
     }
     await _playCurrent();
+  }
+
+  /// Appends a track to the end of the play order (swipe action).
+  /// With nothing loaded, starts playing it instead.
+  Future<void> addToQueue(Track track) async {
+    if (_source.isEmpty) {
+      await loadQueue([track]);
+      return;
+    }
+    _source.add(track);
+    _order.add(_source.length - 1);
+    _state.add(state.copyWith(queue: [for (final i in _order) _source[i]]));
   }
 
   /// Jump straight to a position in the play order (queue sheet).

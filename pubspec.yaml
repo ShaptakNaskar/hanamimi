@@ -42,6 +42,7 @@ dependencies:
   audio_service: ^0.18.19
   rxdart: ^0.28.0
   http: ^1.6.0
+  screen_brightness: ^2.1.11
 
 dev_dependencies:
   flutter_test:

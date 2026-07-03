@@ -113,6 +113,15 @@ class _SongsTab extends ConsumerWidget {
               onTap: () => ref
                   .read(audioHandlerProvider)
                   .playTracks(tracks, startIndex: i),
+              onAddToQueue: () {
+                ref
+                    .read(audioHandlerProvider)
+                    .engine
+                    .addToQueue(tracks[i]);
+                _toast(context, 'Added to queue');
+              },
+              onAddToPlaylist: () =>
+                  _showPlaylistPicker(context, ref, theme, tracks[i].id),
             ),
           ),
         );
@@ -191,6 +200,66 @@ class _PlaylistsTab extends ConsumerWidget {
       ],
     );
   }
+}
+
+void _toast(BuildContext context, String message) {
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    behavior: SnackBarBehavior.floating,
+    duration: const Duration(seconds: 1),
+    shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Radii.md)),
+    content:
+        Text(message, style: const TextStyle(fontFamily: 'Nunito')),
+  ));
+}
+
+void _showPlaylistPicker(
+    BuildContext context, WidgetRef ref, HanamimiTheme theme, int trackId) {
+  final playlists = ref.read(playlistsProvider).value ?? [];
+  if (playlists.isEmpty) {
+    _toast(context, 'No playlists yet — make one first!');
+    return;
+  }
+  showModalBottomSheet(
+    context: context,
+    builder: (sheetContext) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(Space.s4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Add to playlist',
+                style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: theme.textPrimary)),
+            const SizedBox(height: Space.s3),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: playlists.length,
+                separatorBuilder: (_, __) =>
+                    const SizedBox(height: Space.s3),
+                itemBuilder: (context, i) => PlaylistCard(
+                  playlist: playlists[i],
+                  theme: theme,
+                  onTap: () {
+                    ref
+                        .read(playlistsProvider.notifier)
+                        .addTrack(playlists[i].id, trackId);
+                    Navigator.pop(sheetContext);
+                    _toast(context, 'Added to ${playlists[i].name}');
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 void _showCreatePlaylistSheet(

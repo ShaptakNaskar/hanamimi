@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:screen_brightness/screen_brightness.dart';
 
 import '../audio/queue_manager.dart';
 import 'audio_provider.dart';
@@ -57,8 +58,9 @@ class SleepTimerNotifier extends Notifier<SleepTimerState> {
     state = const SleepTimerState(mode: SleepMode.endOfTrack);
   }
 
-  /// 30-second smoothstep fade to silence, then pause and restore
-  /// volume so the next manual play is full loudness.
+  /// 30-second smoothstep fade to silence (screen dims alongside),
+  /// then pause and restore volume so the next manual play is full
+  /// loudness.
   void _beginFade() {
     state = SleepTimerState(
         mode: state.mode, remaining: Duration.zero, isFading: true);
@@ -69,21 +71,24 @@ class SleepTimerNotifier extends Notifier<SleepTimerState> {
           .clamp(0.0, 1.0);
       final e = t * t * (3 - 2 * t);
       await _engine.setVolume(1 - e);
+      await _setBrightness(1 - e * 0.85); // dim to 15%, not black
       if (t >= 1) {
         timer.cancel();
         await _engine.pause();
         await _engine.setVolume(1);
+        await _resetBrightness();
         state = const SleepTimerState();
       }
     });
   }
 
-  /// Cancel: ramp back to full volume over 2 seconds.
+  /// Cancel: ramp back to full volume over 2 seconds, restore screen.
   void cancel() {
     final wasFading = state.isFading;
     _cancelTimers();
     _engine.pauseAtTrackEnd = false;
     state = const SleepTimerState();
+    _resetBrightness();
     if (wasFading) {
       final stopwatch = Stopwatch()..start();
       Timer.periodic(const Duration(milliseconds: 50), (timer) async {
@@ -93,6 +98,21 @@ class SleepTimerNotifier extends Notifier<SleepTimerState> {
         if (t >= 1) timer.cancel();
       });
     }
+  }
+
+  // App-level brightness only — never touches the system setting.
+  // Best-effort: some ROMs deny it, and that shouldn't break the fade.
+  Future<void> _setBrightness(double value) async {
+    try {
+      await ScreenBrightness.instance
+          .setApplicationScreenBrightness(value.clamp(0.05, 1.0));
+    } catch (_) {}
+  }
+
+  Future<void> _resetBrightness() async {
+    try {
+      await ScreenBrightness.instance.resetApplicationScreenBrightness();
+    } catch (_) {}
   }
 
   void _cancelTimers() {

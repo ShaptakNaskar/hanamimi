@@ -15,6 +15,8 @@ class TrackRow extends StatelessWidget {
     required this.theme,
     required this.onTap,
     this.isPlaying = false,
+    this.onAddToQueue,
+    this.onAddToPlaylist,
   });
 
   final Track track;
@@ -22,8 +24,49 @@ class TrackRow extends StatelessWidget {
   final VoidCallback onTap;
   final bool isPlaying;
 
+  /// Swipe right reveals "add to queue"; swipe left "add to playlist"
+  /// (DESIGN.md §9.1). Rows spring back after the action fires.
+  final VoidCallback? onAddToQueue;
+  final VoidCallback? onAddToPlaylist;
+
   @override
   Widget build(BuildContext context) {
+    final row = _buildRow(context);
+    if (onAddToQueue == null && onAddToPlaylist == null) return row;
+
+    return Dismissible(
+      key: ValueKey('track_${track.id}'),
+      direction: DismissDirection.horizontal,
+      dismissThresholds: const {
+        DismissDirection.startToEnd: 0.35,
+        DismissDirection.endToStart: 0.35,
+      },
+      // Fire the action, then spring back instead of dismissing.
+      confirmDismiss: (direction) async {
+        if (direction == DismissDirection.startToEnd) {
+          onAddToQueue?.call();
+        } else {
+          onAddToPlaylist?.call();
+        }
+        return false;
+      },
+      background: _SwipeAction(
+        alignment: Alignment.centerLeft,
+        color: theme.secondary,
+        icon: Icons.add_circle_outline,
+        label: 'Queue',
+      ),
+      secondaryBackground: _SwipeAction(
+        alignment: Alignment.centerRight,
+        color: theme.primary,
+        icon: Icons.bookmark_add_outlined,
+        label: 'Playlist',
+      ),
+      child: row,
+    );
+  }
+
+  Widget _buildRow(BuildContext context) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -78,6 +121,45 @@ class TrackRow extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _SwipeAction extends StatelessWidget {
+  const _SwipeAction({
+    required this.alignment,
+    required this.color,
+    required this.icon,
+    required this.label,
+  });
+
+  final Alignment alignment;
+  final Color color;
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      alignment: alignment,
+      padding: const EdgeInsets.symmetric(horizontal: Space.s4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.25),
+        borderRadius: BorderRadius.circular(Radii.md),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 22, color: color),
+          const SizedBox(height: 2),
+          Text(label,
+              style: TextStyle(
+                  fontFamily: 'Nunito',
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: color)),
+        ],
       ),
     );
   }
