@@ -15,15 +15,18 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   final controller = StreamController<List<double>>();
   final processor = FftProcessor();
 
-  var attached = false;
+  int? attachedSession;
   StreamSubscription? fftSub;
   Timer? synthTimer;
 
   Future<void> tryAttach(int sessionId) async {
+    if (attachedSession == sessionId) return;
     final status = await Permission.microphone.request();
     if (!status.isGranted) return;
-    attached = await VisualizerChannel.attach(sessionId);
-    if (attached) {
+    // The Kotlin side releases any previous Visualizer on re-attach —
+    // needed because every crossfade swap creates a new audio session.
+    if (await VisualizerChannel.attach(sessionId)) {
+      attachedSession = sessionId;
       synthTimer?.cancel();
       fftSub ??= VisualizerChannel.fftStream.listen(
         (fft) => controller.add(processor.process(fft)),
@@ -54,7 +57,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
 
   final sub = ref.listen(audioStateProvider, (prev, next) {
     final sessionId = next.value?.audioSessionId;
-    if (sessionId != null && !attached) tryAttach(sessionId);
+    if (sessionId != null) tryAttach(sessionId);
   });
 
   // The session id may already be known when this provider spins up.

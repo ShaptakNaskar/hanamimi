@@ -8,9 +8,9 @@ import '../library/models/track.dart';
 import 'models/audio_state.dart';
 import 'models/queue_mode.dart';
 
-/// Owns the players and the queue. The two-player field layout exists
-/// from day one so the crossfade milestone (M9) can slot in without a
-/// rework — until then only [_primary] is used.
+/// Owns the players and the queue. Crossfade uses the two-player model
+/// from ARCHITECTURE.md §6.1: [_primary] is audible; [_incoming] exists
+/// only while a crossfade is running, then becomes the new primary.
 class QueueManager {
   QueueManager() {
     _primary = AudioPlayer();
@@ -18,13 +18,24 @@ class QueueManager {
   }
 
   late AudioPlayer _primary;
-  AudioPlayer? _incoming; // non-null only during a crossfade (M9)
+  AudioPlayer? _incoming;
+
+  /// User setting; Duration.zero = crossfade off.
+  Duration crossfadeDuration = Duration.zero;
+
+  Timer? _crossfadeTimer;
+  int? _pendingCursor;
+  Track? _pendingTrack;
+  bool get _crossfading => _incoming != null;
 
   final _state = BehaviorSubject<AudioState>.seeded(const AudioState());
   Stream<AudioState> get stateStream => _state.stream;
   AudioState get state => _state.value;
 
-  Stream<Duration> get positionStream => _primary.positionStream;
+  /// Stable across player swaps (a raw player stream would go dead when
+  /// the primary is disposed after a crossfade).
+  final _position = BehaviorSubject<Duration>.seeded(Duration.zero);
+  Stream<Duration> get positionStream => _position.stream;
 
   /// Fires with a track every time playback of it begins (for play counts).
   final trackStarted = StreamController<Track>.broadcast();
@@ -35,21 +46,28 @@ class QueueManager {
   final List<Track> _history = [];
   QueueMode _mode = QueueMode.sequential;
 
-  StreamSubscription<ProcessingState>? _completionSub;
+  List<StreamSubscription> _subs = [];
 
   void _wirePlayer(AudioPlayer player) {
-    _completionSub?.cancel();
-    _completionSub = player.processingStateStream.listen((ps) {
-      if (ps == ProcessingState.completed) _onTrackCompleted();
-    });
-
-    player.playingStream.listen((_) => _emitStatus(player));
-    player.durationStream.listen((d) {
-      if (d != null) _state.add(state.copyWith(duration: d));
-    });
-    player.androidAudioSessionIdStream.listen((id) {
-      if (id != null) _state.add(state.copyWith(audioSessionId: id));
-    });
+    for (final s in _subs) {
+      s.cancel();
+    }
+    _subs = [
+      player.processingStateStream.listen((ps) {
+        if (ps == ProcessingState.completed) _onTrackCompleted();
+      }),
+      player.playingStream.listen((_) => _emitStatus(player)),
+      player.durationStream.listen((d) {
+        if (d != null) _state.add(state.copyWith(duration: d));
+      }),
+      player.androidAudioSessionIdStream.listen((id) {
+        if (id != null) _state.add(state.copyWith(audioSessionId: id));
+      }),
+      player.positionStream.listen((pos) {
+        _position.add(pos);
+        _maybeStartCrossfade(pos);
+      }),
+    ];
   }
 
   void _emitStatus(AudioPlayer player) {
@@ -76,6 +94,7 @@ class QueueManager {
     int startIndex = 0,
     QueueMode? mode,
   }) async {
+    await _abortCrossfade();
     _source = List.of(tracks);
     if (mode != null) _mode = mode;
     _rebuildOrder(anchor: startIndex);
@@ -85,12 +104,19 @@ class QueueManager {
 
   Future<void> play() => _primary.play();
 
-  Future<void> pause() => _primary.pause();
+  Future<void> pause() async {
+    await _abortCrossfade();
+    await _primary.pause();
+  }
 
-  Future<void> seek(Duration position) => _primary.seek(position);
+  Future<void> seek(Duration position) async {
+    await _abortCrossfade();
+    await _primary.seek(position);
+  }
 
   Future<void> next({bool byUser = true}) async {
     if (_order.isEmpty) return;
+    await _abortCrossfade();
     final current = _currentTrack;
     if (current != null) _history.add(current);
 
@@ -123,6 +149,7 @@ class QueueManager {
   /// Pops history when available (correct for shuffle); restarts the
   /// track when it's more than 3 seconds in.
   Future<void> previous() async {
+    await _abortCrossfade();
     if (_primary.position > const Duration(seconds: 3) || _history.isEmpty) {
       await _primary.seek(Duration.zero);
       return;
@@ -148,16 +175,125 @@ class QueueManager {
   }
 
   Future<void> stop() async {
+    await _abortCrossfade();
     await _primary.stop();
     _state.add(state.copyWith(status: PlaybackStatus.idle));
   }
 
+  /// For the sleep timer's fade-out (M11).
+  Future<void> setVolume(double volume) => _primary.setVolume(volume);
+
   Future<void> dispose() async {
-    await _completionSub?.cancel();
+    _crossfadeTimer?.cancel();
+    for (final s in _subs) {
+      s.cancel();
+    }
     await _primary.dispose();
     await _incoming?.dispose();
     await _state.close();
+    await _position.close();
     await trackStarted.close();
+  }
+
+  // --- Crossfade ---
+
+  void _maybeStartCrossfade(Duration pos) {
+    if (_crossfading ||
+        crossfadeDuration == Duration.zero ||
+        !_primary.playing ||
+        _mode == QueueMode.repeatOne) {
+      return;
+    }
+    final duration = _primary.duration;
+    if (duration == null || duration == Duration.zero) return;
+    if (duration - pos > crossfadeDuration) return;
+
+    // Where would we land? Only crossfade when there's a definite next.
+    int? nextCursor;
+    if (_cursor + 1 < _order.length) {
+      nextCursor = _cursor + 1;
+    } else if (_mode == QueueMode.repeatAll) {
+      nextCursor = 0;
+    }
+    if (nextCursor == null) return;
+
+    _startCrossfade(nextCursor);
+  }
+
+  Future<void> _startCrossfade(int nextCursor) async {
+    final track = _source[_order[nextCursor]];
+    final incoming = AudioPlayer();
+    _incoming = incoming; // claims the crossfade slot immediately
+    _pendingCursor = nextCursor;
+    _pendingTrack = track;
+
+    try {
+      await incoming.setFilePath(track.filePath);
+    } catch (_) {
+      await incoming.dispose();
+      _incoming = null;
+      return;
+    }
+    await incoming.setVolume(0);
+    unawaited(incoming.play());
+
+    final total = crossfadeDuration.inMilliseconds;
+    final stopwatch = Stopwatch()..start();
+    _crossfadeTimer =
+        Timer.periodic(const Duration(milliseconds: 16), (timer) {
+      final t =
+          (stopwatch.elapsedMilliseconds / total).clamp(0.0, 1.0);
+      // Smoothstep — equal-power feel, no mid-fade loudness bump.
+      final e = t * t * (3 - 2 * t);
+      _primary.setVolume(1 - e);
+      incoming.setVolume(e);
+      _state.add(state.copyWith(crossfadeProgress: t));
+      if (t >= 1) _finishCrossfade();
+    });
+  }
+
+  /// The incoming player takes over as primary.
+  void _finishCrossfade() {
+    _crossfadeTimer?.cancel();
+    _crossfadeTimer = null;
+    final old = _primary;
+    final track = _pendingTrack!;
+
+    final current = _currentTrack;
+    if (current != null) _history.add(current);
+
+    _primary = _incoming!;
+    _incoming = null;
+    _cursor = _pendingCursor!;
+    _pendingCursor = null;
+    _pendingTrack = null;
+
+    _wirePlayer(_primary);
+    old.dispose();
+    _primary.setVolume(1);
+
+    _state.add(state.copyWith(
+      currentTrack: track,
+      queue: [for (final i in _order) _source[i]],
+      status: PlaybackStatus.playing,
+      duration: _primary.duration ?? track.duration,
+      clearCrossfade: true,
+    ));
+    trackStarted.add(track);
+  }
+
+  /// Any manual action cancels an in-flight crossfade.
+  Future<void> _abortCrossfade() async {
+    if (!_crossfading) return;
+    _crossfadeTimer?.cancel();
+    _crossfadeTimer = null;
+    final incoming = _incoming;
+    _incoming = null;
+    _pendingCursor = null;
+    _pendingTrack = null;
+    await incoming?.dispose();
+    await _primary.setVolume(1);
+    _state.add(state.copyWith(clearCrossfade: true));
   }
 
   // --- Internals ---
@@ -179,7 +315,15 @@ class QueueManager {
     _order = indices;
   }
 
-  Future<void> _onTrackCompleted() => next(byUser: false);
+  Future<void> _onTrackCompleted() async {
+    // The old track can run out a beat before the crossfade ramp ends —
+    // hand over immediately instead of double-advancing.
+    if (_crossfading) {
+      _finishCrossfade();
+      return;
+    }
+    await next(byUser: false);
+  }
 
   Future<void> _playCurrent() async {
     final track = _currentTrack;
@@ -191,6 +335,7 @@ class QueueManager {
     ));
     try {
       await _primary.setFilePath(track.filePath);
+      await _primary.setVolume(1);
       await _primary.play();
       trackStarted.add(track);
     } catch (_) {

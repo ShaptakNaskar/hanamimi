@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/mascot_provider.dart';
+import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
@@ -64,15 +65,98 @@ class YouScreen extends ConsumerWidget {
           const SizedBox(height: Space.s8),
           Text('SOUND', style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
-          // Audio settings land with the audio engine milestones.
-          Container(
-            padding: const EdgeInsets.all(Space.s4),
-            decoration: BoxDecoration(
-              color: theme.surface,
-              borderRadius: BorderRadius.circular(Radii.md),
-              border: Border.all(color: theme.divider, width: 0.5),
-            ),
-            child: Text('Coming soon', style: AppText.caption(theme)),
+          const _SoundSettings(),
+          const SizedBox(height: Space.s12),
+        ],
+      ),
+    );
+  }
+}
+
+class _SoundSettings extends ConsumerWidget {
+  const _SoundSettings();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    final crossfadeSeconds = ref.watch(crossfadeProvider);
+    final enabled = crossfadeSeconds > 0;
+
+    return Container(
+      padding: const EdgeInsets.all(Space.s4),
+      decoration: BoxDecoration(
+        color: theme.surface,
+        borderRadius: BorderRadius.circular(Radii.md),
+        border: Border.all(color: theme.divider, width: 0.5),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Crossfade',
+                        style: AppText.rowSongTitle(theme)),
+                    Text('Blend the end of a song into the next',
+                        style: AppText.caption(theme)),
+                  ],
+                ),
+              ),
+              Switch(
+                value: enabled,
+                onChanged: (on) =>
+                    ref.read(crossfadeProvider.notifier).set(on ? 6 : 0),
+              ),
+            ],
+          ),
+          AnimatedSize(
+            duration: Anim.minTransition,
+            child: !enabled
+                ? const SizedBox(width: double.infinity)
+                : Column(
+                    children: [
+                      const SizedBox(height: Space.s2),
+                      Row(
+                        children: [
+                          Icon(Icons.pets,
+                              size: 16, color: theme.primary),
+                          Expanded(
+                            child: Slider(
+                              value: crossfadeSeconds.toDouble(),
+                              min: 2,
+                              max: 12,
+                              divisions: 10,
+                              onChanged: (v) => ref
+                                  .read(crossfadeProvider.notifier)
+                                  .set(v.round()),
+                            ),
+                          ),
+                          SizedBox(
+                            width: 28,
+                            child: Text('${crossfadeSeconds}s',
+                                style: AppText.caption(theme)),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+          ),
+          Divider(height: Space.s6, color: theme.divider),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Equalizer', style: AppText.rowSongTitle(theme)),
+                    Text('Coming soon', style: AppText.caption(theme)),
+                  ],
+                ),
+              ),
+              Switch(value: false, onChanged: null),
+            ],
           ),
         ],
       ),

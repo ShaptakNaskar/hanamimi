@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'providers/audio_provider.dart';
+import 'providers/settings_provider.dart';
 import 'providers/theme_provider.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_tokens.dart';
@@ -15,6 +16,7 @@ class HanamimiApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = ref.watch(currentThemeProvider);
     ref.watch(playCountRecorderProvider);
+    ref.watch(crossfadeProvider); // pushes the setting into the engine
 
     SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
