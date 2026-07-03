@@ -102,7 +102,9 @@ class _HanamimiMascotState extends State<HanamimiMascot>
 
   @override
   Widget build(BuildContext context) {
-    final amp = 0.3 + widget.amplitude * 0.7;
+    // Reduce motion: hold still, keep only the slow blink.
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final amp = reduceMotion ? 0.0 : 0.3 + widget.amplitude * 0.7;
     final bob = math.sin(_time * 4.0) * amp * 0.18 * _bobEnvelope;
     // Ears lag behind the head — sampled slightly in the past, smaller.
     final earSwing =

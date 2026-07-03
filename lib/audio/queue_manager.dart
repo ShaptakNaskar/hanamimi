@@ -168,6 +168,16 @@ class QueueManager {
     await _playCurrent();
   }
 
+  /// Jump straight to a position in the play order (queue sheet).
+  Future<void> jumpToQueueIndex(int index) async {
+    if (index < 0 || index >= _order.length) return;
+    await _abortCrossfade();
+    final current = _currentTrack;
+    if (current != null) _history.add(current);
+    _cursor = index;
+    await _playCurrent();
+  }
+
   void setMode(QueueMode mode) {
     if (mode == _mode) return;
     final wasShuffle = _mode == QueueMode.shuffle;

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../library/models/track.dart';
 import '../../providers/audio_provider.dart';
+import '../../providers/cat_mode_provider.dart';
 import '../../providers/companion_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
@@ -15,11 +17,14 @@ import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
 import '../components/mascot/hanamimi_widget.dart';
+import '../components/mascot/mascot_painter.dart';
 import '../components/now_playing/album_art_widget.dart';
 import '../components/now_playing/playback_controls.dart';
 import '../components/now_playing/seek_bar_widget.dart';
 import '../components/now_playing/visualizer_widget.dart';
+import '../components/shared/particle_overlay.dart';
 import '../modals/lyrics_sheet.dart';
+import '../modals/queue_sheet.dart';
 import '../modals/sleep_timer_modal.dart';
 
 class NowPlayingScreen extends ConsumerWidget {
@@ -61,6 +66,7 @@ class NowPlayingScreen extends ConsumerWidget {
       fit: StackFit.expand,
       children: [
         _BlurredArtBackground(track: track, theme: theme),
+        ParticleOverlay(theme: theme),
         SafeArea(
           bottom: false,
           child: LayoutBuilder(builder: (context, constraints) {
@@ -104,6 +110,7 @@ class NowPlayingScreen extends ConsumerWidget {
                   const SizedBox(height: Space.s6),
                   PlaybackControls(
                     onSleepTimer: () => showSleepTimerModal(context),
+                    onQueue: () => showQueueSheet(context),
                   ),
                   const SizedBox(height: Space.s4),
                   const VisualizerWidget(height: 56),
@@ -128,8 +135,27 @@ class NowPlayingScreen extends ConsumerWidget {
                   HanamimiMascot(
                     state: ref.watch(mascotStateProvider),
                     amplitude: ref.watch(amplitudeProvider),
-                    accessory: ref.watch(activeAccessoryProvider),
+                    accessory: ref.watch(catModeProvider).enabled
+                        ? Accessory.catEars
+                        : ref.watch(activeAccessoryProvider),
                     size: 90,
+                    onTap: () {
+                      final unlocked = ref
+                          .read(catModeProvider.notifier)
+                          .registerMascotTap();
+                      if (unlocked) {
+                        ScaffoldMessenger.of(context)
+                            .showSnackBar(SnackBar(
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                              borderRadius:
+                                  BorderRadius.circular(Radii.md)),
+                          content: const Text(
+                              'Meow?! Cat Mode unlocked 🐱',
+                              style: TextStyle(fontFamily: 'Nunito')),
+                        ));
+                      }
+                    },
                   ),
                   const SizedBox(height: Space.s2),
                 ],
@@ -226,19 +252,60 @@ class _HeartButtonState extends ConsumerState<_HeartButton>
       child: SizedBox(
         width: Sizes.minTouchTarget,
         height: Sizes.minTouchTarget,
-        child: ScaleTransition(
-          scale: TweenSequence([
-            TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.3), weight: 1),
-            TweenSequenceItem(tween: Tween(begin: 1.3, end: 1.0), weight: 1),
-          ]).animate(
-              CurvedAnimation(parent: _beat, curve: Curves.easeOutBack)),
-          child: Icon(
-            liked ? Icons.favorite : Icons.favorite_border,
-            size: 24,
-            color: liked ? widget.theme.accent : widget.theme.textMuted,
+        child: AnimatedBuilder(
+          animation: _beat,
+          builder: (context, child) => CustomPaint(
+            painter: _HeartBurstPainter(
+              progress: _beat.value,
+              color: widget.theme.accent,
+            ),
+            child: child,
+          ),
+          child: ScaleTransition(
+            scale: TweenSequence([
+              TweenSequenceItem(
+                  tween: Tween(begin: 1.0, end: 1.3), weight: 1),
+              TweenSequenceItem(
+                  tween: Tween(begin: 1.3, end: 1.0), weight: 1),
+            ]).animate(
+                CurvedAnimation(parent: _beat, curve: Curves.easeOutBack)),
+            child: Icon(
+              liked ? Icons.favorite : Icons.favorite_border,
+              size: 24,
+              color: liked ? widget.theme.accent : widget.theme.textMuted,
+            ),
           ),
         ),
       ),
     );
   }
+}
+
+/// 6 tiny accent dots radiating from the heart on like (DESIGN.md §13).
+class _HeartBurstPainter extends CustomPainter {
+  _HeartBurstPainter({required this.progress, required this.color});
+
+  final double progress;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (progress == 0 || progress == 1) return;
+    final center = size.center(Offset.zero);
+    final paint = Paint()
+      ..color = color.withValues(alpha: 1 - progress);
+    for (var i = 0; i < 6; i++) {
+      final angle = i * math.pi / 3 + 0.3;
+      final r = 12 + progress * 14;
+      canvas.drawCircle(
+        center + Offset(math.cos(angle), math.sin(angle)) * r,
+        2 * (1 - progress * 0.5),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_HeartBurstPainter old) =>
+      old.progress != progress;
 }

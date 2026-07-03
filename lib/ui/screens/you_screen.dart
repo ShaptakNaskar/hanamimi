@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../providers/cat_mode_provider.dart';
 import '../../providers/companion_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
@@ -88,7 +89,9 @@ class _CompanionCard extends ConsumerWidget {
             state: ref.watch(mascotStateProvider),
             size: 130,
             fullBody: true,
-            accessory: active,
+            accessory: ref.watch(catModeProvider).enabled
+                ? Accessory.catEars
+                : active,
           ),
           const SizedBox(height: Space.s2),
           Text(
@@ -240,6 +243,19 @@ class _MoreCard extends ConsumerWidget {
               ));
             },
           ),
+          // Hidden until unlocked by tapping the mascot 7 times.
+          if (ref.watch(catModeProvider).unlocked) ...[
+            Divider(height: 0.5, color: theme.divider),
+            ListTile(
+              leading: const Text('🐱', style: TextStyle(fontSize: 16)),
+              title: Text('Cat Mode', style: AppText.rowSongTitle(theme)),
+              trailing: Switch(
+                value: ref.watch(catModeProvider).enabled,
+                onChanged: (on) =>
+                    ref.read(catModeProvider.notifier).setEnabled(on),
+              ),
+            ),
+          ],
           Divider(height: 0.5, color: theme.divider),
           ListTile(
             leading: Icon(Icons.info_outline,
