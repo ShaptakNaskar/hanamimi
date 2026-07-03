@@ -78,6 +78,10 @@ class _LyricsSheetBody extends ConsumerWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
                 Text(track.artist, style: AppText.caption(theme)),
+                if (lyrics.value != null) ...[
+                  const SizedBox(height: Space.s1),
+                  _QualityBadge(lyrics: lyrics.value!, theme: theme),
+                ],
                 const SizedBox(height: Space.s3),
                 Expanded(
                   child: lyrics.when(
@@ -96,6 +100,43 @@ class _LyricsSheetBody extends ConsumerWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _QualityBadge extends StatelessWidget {
+  const _QualityBadge({required this.lyrics, required this.theme});
+
+  final Lyrics lyrics;
+  final HanamimiTheme theme;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = switch (lyrics.quality) {
+      2 => 'Word-synced',
+      1 => 'Line-synced',
+      _ => 'Unsynced',
+    };
+    final sourceName = switch (lyrics.source) {
+      LyricsSource.embedded => 'embedded',
+      LyricsSource.musixmatch => 'Musixmatch',
+      LyricsSource.lrclib => 'LRCLIB',
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: Space.s2, vertical: 2),
+      decoration: BoxDecoration(
+        color: theme.primary.withValues(alpha: lyrics.quality == 2 ? 0.25 : 0.12),
+        borderRadius: BorderRadius.circular(Radii.sm),
+      ),
+      child: Text(
+        '$label · $sourceName',
+        style: TextStyle(
+          fontFamily: 'Nunito',
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          color: theme.primary,
+        ),
       ),
     );
   }

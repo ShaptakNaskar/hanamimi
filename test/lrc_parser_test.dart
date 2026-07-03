@@ -98,6 +98,20 @@ void main() {
     });
   });
 
+  test('round-trips Musixmatch-style enhanced LRC', () {
+    // Same shape MusixmatchProvider emits.
+    const enhanced =
+        '[00:12.76]<00:12.76>Through <00:13.36>the <00:13.74>darkness,\n'
+        '[00:16.56]<00:16.56>Like <00:17.06>the <00:17.42>wind,';
+    final l = LrcParser.parseSynced(enhanced);
+    expect(l.quality, 2);
+    expect(l.lines.length, 2);
+    expect(l.lines[0].words!.length, 3);
+    expect(l.lines[0].words![2].text, 'darkness,');
+    expect(l.lines[0].words![1].start,
+        const Duration(seconds: 13, milliseconds: 360));
+  });
+
   test('parsePlain marks unsynced and strips blanks', () {
     final l = LrcParser.parsePlain('line one\n\n  line two  \n');
     expect(l.isSynced, isFalse);

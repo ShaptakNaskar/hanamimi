@@ -24,7 +24,7 @@ class LyricLine {
 }
 
 /// Where the lyrics came from — used for the quality priority order.
-enum LyricsSource { embedded, lrclib }
+enum LyricsSource { embedded, lrclib, musixmatch }
 
 class Lyrics {
   const Lyrics({

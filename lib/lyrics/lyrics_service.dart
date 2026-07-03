@@ -7,14 +7,16 @@ import '../library/models/track.dart';
 import 'embedded_lyrics.dart';
 import 'lrc_parser.dart';
 import 'models/lyric_line.dart';
+import 'musixmatch_provider.dart';
 
-/// Resolves lyrics for a track from two sources and picks the best:
+/// Resolves lyrics for a track from three sources and picks the best:
 ///
 ///   word-synced > line-synced > plain,  ties go to embedded (offline).
 ///
-/// Embedded lyrics are read from the file's own tags (ID3 USLT / FLAC
-/// comments — frequently LRC-formatted). LRCLIB (free, keyless) fills
-/// the gaps, with a 30-day local cache.
+/// Sources: the file's own tags (ID3 USLT / FLAC comments), Musixmatch
+/// richsync (true word-level timings), and LRCLIB (line-level).
+/// Network results are cached locally for 30 days — including "not
+/// found", so absent lyrics don't retrigger lookups on every open.
 class LyricsService {
   LyricsService(this._repo);
 
@@ -31,14 +33,14 @@ class LyricsService {
     // Word-synced embedded lyrics can't be beaten — skip the network.
     if (embedded != null && embedded.quality == 2) return embedded;
 
-    final fetched = await _fromLrclib(track);
+    final fetched = await _fetchRemote(track);
 
     if (embedded == null) return fetched;
     if (fetched == null) return embedded;
     return fetched.quality > embedded.quality ? fetched : embedded;
   }
 
-  Future<Lyrics?> _fromLrclib(Track track) async {
+  Future<Lyrics?> _fetchRemote(Track track) async {
     final cached = await _repo.cachedLyrics(track.title, track.artist);
     if (cached != null) {
       final age = DateTime.now().difference(
@@ -46,12 +48,28 @@ class LyricsService {
       if (age < _maxCacheAge) {
         final text = cached['lrc_text'] as String;
         if (text.isEmpty) return null; // cached "not found"
-        return (cached['is_timestamped'] as int) != 0
-            ? LrcParser.parseSynced(text)
+        final quality = cached['quality'] as int? ?? 0;
+        return quality >= 1
+            ? LrcParser.parseSynced(text,
+                source: quality == 2
+                    ? LyricsSource.musixmatch
+                    : LyricsSource.lrclib)
             : LrcParser.parsePlain(text);
       }
     }
 
+    // Word-level first: Musixmatch richsync.
+    final rich = await MusixmatchProvider.fetchEnhancedLrc(
+      title: track.title,
+      artist: track.artist,
+      duration: track.duration,
+    );
+    if (rich != null) {
+      await _repo.cacheLyrics(track.title, track.artist, rich, 2);
+      return LrcParser.parseSynced(rich, source: LyricsSource.musixmatch);
+    }
+
+    // Line-level fallback: LRCLIB.
     String? synced;
     String? plain;
     try {
@@ -77,7 +95,7 @@ class LyricsService {
 
     final text = synced ?? plain ?? '';
     await _repo.cacheLyrics(
-        track.title, track.artist, text, synced != null);
+        track.title, track.artist, text, synced != null ? 1 : 0);
     if (text.isEmpty) return null;
     return synced != null
         ? LrcParser.parseSynced(text)

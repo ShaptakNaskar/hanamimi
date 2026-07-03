@@ -14,7 +14,15 @@ class LibraryRepository {
   static Future<LibraryRepository> open() async {
     final db = await openDatabase(
       'hanamimi.db',
-      version: 1,
+      version: 2,
+      // v2 adds lyric quality (word/line/plain). Old rows predate the
+      // word-synced provider, so wipe them and refetch on demand.
+      onUpgrade: (db, oldVersion, _) async {
+        if (oldVersion < 2) {
+          await db.execute('DROP TABLE IF EXISTS lyric_cache');
+          await _createLyricCache(db);
+        }
+      },
       onCreate: (db, _) async {
         await db.execute('''
           CREATE TABLE tracks (
@@ -49,21 +57,25 @@ class LibraryRepository {
             PRIMARY KEY (playlist_id, track_id)
           )
         ''');
-        await db.execute('''
-          CREATE TABLE lyric_cache (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            track_title TEXT NOT NULL,
-            artist_name TEXT NOT NULL,
-            lrc_text TEXT NOT NULL,
-            is_timestamped INTEGER NOT NULL,
-            cached_at INTEGER NOT NULL
-          )
-        ''');
-        await db.execute(
-            'CREATE INDEX idx_lyric_cache ON lyric_cache(track_title, artist_name)');
+        await _createLyricCache(db);
       },
     );
     return LibraryRepository._(db);
+  }
+
+  static Future<void> _createLyricCache(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE lyric_cache (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        track_title TEXT NOT NULL,
+        artist_name TEXT NOT NULL,
+        lrc_text TEXT NOT NULL,
+        quality INTEGER NOT NULL DEFAULT 0,
+        cached_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX idx_lyric_cache ON lyric_cache(track_title, artist_name)');
   }
 
   // --- Tracks ---
@@ -182,8 +194,8 @@ class LibraryRepository {
     return rows.isEmpty ? null : rows.first;
   }
 
-  Future<void> cacheLyrics(String title, String artist, String lrcText,
-      bool isTimestamped) async {
+  Future<void> cacheLyrics(
+      String title, String artist, String lrcText, int quality) async {
     await _db.delete('lyric_cache',
         where: 'track_title = ? AND artist_name = ?',
         whereArgs: [title, artist]);
@@ -191,7 +203,7 @@ class LibraryRepository {
       'track_title': title,
       'artist_name': artist,
       'lrc_text': lrcText,
-      'is_timestamped': isTimestamped ? 1 : 0,
+      'quality': quality,
       'cached_at': DateTime.now().millisecondsSinceEpoch,
     });
   }
