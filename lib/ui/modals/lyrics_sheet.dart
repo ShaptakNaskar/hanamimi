@@ -7,7 +7,9 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../library/models/track.dart';
+import '../../lyrics/lyrics_service.dart';
 import '../../lyrics/models/lyric_line.dart';
+import '../../providers/library_provider.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/lyrics_provider.dart';
 import '../../providers/theme_provider.dart';
@@ -52,6 +54,95 @@ class _LyricsSheetBodyState extends ConsumerState<_LyricsSheetBody> {
         .clamp(-15000, 15000);
     ref.read(sharedPrefsProvider).setInt('lyrics_offset_$trackId', ms);
     setState(() {});
+  }
+
+  void _toast(String message) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Radii.md)),
+        content:
+            Text(message, style: const TextStyle(fontFamily: 'Nunito')),
+      ));
+
+  Future<void> _selectSource(Track track, LyricsSource? source) async {
+    final prefs = ref.read(sharedPrefsProvider);
+    final key = 'lyrics_source_${track.id}';
+    if (source == null) {
+      await prefs.remove(key); // back to auto
+    } else {
+      final repo = await ref.read(libraryRepositoryProvider.future);
+      final lyrics =
+          await LyricsService(repo).fetchFromSource(track, source);
+      if (lyrics == null) {
+        _toast('No ${_sourceLabel(source)} lyrics for this song');
+        return;
+      }
+      await prefs.setString(key, source.name);
+    }
+    ref.invalidate(lyricsProvider(track.id));
+    if (mounted) setState(() {});
+  }
+
+  static String _sourceLabel(LyricsSource s) => switch (s) {
+        LyricsSource.embedded => 'embedded',
+        LyricsSource.musixmatch => 'Musixmatch',
+        LyricsSource.lrclib => 'LRCLIB',
+      };
+
+  void _showSourcePicker(BuildContext context, Track track) {
+    final theme = ref.read(currentThemeProvider);
+    final current =
+        ref.read(sharedPrefsProvider).getString('lyrics_source_${track.id}');
+
+    showModalBottomSheet(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(Space.s4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Lyrics source',
+                  style: TextStyle(
+                      fontFamily: 'Nunito',
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: theme.textPrimary)),
+              const SizedBox(height: Space.s2),
+              for (final (name, source, subtitle) in [
+                ('Auto', null, 'Best available quality'),
+                (
+                  'Embedded',
+                  LyricsSource.embedded,
+                  'From the audio file\'s own tags'
+                ),
+                (
+                  'Musixmatch',
+                  LyricsSource.musixmatch,
+                  'Word-synced (online)'
+                ),
+                ('LRCLIB', LyricsSource.lrclib, 'Line-synced (online)'),
+              ])
+                ListTile(
+                  title: Text(name, style: AppText.rowSongTitle(theme)),
+                  subtitle: Text(subtitle, style: AppText.caption(theme)),
+                  trailing: (current == null && source == null) ||
+                          current == source?.name
+                      ? Icon(Icons.check, size: 20, color: theme.primary)
+                      : null,
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _selectSource(track, source);
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -105,7 +196,11 @@ class _LyricsSheetBodyState extends ConsumerState<_LyricsSheetBody> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      _QualityBadge(lyrics: lyrics.value!, theme: theme),
+                      GestureDetector(
+                        onTap: () => _showSourcePicker(context, track),
+                        child:
+                            _QualityBadge(lyrics: lyrics.value!, theme: theme),
+                      ),
                       if (lyrics.value!.isSynced) ...[
                         const SizedBox(width: Space.s2),
                         _OffsetControl(

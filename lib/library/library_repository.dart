@@ -183,6 +183,9 @@ class LibraryRepository {
     );
   }
 
+  /// Dev tool: force every lyric to refetch on next open.
+  Future<void> clearLyricsCache() => _db.delete('lyric_cache');
+
   // --- Lyric cache ---
 
   Future<Map<String, Object?>?> cachedLyrics(

@@ -22,6 +22,23 @@ class LibraryScreen extends ConsumerStatefulWidget {
 
 class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   int _tab = 0;
+  bool _searching = false;
+  String _query = '';
+  final _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _closeSearch() {
+    setState(() {
+      _searching = false;
+      _query = '';
+      _searchController.clear();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,14 +52,58 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
           const SizedBox(height: Space.s6),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: Space.s4),
-            child: Row(
-              children: [
-                Text('Hanamimi',
-                    style: AppText.screenTitle(theme).copyWith(fontSize: 22)),
-                const Spacer(),
-                Icon(Icons.search, size: 24, color: theme.textMuted),
-              ],
-            ),
+            child: _searching
+                ? Row(
+                    children: [
+                      Expanded(
+                        child: SizedBox(
+                          height: Sizes.inputHeight,
+                          child: TextField(
+                            controller: _searchController,
+                            autofocus: true,
+                            onChanged: (q) => setState(() => _query = q),
+                            style: AppText.body(theme),
+                            decoration: InputDecoration(
+                              hintText: 'Search your music…',
+                              hintStyle: AppText.body(theme)
+                                  .copyWith(color: theme.textMuted),
+                              prefixIcon: Icon(Icons.search,
+                                  size: 20, color: theme.textMuted),
+                              filled: true,
+                              fillColor: theme.surface,
+                              contentPadding: EdgeInsets.zero,
+                              border: OutlineInputBorder(
+                                borderRadius:
+                                    BorderRadius.circular(Radii.pill),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: Space.s2),
+                      InkResponse(
+                        onTap: _closeSearch,
+                        radius: 20,
+                        child:
+                            Icon(Icons.close, size: 24, color: theme.textMuted),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Text('Hanamimi',
+                          style: AppText.screenTitle(theme)
+                              .copyWith(fontSize: 22)),
+                      const Spacer(),
+                      InkResponse(
+                        onTap: () => setState(() => _searching = true),
+                        radius: 20,
+                        child: Icon(Icons.search,
+                            size: 24, color: theme.textMuted),
+                      ),
+                    ],
+                  ),
           ),
           const SizedBox(height: Space.s4),
           Padding(
@@ -59,9 +120,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             child: AnimatedSwitcher(
               duration: Anim.minTransition,
               child: switch (_tab) {
-                0 => const _SongsTab(key: ValueKey(0)),
-                1 => const _AlbumsTab(key: ValueKey(1)),
-                _ => const _PlaylistsTab(key: ValueKey(2)),
+                0 => _SongsTab(key: const ValueKey(0), query: _query),
+                1 => _AlbumsTab(key: const ValueKey(1), query: _query),
+                _ => _PlaylistsTab(key: const ValueKey(2), query: _query),
               },
             ),
           ),
@@ -72,7 +133,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
 }
 
 class _SongsTab extends ConsumerWidget {
-  const _SongsTab({super.key});
+  const _SongsTab({super.key, this.query = ''});
+
+  final String query;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -83,7 +146,19 @@ class _SongsTab extends ConsumerWidget {
       loading: () => Center(
           child: CircularProgressIndicator(color: theme.primary)),
       error: (e, _) => _Message('Something went wrong: $e', theme: theme),
-      data: (tracks) {
+      data: (allTracks) {
+        final q = query.trim().toLowerCase();
+        final tracks = q.isEmpty
+            ? allTracks
+            : allTracks
+                .where((t) =>
+                    t.title.toLowerCase().contains(q) ||
+                    t.artist.toLowerCase().contains(q) ||
+                    t.album.toLowerCase().contains(q))
+                .toList();
+        if (tracks.isEmpty && q.isNotEmpty) {
+          return _Message('Nothing matches "$query"', theme: theme);
+        }
         if (tracks.isEmpty) {
           final denied =
               ref.read(libraryProvider.notifier).permissionDenied;
@@ -131,15 +206,26 @@ class _SongsTab extends ConsumerWidget {
 }
 
 class _AlbumsTab extends ConsumerWidget {
-  const _AlbumsTab({super.key});
+  const _AlbumsTab({super.key, this.query = ''});
+
+  final String query;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = ref.watch(currentThemeProvider);
-    final albums = ref.watch(albumsProvider);
+    final q = query.trim().toLowerCase();
+    final albums = ref
+        .watch(albumsProvider)
+        .where((a) =>
+            q.isEmpty ||
+            a.title.toLowerCase().contains(q) ||
+            a.artist.toLowerCase().contains(q))
+        .toList();
 
     if (albums.isEmpty) {
-      return _Message('No albums yet', theme: theme);
+      return _Message(
+          q.isEmpty ? 'No albums yet' : 'Nothing matches "$query"',
+          theme: theme);
     }
     return GridView.builder(
       padding: const EdgeInsets.all(Space.s4),
@@ -159,12 +245,17 @@ class _AlbumsTab extends ConsumerWidget {
 }
 
 class _PlaylistsTab extends ConsumerWidget {
-  const _PlaylistsTab({super.key});
+  const _PlaylistsTab({super.key, this.query = ''});
+
+  final String query;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = ref.watch(currentThemeProvider);
-    final playlists = ref.watch(playlistsProvider).value ?? [];
+    final q = query.trim().toLowerCase();
+    final playlists = (ref.watch(playlistsProvider).value ?? [])
+        .where((p) => q.isEmpty || p.name.toLowerCase().contains(q))
+        .toList();
 
     return Stack(
       children: [

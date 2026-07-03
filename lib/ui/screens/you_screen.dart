@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/cat_mode_provider.dart';
 import '../../providers/companion_provider.dart';
+import '../../providers/dev_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
 import '../../providers/settings_provider.dart';
@@ -75,6 +76,7 @@ class _CompanionCard extends ConsumerWidget {
     final theme = ref.watch(currentThemeProvider);
     final listened = ref.watch(listenTimeProvider);
     final active = ref.watch(activeAccessoryProvider);
+    final devUnlockAll = ref.watch(devModeProvider).allAccessories;
 
     return Container(
       padding: const EdgeInsets.all(Space.s4),
@@ -105,7 +107,7 @@ class _CompanionCard extends ConsumerWidget {
               for (final info in accessoryCatalog)
                 _AccessoryChip(
                   info: info,
-                  unlocked: isUnlocked(info, listened),
+                  unlocked: devUnlockAll || isUnlocked(info, listened),
                   active: active == info.accessory,
                   onTap: () => ref
                       .read(activeAccessoryProvider.notifier)
@@ -261,11 +263,97 @@ class _MoreCard extends ConsumerWidget {
             leading: Icon(Icons.info_outline,
                 size: 20, color: theme.textMuted),
             title: Text('About', style: AppText.rowSongTitle(theme)),
-            subtitle: Text('Hanamimi 花耳 0.1 — named after a real dog',
+            subtitle: Text(
+                'Hanamimi 花耳 · Internal Build - 030726',
                 style: AppText.caption(theme)),
+            onTap: () {
+              final unlocked =
+                  ref.read(devModeProvider.notifier).registerAboutTap();
+              if (unlocked) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(Radii.md)),
+                  content: const Text('🛠️ Developer mode unlocked',
+                      style: TextStyle(fontFamily: 'Nunito')),
+                ));
+              }
+            },
           ),
+          if (ref.watch(devModeProvider).enabled) ...[
+            Divider(height: 0.5, color: theme.divider),
+            const _DevOptions(),
+          ],
         ],
       ),
+    );
+  }
+}
+
+/// Hidden developer tools (7 taps on About).
+class _DevOptions extends ConsumerWidget {
+  const _DevOptions();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    final dev = ref.watch(devModeProvider);
+
+    void toast(String message) =>
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 1),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(Radii.md)),
+          content:
+              Text(message, style: const TextStyle(fontFamily: 'Nunito')),
+        ));
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(
+              left: Space.s4, top: Space.s3, bottom: Space.s1),
+          child: Row(
+            children: [
+              Text('DEVELOPER', style: AppText.sectionLabel(theme)),
+            ],
+          ),
+        ),
+        ListTile(
+          leading: const Text('🎀', style: TextStyle(fontSize: 16)),
+          title: Text('Unlock all accessories',
+              style: AppText.rowSongTitle(theme)),
+          trailing: Switch(
+            value: dev.allAccessories,
+            onChanged: (on) =>
+                ref.read(devModeProvider.notifier).setAllAccessories(on),
+          ),
+        ),
+        ListTile(
+          leading:
+              Icon(Icons.lyrics_outlined, size: 20, color: theme.textMuted),
+          title:
+              Text('Clear lyrics cache', style: AppText.rowSongTitle(theme)),
+          subtitle: Text('Refetch all lyrics on next open',
+              style: AppText.caption(theme)),
+          onTap: () async {
+            final repo = await ref.read(libraryRepositoryProvider.future);
+            await repo.clearLyricsCache();
+            toast('Lyrics cache cleared');
+          },
+        ),
+        ListTile(
+          leading:
+              Icon(Icons.timer_outlined, size: 20, color: theme.textMuted),
+          title: Text('Hide developer options',
+              style: AppText.rowSongTitle(theme)),
+          onTap: () {
+            ref.read(devModeProvider.notifier).disable();
+            toast('Developer mode off');
+          },
+        ),
+      ],
     );
   }
 }

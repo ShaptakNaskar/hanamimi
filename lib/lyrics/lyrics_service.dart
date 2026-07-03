@@ -24,6 +24,45 @@ class LyricsService {
   final LibraryRepository _repo;
   static const _maxCacheAge = Duration(days: 30);
 
+  /// Session cache for user-forced source fetches (keyed track:source),
+  /// so switching back and forth in the sheet doesn't refetch.
+  static final _sourceCache = <String, Lyrics?>{};
+
+  /// Fetch from one specific source, ignoring the quality priority —
+  /// backs the source picker in the lyrics sheet. Null when that
+  /// source has nothing for this track.
+  Future<Lyrics?> fetchFromSource(Track track, LyricsSource source) async {
+    final key = '${track.id}:${source.name}';
+    if (_sourceCache.containsKey(key)) return _sourceCache[key];
+
+    Lyrics? result;
+    switch (source) {
+      case LyricsSource.embedded:
+        final text = await EmbeddedLyricsReader.read(track.filePath);
+        result = text == null
+            ? null
+            : LrcParser.parseAuto(text, source: LyricsSource.embedded);
+      case LyricsSource.musixmatch:
+        final rich = await MusixmatchProvider.fetchRichsyncJson(
+          title: track.title,
+          artist: track.artist,
+          duration: track.duration,
+        );
+        result = rich == null ? null : RichsyncParser.parse(rich);
+      case LyricsSource.lrclib:
+        final raw = await _lrclibRaw(track);
+        final text = raw?.synced ?? raw?.plain;
+        result = text == null
+            ? null
+            : raw!.synced != null
+                ? LrcParser.parseSynced(text)
+                : LrcParser.parsePlain(text);
+    }
+    if (result != null && result.isEmpty) result = null;
+    _sourceCache[key] = result;
+    return result;
+  }
+
   /// Returns null when no lyrics exist for the track.
   Future<Lyrics?> fetchFor(Track track) async {
     final embeddedText = await EmbeddedLyricsReader.read(track.filePath);
@@ -76,8 +115,22 @@ class LyricsService {
     }
 
     // Line-level fallback: LRCLIB.
-    String? synced;
-    String? plain;
+    final raw = await _lrclibRaw(track);
+    if (raw == null) return null; // offline/server — retry next time
+
+    final text = raw.synced ?? raw.plain ?? '';
+    await _repo.cacheLyrics(
+        track.title, track.artist, text, raw.synced != null ? 1 : 0);
+    if (text.isEmpty) return null;
+    return raw.synced != null
+        ? LrcParser.parseSynced(text)
+        : LrcParser.parsePlain(text);
+  }
+
+  /// Raw LRCLIB response; null means network trouble (don't cache),
+  /// (null, null) fields mean a definitive "not found".
+  Future<({String? synced, String? plain})?> _lrclibRaw(
+      Track track) async {
     try {
       final uri = Uri.https('lrclib.net', '/api/get', {
         'track_name': track.title,
@@ -90,21 +143,15 @@ class LyricsService {
           .timeout(const Duration(seconds: 10));
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body) as Map<String, dynamic>;
-        synced = body['syncedLyrics'] as String?;
-        plain = body['plainLyrics'] as String?;
-      } else if (res.statusCode != 404) {
-        return null; // server trouble — don't cache, retry next time
+        return (
+          synced: body['syncedLyrics'] as String?,
+          plain: body['plainLyrics'] as String?,
+        );
       }
+      if (res.statusCode == 404) return (synced: null, plain: null);
+      return null;
     } catch (_) {
-      return null; // offline — don't cache, retry when back online
+      return null;
     }
-
-    final text = synced ?? plain ?? '';
-    await _repo.cacheLyrics(
-        track.title, track.artist, text, synced != null ? 1 : 0);
-    if (text.isEmpty) return null;
-    return synced != null
-        ? LrcParser.parseSynced(text)
-        : LrcParser.parsePlain(text);
   }
 }
