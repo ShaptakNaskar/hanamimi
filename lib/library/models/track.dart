@@ -89,6 +89,20 @@ class Track {
       };
 }
 
+/// A directory on disk that directly contains audio files (VLC-style
+/// folder browsing). Derived from track file paths.
+class MusicFolder {
+  const MusicFolder({
+    required this.path,
+    required this.name,
+    required this.tracks,
+  });
+
+  final String path;
+  final String name;
+  final List<Track> tracks;
+}
+
 /// Albums are derived from tracks (grouped by MediaStore album id).
 class Album {
   const Album({

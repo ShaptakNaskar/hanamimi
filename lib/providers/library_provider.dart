@@ -69,6 +69,28 @@ final albumsProvider = Provider<List<Album>>((ref) {
   return albums;
 });
 
+/// Folders that directly contain music, grouped by each track's parent
+/// directory and sorted by name.
+final foldersProvider = Provider<List<MusicFolder>>((ref) {
+  final tracks = ref.watch(libraryProvider).value ?? [];
+  final byDir = <String, List<Track>>{};
+  for (final t in tracks) {
+    final slash = t.filePath.lastIndexOf('/');
+    final dir = slash <= 0 ? '/' : t.filePath.substring(0, slash);
+    byDir.putIfAbsent(dir, () => []).add(t);
+  }
+  final folders = byDir.entries.map((e) {
+    final name = e.key.substring(e.key.lastIndexOf('/') + 1);
+    return MusicFolder(
+      path: e.key,
+      name: name.isEmpty ? '/' : name,
+      tracks: e.value,
+    );
+  }).toList()
+    ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+  return folders;
+});
+
 class PlaylistsNotifier extends AsyncNotifier<List<Playlist>> {
   @override
   Future<List<Playlist>> build() async {
@@ -85,6 +107,18 @@ class PlaylistsNotifier extends AsyncNotifier<List<Playlist>> {
   Future<void> addTrack(int playlistId, int trackId) async {
     final repo = await ref.read(libraryRepositoryProvider.future);
     await repo.addToPlaylist(playlistId, trackId);
+    state = AsyncData(await repo.allPlaylists());
+  }
+
+  Future<void> removeTrack(int playlistId, int trackId) async {
+    final repo = await ref.read(libraryRepositoryProvider.future);
+    await repo.removeFromPlaylist(playlistId, trackId);
+    state = AsyncData(await repo.allPlaylists());
+  }
+
+  Future<void> delete(int playlistId) async {
+    final repo = await ref.read(libraryRepositoryProvider.future);
+    await repo.deletePlaylist(playlistId);
     state = AsyncData(await repo.allPlaylists());
   }
 }

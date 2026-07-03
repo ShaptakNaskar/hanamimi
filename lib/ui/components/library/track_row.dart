@@ -17,6 +17,7 @@ class TrackRow extends StatelessWidget {
     this.isPlaying = false,
     this.onAddToQueue,
     this.onAddToPlaylist,
+    this.onRemove,
   });
 
   final Track track;
@@ -25,14 +26,20 @@ class TrackRow extends StatelessWidget {
   final bool isPlaying;
 
   /// Swipe right reveals "add to queue"; swipe left "add to playlist"
-  /// (DESIGN.md §9.1). Rows spring back after the action fires.
+  /// (DESIGN.md §9.1) — or "remove" inside a playlist view. Rows spring
+  /// back after the action fires.
   final VoidCallback? onAddToQueue;
   final VoidCallback? onAddToPlaylist;
+
+  /// When set, swipe-left removes instead of adding to a playlist.
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
     final row = _buildRow(context);
-    if (onAddToQueue == null && onAddToPlaylist == null) return row;
+    if (onAddToQueue == null && onAddToPlaylist == null && onRemove == null) {
+      return row;
+    }
 
     return Dismissible(
       key: ValueKey('track_${track.id}'),
@@ -45,6 +52,8 @@ class TrackRow extends StatelessWidget {
       confirmDismiss: (direction) async {
         if (direction == DismissDirection.startToEnd) {
           onAddToQueue?.call();
+        } else if (onRemove != null) {
+          onRemove!.call();
         } else {
           onAddToPlaylist?.call();
         }
@@ -56,12 +65,19 @@ class TrackRow extends StatelessWidget {
         icon: Icons.add_circle_outline,
         label: 'Queue',
       ),
-      secondaryBackground: _SwipeAction(
-        alignment: Alignment.centerRight,
-        color: theme.primary,
-        icon: Icons.bookmark_add_outlined,
-        label: 'Playlist',
-      ),
+      secondaryBackground: onRemove != null
+          ? _SwipeAction(
+              alignment: Alignment.centerRight,
+              color: theme.accent,
+              icon: Icons.remove_circle_outline,
+              label: 'Remove',
+            )
+          : _SwipeAction(
+              alignment: Alignment.centerRight,
+              color: theme.primary,
+              icon: Icons.bookmark_add_outlined,
+              label: 'Playlist',
+            ),
       child: row,
     );
   }

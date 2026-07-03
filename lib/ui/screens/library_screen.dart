@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../library/models/playlist.dart';
+import '../../library/models/track.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/theme_provider.dart';
@@ -109,7 +110,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: Space.s4),
             child: PillTabBar(
-              tabs: const ['Songs', 'Albums', 'Playlists'],
+              tabs: const ['Songs', 'Albums', 'Folders', 'Playlists'],
               activeIndex: _tab,
               onChanged: (i) => setState(() => _tab = i),
               theme: theme,
@@ -122,7 +123,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
               child: switch (_tab) {
                 0 => _SongsTab(key: const ValueKey(0), query: _query),
                 1 => _AlbumsTab(key: const ValueKey(1), query: _query),
-                _ => _PlaylistsTab(key: const ValueKey(2), query: _query),
+                2 => _FoldersTab(key: const ValueKey(2), query: _query),
+                _ => _PlaylistsTab(key: const ValueKey(3), query: _query),
               },
             ),
           ),
@@ -244,23 +246,242 @@ class _AlbumsTab extends ConsumerWidget {
   }
 }
 
-class _PlaylistsTab extends ConsumerWidget {
+/// VLC-style folder browsing: folders that contain music, drill into
+/// one to see and play its songs (folder becomes the queue).
+class _FoldersTab extends ConsumerStatefulWidget {
+  const _FoldersTab({super.key, this.query = ''});
+
+  final String query;
+
+  @override
+  ConsumerState<_FoldersTab> createState() => _FoldersTabState();
+}
+
+class _FoldersTabState extends ConsumerState<_FoldersTab> {
+  String? _openPath;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ref.watch(currentThemeProvider);
+    final folders = ref.watch(foldersProvider);
+    final q = widget.query.trim().toLowerCase();
+
+    final open = _openPath == null
+        ? null
+        : folders.where((f) => f.path == _openPath).firstOrNull;
+
+    if (open == null) {
+      final visible = folders
+          .where((f) => q.isEmpty || f.name.toLowerCase().contains(q))
+          .toList();
+      if (visible.isEmpty) {
+        return _Message(
+            q.isEmpty ? 'No folders yet' : 'Nothing matches "${widget.query}"',
+            theme: theme);
+      }
+      return ListView.builder(
+        key: const ValueKey('folder_list'),
+        padding: const EdgeInsets.symmetric(
+            horizontal: Space.s4, vertical: Space.s2),
+        itemCount: visible.length,
+        itemExtent: Sizes.trackRowHeight,
+        itemBuilder: (context, i) => _FolderRow(
+          folder: visible[i],
+          theme: theme,
+          onTap: () => setState(() => _openPath = visible[i].path),
+        ),
+      );
+    }
+
+    // Inside a folder: header with back + name, then its tracks.
+    final playingId = ref.watch(audioStateProvider).value?.currentTrack?.id;
+    final tracks = open.tracks
+        .where((t) =>
+            q.isEmpty ||
+            t.title.toLowerCase().contains(q) ||
+            t.artist.toLowerCase().contains(q))
+        .toList();
+
+    return Column(
+      key: ValueKey('folder_${open.path}'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(Space.s2, Space.s1, Space.s4, 0),
+          child: Row(
+            children: [
+              InkResponse(
+                onTap: () => setState(() => _openPath = null),
+                radius: 20,
+                child: SizedBox(
+                  width: Sizes.minTouchTarget,
+                  height: Sizes.minTouchTarget,
+                  child: Icon(Icons.chevron_left,
+                      size: 26, color: theme.textPrimary),
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(open.name,
+                        style: AppText.rowSongTitle(theme),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                    Text(
+                      '${open.tracks.length} song${open.tracks.length == 1 ? '' : 's'} · ${open.path}',
+                      style: AppText.caption(theme).copyWith(fontSize: 10),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: Space.s2),
+              InkResponse(
+                onTap: () => ref
+                    .read(audioHandlerProvider)
+                    .playTracks(open.tracks),
+                radius: 22,
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                      color: theme.primary, shape: BoxShape.circle),
+                  child:
+                      const Icon(Icons.play_arrow, color: Colors.white, size: 22),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: tracks.isEmpty
+              ? _Message('Nothing matches "${widget.query}"', theme: theme)
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: Space.s4, vertical: Space.s2),
+                  itemCount: tracks.length,
+                  itemExtent: Sizes.trackRowHeight,
+                  itemBuilder: (context, i) => TrackRow(
+                    track: tracks[i],
+                    theme: theme,
+                    isPlaying: tracks[i].id == playingId,
+                    onTap: () => ref
+                        .read(audioHandlerProvider)
+                        .playTracks(tracks, startIndex: i),
+                    onAddToQueue: () {
+                      ref
+                          .read(audioHandlerProvider)
+                          .engine
+                          .addToQueue(tracks[i]);
+                      _toast(context, 'Added to queue');
+                    },
+                    onAddToPlaylist: () => _showPlaylistPicker(
+                        context, ref, theme, tracks[i].id),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _FolderRow extends StatelessWidget {
+  const _FolderRow({
+    required this.folder,
+    required this.theme,
+    required this.onTap,
+  });
+
+  final MusicFolder folder;
+  final HanamimiTheme theme;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        splashColor: theme.primary.withValues(alpha: 0.12),
+        highlightColor: theme.primary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(Radii.md),
+        child: SizedBox(
+          height: Sizes.trackRowHeight,
+          child: Row(
+            children: [
+              Container(
+                width: Sizes.trackRowArt,
+                height: Sizes.trackRowArt,
+                decoration: BoxDecoration(
+                  color: theme.primary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.folder_outlined,
+                    size: 24, color: theme.primary),
+              ),
+              const SizedBox(width: Space.s3),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(folder.name,
+                        style: AppText.rowSongTitle(theme),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${folder.tracks.length} song${folder.tracks.length == 1 ? '' : 's'}',
+                      style: AppText.rowArtist(theme),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, size: 20, color: theme.textMuted),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlaylistsTab extends ConsumerStatefulWidget {
   const _PlaylistsTab({super.key, this.query = ''});
 
   final String query;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_PlaylistsTab> createState() => _PlaylistsTabState();
+}
+
+class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
+  int? _openId;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = ref.watch(currentThemeProvider);
-    final q = query.trim().toLowerCase();
-    final playlists = (ref.watch(playlistsProvider).value ?? [])
+    final q = widget.query.trim().toLowerCase();
+    final all = ref.watch(playlistsProvider).value ?? [];
+
+    final open =
+        _openId == null ? null : all.where((p) => p.id == _openId).firstOrNull;
+    if (open != null) return _buildDetail(open, theme, q);
+
+    final playlists = all
         .where((p) => q.isEmpty || p.name.toLowerCase().contains(q))
         .toList();
 
     return Stack(
       children: [
         if (playlists.isEmpty)
-          _Message('No playlists yet — make one!', theme: theme)
+          _Message(
+              q.isEmpty
+                  ? 'No playlists yet — make one!'
+                  : 'Nothing matches "${widget.query}"',
+              theme: theme)
         else
           ListView.separated(
             padding: const EdgeInsets.all(Space.s4),
@@ -269,7 +490,7 @@ class _PlaylistsTab extends ConsumerWidget {
             itemBuilder: (context, i) => PlaylistCard(
               playlist: playlists[i],
               theme: theme,
-              onTap: () {},
+              onTap: () => setState(() => _openId = playlists[i].id),
             ),
           ),
         Positioned(
@@ -291,6 +512,176 @@ class _PlaylistsTab extends ConsumerWidget {
       ],
     );
   }
+
+  /// Playlist detail: header (play all, delete), tracks in playlist
+  /// order. Swipe a row left to remove it from the playlist.
+  Widget _buildDetail(Playlist playlist, HanamimiTheme theme, String q) {
+    final allTracks = ref.watch(libraryProvider).value ?? [];
+    final byId = {for (final t in allTracks) t.id: t};
+    final tracks = [
+      for (final id in playlist.trackIds)
+        if (byId[id] != null) byId[id]!,
+    ];
+    final visible = tracks
+        .where((t) =>
+            q.isEmpty ||
+            t.title.toLowerCase().contains(q) ||
+            t.artist.toLowerCase().contains(q))
+        .toList();
+    final playingId = ref.watch(audioStateProvider).value?.currentTrack?.id;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(Space.s2, Space.s1, Space.s4, 0),
+          child: Row(
+            children: [
+              InkResponse(
+                onTap: () => setState(() => _openId = null),
+                radius: 20,
+                child: SizedBox(
+                  width: Sizes.minTouchTarget,
+                  height: Sizes.minTouchTarget,
+                  child: Icon(Icons.chevron_left,
+                      size: 26, color: theme.textPrimary),
+                ),
+              ),
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: playlist.coverColor,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  playlist.name.isEmpty
+                      ? '♪'
+                      : playlist.name[0].toUpperCase(),
+                  style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white.withValues(alpha: 0.9),
+                  ),
+                ),
+              ),
+              const SizedBox(width: Space.s3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(playlist.name,
+                        style: AppText.rowSongTitle(theme),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                    Text(
+                      '${tracks.length} song${tracks.length == 1 ? '' : 's'} · swipe left to remove',
+                      style: AppText.caption(theme).copyWith(fontSize: 10),
+                    ),
+                  ],
+                ),
+              ),
+              InkResponse(
+                onTap: () => _confirmDeletePlaylist(playlist, theme),
+                radius: 20,
+                child: SizedBox(
+                  width: Sizes.minTouchTarget,
+                  height: Sizes.minTouchTarget,
+                  child: Icon(Icons.delete_outline,
+                      size: 20, color: theme.textMuted),
+                ),
+              ),
+              InkResponse(
+                onTap: tracks.isEmpty
+                    ? null
+                    : () =>
+                        ref.read(audioHandlerProvider).playTracks(tracks),
+                radius: 22,
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                      color: theme.primary, shape: BoxShape.circle),
+                  child: const Icon(Icons.play_arrow,
+                      color: Colors.white, size: 22),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: visible.isEmpty
+              ? _Message(
+                  q.isEmpty
+                      ? 'Nothing here yet — swipe a song left in Songs and pick "${playlist.name}"'
+                      : 'Nothing matches "${widget.query}"',
+                  theme: theme)
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: Space.s4, vertical: Space.s2),
+                  itemCount: visible.length,
+                  itemExtent: Sizes.trackRowHeight,
+                  itemBuilder: (context, i) => TrackRow(
+                    track: visible[i],
+                    theme: theme,
+                    isPlaying: visible[i].id == playingId,
+                    onTap: () => ref
+                        .read(audioHandlerProvider)
+                        .playTracks(visible, startIndex: i),
+                    onAddToQueue: () {
+                      ref
+                          .read(audioHandlerProvider)
+                          .engine
+                          .addToQueue(visible[i]);
+                      _toast(context, 'Added to queue');
+                    },
+                    onRemove: () {
+                      ref
+                          .read(playlistsProvider.notifier)
+                          .removeTrack(playlist.id, visible[i].id);
+                      _toast(context, 'Removed from ${playlist.name}');
+                    },
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  void _confirmDeletePlaylist(Playlist playlist, HanamimiTheme theme) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: theme.surface,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Radii.lg)),
+        title: Text('Delete "${playlist.name}"?',
+            style: AppText.rowSongTitle(theme)),
+        content: Text('The songs themselves stay in your library.',
+            style: AppText.caption(theme)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text('Keep',
+                style: AppText.button(theme)
+                    .copyWith(color: theme.textMuted)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              setState(() => _openId = null);
+              ref.read(playlistsProvider.notifier).delete(playlist.id);
+            },
+            child: Text('Delete',
+                style:
+                    AppText.button(theme).copyWith(color: theme.accent)),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 void _toast(BuildContext context, String message) {
@@ -304,9 +695,12 @@ void _toast(BuildContext context, String message) {
   ));
 }
 
-void _showPlaylistPicker(
-    BuildContext context, WidgetRef ref, HanamimiTheme theme, int trackId) {
-  final playlists = ref.read(playlistsProvider).value ?? [];
+Future<void> _showPlaylistPicker(
+    BuildContext context, WidgetRef ref, HanamimiTheme theme, int trackId) async {
+  // ref.read gives AsyncLoading if the Playlists tab was never opened
+  // this session — await the future so existing playlists always show.
+  final playlists = await ref.read(playlistsProvider.future);
+  if (!context.mounted) return;
   if (playlists.isEmpty) {
     _toast(context, 'No playlists yet — make one first!');
     return;

@@ -168,6 +168,11 @@ class LibraryRepository {
   Future<void> deletePlaylist(int id) =>
       _db.delete('playlists', where: 'id = ?', whereArgs: [id]);
 
+  Future<void> removeFromPlaylist(int playlistId, int trackId) =>
+      _db.delete('playlist_tracks',
+          where: 'playlist_id = ? AND track_id = ?',
+          whereArgs: [playlistId, trackId]);
+
   Future<void> addToPlaylist(int playlistId, int trackId) async {
     final max = Sqflite.firstIntValue(await _db.rawQuery(
         'SELECT MAX(position) FROM playlist_tracks WHERE playlist_id = ?',
