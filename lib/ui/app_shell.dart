@@ -69,7 +69,8 @@ class _AppShellState extends ConsumerState<AppShell> {
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          MiniPlayer(onOpen: () => _onNavChanged(1)),
+          // Hidden on the Playing tab — the full screen is already there.
+          if (_index != 1) MiniPlayer(onOpen: () => _onNavChanged(1)),
           HanamimiBottomNav(
             activeIndex: _index,
             onChanged: _onNavChanged,
