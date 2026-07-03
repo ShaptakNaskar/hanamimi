@@ -260,8 +260,10 @@ class _OffsetControl extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: Space.s1),
       decoration: BoxDecoration(
-        color: theme.surface.withValues(alpha: 0.5),
+        color: theme.surface.withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(Radii.sm),
+        border: Border.all(
+            color: theme.divider.withValues(alpha: 0.8), width: 1),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -274,9 +276,9 @@ class _OffsetControl extends StatelessWidget {
               style: TextStyle(
                 fontFamily: 'monospace',
                 fontSize: 10,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w700,
                 color: offset == Duration.zero
-                    ? theme.textMuted
+                    ? theme.textPrimary
                     : theme.accent,
               ),
             ),
@@ -292,7 +294,7 @@ class _OffsetControl extends StatelessWidget {
         radius: 16,
         child: Padding(
           padding: const EdgeInsets.all(Space.s1),
-          child: Icon(icon, size: 14, color: theme.textMuted),
+          child: Icon(icon, size: 14, color: theme.textPrimary),
         ),
       );
 }
@@ -315,20 +317,38 @@ class _QualityBadge extends StatelessWidget {
       LyricsSource.musixmatch => 'Musixmatch',
       LyricsSource.lrclib => 'LRCLIB',
     };
+    // Sits on the blurred album-art backdrop: needs a solid surface
+    // chip so it stays legible on every theme.
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: Space.s2, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: Space.s2, vertical: 3),
       decoration: BoxDecoration(
-        color: theme.primary.withValues(alpha: lyrics.quality == 2 ? 0.25 : 0.12),
+        color: theme.surface.withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(Radii.sm),
-      ),
-      child: Text(
-        '$label · $sourceName',
-        style: TextStyle(
-          fontFamily: 'Nunito',
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          color: theme.primary,
+        border: Border.all(
+          color: theme.primary
+              .withValues(alpha: lyrics.quality == 2 ? 0.9 : 0.4),
+          width: 1,
         ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            lyrics.quality == 2 ? Icons.graphic_eq : Icons.notes,
+            size: 11,
+            color: theme.primary,
+          ),
+          const SizedBox(width: 3),
+          Text(
+            '$label · $sourceName',
+            style: TextStyle(
+              fontFamily: 'Nunito',
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: theme.textPrimary,
+            ),
+          ),
+        ],
       ),
     );
   }
