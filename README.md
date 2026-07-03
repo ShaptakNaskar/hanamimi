@@ -24,6 +24,7 @@ Hanamimi plays the music already on your phone — no accounts, no streaming, no
 - Queue sheet with tap-to-jump, swipe a track right to queue it, left to add to a playlist
 - Playlists with pastel covers: play all, swipe-left to remove a song, delete with confirm
 - Library-wide search across songs, albums, folders and playlists
+- **Excluded folders** — hide any directory from the scan (You → More → Excluded folders)
 - Sleep timer with moon-phase presets: countdown or end-of-track, 30 s volume fade with screen dimming
 
 **Lyrics (the fun part)**
@@ -34,7 +35,7 @@ Hanamimi plays the music already on your phone — no accounts, no streaming, no
   3. [LRCLIB](https://lrclib.net) (line-synced)
 - Filling dot indicators during intros and instrumental breaks
 - Tap any line to seek there; per-track sync offset (±0.5 s nudges) for files that are a different master than the timing source
-- Source picker on the quality badge — force embedded / Musixmatch / LRCLIB per track
+- Source picker on the quality badge — force embedded / Musixmatch / LRCLIB per track; sources are probed on open, and ones with nothing for the song are greyed out
 
 **Visualizer & mascot**
 - Real FFT from the Android `Visualizer` API (30 Hz, 12 log-spaced bands), styled per theme: pastel bars, falling raindrops, radial starburst, waveform

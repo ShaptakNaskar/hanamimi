@@ -10,11 +10,6 @@ import 'queue_manager.dart';
 class HanamimiAudioHandler extends BaseAudioHandler {
   HanamimiAudioHandler(this.engine) {
     engine.stateStream.listen(_broadcast);
-    engine.positionStream.listen((position) {
-      playbackState.add(playbackState.value.copyWith(
-        updatePosition: position,
-      ));
-    });
   }
 
   final QueueManager engine;
@@ -34,7 +29,13 @@ class HanamimiAudioHandler extends BaseAudioHandler {
       ));
     }
 
+    // One snapshot per state transition. The OS extrapolates the live
+    // position from updatePosition + updateTime + speed, so forwarding
+    // every position tick here would rebuild the media notification
+    // many times a second — which can wedge the main thread while the
+    // notification shade is open.
     playbackState.add(playbackState.value.copyWith(
+      updatePosition: engine.position,
       controls: [
         MediaControl.skipToPrevious,
         s.isPlaying ? MediaControl.pause : MediaControl.play,
@@ -74,7 +75,13 @@ class HanamimiAudioHandler extends BaseAudioHandler {
   Future<void> pause() => engine.pause();
 
   @override
-  Future<void> seek(Duration position) => engine.seek(position);
+  Future<void> seek(Duration position) async {
+    await engine.seek(position);
+    // Re-anchor the system's extrapolated position after a jump.
+    playbackState.add(playbackState.value.copyWith(
+      updatePosition: position,
+    ));
+  }
 
   @override
   Future<void> skipToNext() => engine.next();

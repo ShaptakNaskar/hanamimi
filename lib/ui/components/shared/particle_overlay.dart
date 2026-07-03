@@ -54,9 +54,12 @@ class _ParticleOverlayState extends State<ParticleOverlay>
   }
 
   void _tick(Duration elapsed) {
-    if (!widget._enabled) return;
-    final dt = (elapsed - _last).inMicroseconds / 1e6;
+    // Clamp dt: it spans the whole disabled/backgrounded stretch after
+    // a theme switch or app resume, which would teleport every particle.
+    final dt =
+        ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 1 / 15);
     _last = elapsed;
+    if (!widget._enabled) return;
     _time += dt;
     final falling = widget.theme.id == 'cherry_blossom';
     for (var i = 0; i < _particles.length; i++) {

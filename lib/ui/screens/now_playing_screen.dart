@@ -185,7 +185,10 @@ class _BlurredArtBackground extends StatelessWidget {
         if (art != null && File(art).existsSync())
           ImageFiltered(
             imageFilter: ImageFilter.blur(sigmaX: 60, sigmaY: 60),
-            child: Image.file(File(art), fit: BoxFit.cover),
+            // Blurring full-resolution art costs enormous raster time and
+            // memory; at sigma 60 a small decode looks identical.
+            child: Image.file(File(art),
+                fit: BoxFit.cover, cacheWidth: 200, gaplessPlayback: true),
           )
         else
           ColoredBox(color: theme.primary.withValues(alpha: 0.4)),

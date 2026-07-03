@@ -4,10 +4,32 @@ import '../library/library_repository.dart';
 import '../library/library_scanner.dart';
 import '../library/models/playlist.dart';
 import '../library/models/track.dart';
+import 'theme_provider.dart';
 
 final libraryRepositoryProvider = FutureProvider<LibraryRepository>(
   (ref) => LibraryRepository.open(),
 );
+
+/// Directories excluded from the library scan. Persisted; edits apply
+/// on the next (re)scan.
+class ExcludedFoldersNotifier extends Notifier<Set<String>> {
+  static const _key = 'excluded_folders';
+
+  @override
+  Set<String> build() =>
+      ref.watch(sharedPrefsProvider).getStringList(_key)?.toSet() ?? {};
+
+  void toggle(String path) {
+    state = state.contains(path)
+        ? ({...state}..remove(path))
+        : {...state, path};
+    ref.read(sharedPrefsProvider).setStringList(_key, state.toList());
+  }
+}
+
+final excludedFoldersProvider =
+    NotifierProvider<ExcludedFoldersNotifier, Set<String>>(
+        ExcludedFoldersNotifier.new);
 
 /// All tracks in the library. First read triggers a device scan if the
 /// DB is empty; `rescan()` is the user-facing refresh.
@@ -15,12 +37,17 @@ class LibraryNotifier extends AsyncNotifier<List<Track>> {
   bool _permissionDenied = false;
   bool get permissionDenied => _permissionDenied;
 
+  LibraryScanner _scanner(LibraryRepository repo) => LibraryScanner(
+        repo,
+        excludedDirs: ref.read(excludedFoldersProvider),
+      );
+
   @override
   Future<List<Track>> build() async {
     final repo = await ref.watch(libraryRepositoryProvider.future);
     var tracks = await repo.allTracks();
     if (tracks.isEmpty) {
-      final result = await LibraryScanner(repo).scan();
+      final result = await _scanner(repo).scan();
       _permissionDenied = result == ScanResult.permissionDenied;
       tracks = await repo.allTracks();
     }
@@ -29,7 +56,7 @@ class LibraryNotifier extends AsyncNotifier<List<Track>> {
 
   Future<void> rescan() async {
     final repo = await ref.read(libraryRepositoryProvider.future);
-    final result = await LibraryScanner(repo).scan();
+    final result = await _scanner(repo).scan();
     _permissionDenied = result == ScanResult.permissionDenied;
     state = AsyncData(await repo.allTracks());
   }

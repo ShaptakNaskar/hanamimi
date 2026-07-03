@@ -40,6 +40,7 @@ class QueueManager {
   /// the primary is disposed after a crossfade).
   final _position = BehaviorSubject<Duration>.seeded(Duration.zero);
   Stream<Duration> get positionStream => _position.stream;
+  Duration get position => _position.value;
 
   /// Fires with a track every time playback of it begins (for play counts).
   final trackStarted = StreamController<Track>.broadcast();

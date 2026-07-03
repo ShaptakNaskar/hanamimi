@@ -20,6 +20,10 @@ class _AppShellState extends ConsumerState<AppShell> {
   int _index = 0;
   int _previousIndex = 0;
 
+  // Tabs visited before the current one; system back walks this before
+  // it's allowed to close the app.
+  final List<int> _navHistory = [];
+
   static const _screens = [
     LibraryScreen(),
     NowPlayingScreen(),
@@ -30,7 +34,16 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (i == _index) return;
     setState(() {
       _previousIndex = _index;
+      _navHistory.add(_index);
       _index = i;
+    });
+  }
+
+  void _goBack() {
+    if (_navHistory.isEmpty) return;
+    setState(() {
+      _previousIndex = _index;
+      _index = _navHistory.removeLast();
     });
   }
 
@@ -40,43 +53,49 @@ class _AppShellState extends ConsumerState<AppShell> {
     // Content slides in from the direction of travel (DESIGN.md §8).
     final slideFromRight = _index > _previousIndex;
 
-    return Scaffold(
-      body: AnimatedSwitcher(
-        duration: Anim.tabSlide,
-        switchInCurve: Curves.easeOut,
-        switchOutCurve: Curves.easeOut,
-        transitionBuilder: (child, animation) {
-          final isIncoming = child.key == ValueKey(_index);
-          final beginX = isIncoming
-              ? (slideFromRight ? 0.15 : -0.15)
-              : (slideFromRight ? -0.15 : 0.15);
-          return FadeTransition(
-            opacity: animation,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: Offset(beginX, 0),
-                end: Offset.zero,
-              ).animate(animation),
-              child: child,
-            ),
-          );
-        },
-        child: KeyedSubtree(
-          key: ValueKey(_index),
-          child: _screens[_index],
-        ),
-      ),
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Hidden on the Playing tab — the full screen is already there.
-          if (_index != 1) MiniPlayer(onOpen: () => _onNavChanged(1)),
-          HanamimiBottomNav(
-            activeIndex: _index,
-            onChanged: _onNavChanged,
-            theme: theme,
+    return PopScope(
+      canPop: _navHistory.isEmpty,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _goBack();
+      },
+      child: Scaffold(
+        body: AnimatedSwitcher(
+          duration: Anim.tabSlide,
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeOut,
+          transitionBuilder: (child, animation) {
+            final isIncoming = child.key == ValueKey(_index);
+            final beginX = isIncoming
+                ? (slideFromRight ? 0.15 : -0.15)
+                : (slideFromRight ? -0.15 : 0.15);
+            return FadeTransition(
+              opacity: animation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: Offset(beginX, 0),
+                  end: Offset.zero,
+                ).animate(animation),
+                child: child,
+              ),
+            );
+          },
+          child: KeyedSubtree(
+            key: ValueKey(_index),
+            child: _screens[_index],
           ),
-        ],
+        ),
+        bottomNavigationBar: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Hidden on the Playing tab — the full screen is already there.
+            if (_index != 1) MiniPlayer(onOpen: () => _onNavChanged(1)),
+            HanamimiBottomNav(
+              activeIndex: _index,
+              onChanged: _onNavChanged,
+              theme: theme,
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -43,24 +43,67 @@ class LyricsService {
             ? null
             : LrcParser.parseAuto(text, source: LyricsSource.embedded);
       case LyricsSource.musixmatch:
-        final rich = await MusixmatchProvider.fetchRichsyncJson(
-          title: track.title,
-          artist: track.artist,
-          duration: track.duration,
-        );
-        result = rich == null ? null : RichsyncParser.parse(rich);
+        // The 30-day DB cache first — a forced switch shouldn't fail
+        // just because the network is down right now.
+        result = await _cachedForSource(track, source);
+        if (result == null) {
+          final rich = await MusixmatchProvider.fetchRichsyncJson(
+            title: track.title,
+            artist: track.artist,
+            duration: track.duration,
+          );
+          result = rich == null ? null : RichsyncParser.parse(rich);
+          if (result != null && !result.isEmpty) {
+            // Word-synced is the top quality — safe to promote the
+            // shared cache row (auto prefers it anyway).
+            await _repo.cacheLyrics(track.title, track.artist, rich!, 2);
+          }
+        }
       case LyricsSource.lrclib:
-        final raw = await _lrclibRaw(track);
-        final text = raw?.synced ?? raw?.plain;
-        result = text == null
-            ? null
-            : raw!.synced != null
-                ? LrcParser.parseSynced(text)
-                : LrcParser.parsePlain(text);
+        result = await _cachedForSource(track, source);
+        if (result == null) {
+          final raw = await _lrclibRaw(track);
+          final text = raw?.synced ?? raw?.plain;
+          result = text == null
+              ? null
+              : raw!.synced != null
+                  ? LrcParser.parseSynced(text)
+                  : LrcParser.parsePlain(text);
+        }
     }
     if (result != null && result.isEmpty) result = null;
-    _sourceCache[key] = result;
+    // A missing embedded tag is definitive; a network miss might just
+    // be a bad connection — let those retry on the next probe.
+    if (result != null || source == LyricsSource.embedded) {
+      _sourceCache[key] = result;
+    }
     return result;
+  }
+
+  /// What the shared DB cache holds for this track, but only when that
+  /// entry actually came from [source]: quality-2 rows are Musixmatch
+  /// richsync, quality 0/1 rows are LRCLIB.
+  Future<Lyrics?> _cachedForSource(Track track, LyricsSource source) async {
+    final cached = await _repo.cachedLyrics(track.title, track.artist);
+    if (cached == null) return null;
+    final age = DateTime.now().difference(
+        DateTime.fromMillisecondsSinceEpoch(cached['cached_at'] as int));
+    if (age >= _maxCacheAge) return null;
+    final text = cached['lrc_text'] as String;
+    if (text.isEmpty) return null;
+    final quality = cached['quality'] as int? ?? 0;
+    switch (source) {
+      case LyricsSource.musixmatch:
+        if (quality == 2 && RichsyncParser.looksLikeRichsync(text)) {
+          return RichsyncParser.parse(text);
+        }
+      case LyricsSource.lrclib:
+        if (quality == 1) return LrcParser.parseSynced(text);
+        if (quality == 0) return LrcParser.parsePlain(text);
+      case LyricsSource.embedded:
+        break;
+    }
+    return null;
   }
 
   /// Returns null when no lyrics exist for the track.

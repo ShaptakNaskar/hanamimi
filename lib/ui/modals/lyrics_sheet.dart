@@ -56,91 +56,25 @@ class _LyricsSheetBodyState extends ConsumerState<_LyricsSheetBody> {
     setState(() {});
   }
 
-  void _toast(String message) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(Radii.md)),
-        content:
-            Text(message, style: const TextStyle(fontFamily: 'Nunito')),
-      ));
-
   Future<void> _selectSource(Track track, LyricsSource? source) async {
     final prefs = ref.read(sharedPrefsProvider);
     final key = 'lyrics_source_${track.id}';
     if (source == null) {
       await prefs.remove(key); // back to auto
     } else {
-      final repo = await ref.read(libraryRepositoryProvider.future);
-      final lyrics =
-          await LyricsService(repo).fetchFromSource(track, source);
-      if (lyrics == null) {
-        _toast('No ${_sourceLabel(source)} lyrics for this song');
-        return;
-      }
+      // The picker only offers sources it verified, so no re-check here.
       await prefs.setString(key, source.name);
     }
     ref.invalidate(lyricsProvider(track.id));
     if (mounted) setState(() {});
   }
 
-  static String _sourceLabel(LyricsSource s) => switch (s) {
-        LyricsSource.embedded => 'embedded',
-        LyricsSource.musixmatch => 'Musixmatch',
-        LyricsSource.lrclib => 'LRCLIB',
-      };
-
   void _showSourcePicker(BuildContext context, Track track) {
-    final theme = ref.read(currentThemeProvider);
-    final current =
-        ref.read(sharedPrefsProvider).getString('lyrics_source_${track.id}');
-
     showModalBottomSheet(
       context: context,
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(Space.s4),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Lyrics source',
-                  style: TextStyle(
-                      fontFamily: 'Nunito',
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: theme.textPrimary)),
-              const SizedBox(height: Space.s2),
-              for (final (name, source, subtitle) in [
-                ('Auto', null, 'Best available quality'),
-                (
-                  'Embedded',
-                  LyricsSource.embedded,
-                  'From the audio file\'s own tags'
-                ),
-                (
-                  'Musixmatch',
-                  LyricsSource.musixmatch,
-                  'Word-synced (online)'
-                ),
-                ('LRCLIB', LyricsSource.lrclib, 'Line-synced (online)'),
-              ])
-                ListTile(
-                  title: Text(name, style: AppText.rowSongTitle(theme)),
-                  subtitle: Text(subtitle, style: AppText.caption(theme)),
-                  trailing: (current == null && source == null) ||
-                          current == source?.name
-                      ? Icon(Icons.check, size: 20, color: theme.primary)
-                      : null,
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    _selectSource(track, source);
-                  },
-                ),
-            ],
-          ),
-        ),
+      builder: (_) => _SourcePickerSheet(
+        track: track,
+        onSelect: (source) => _selectSource(track, source),
       ),
     );
   }
@@ -165,8 +99,11 @@ class _LyricsSheetBodyState extends ConsumerState<_LyricsSheetBody> {
               File(track.albumArtPath!).existsSync())
             ImageFiltered(
               imageFilter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
-              child:
-                  Image.file(File(track.albumArtPath!), fit: BoxFit.cover),
+              // Small decode: it's blurred to a wash anyway, and full-res
+              // art here makes the raster thread struggle (freezes on
+              // surface re-creation, e.g. after the notification shade).
+              child: Image.file(File(track.albumArtPath!),
+                  fit: BoxFit.cover, cacheWidth: 200, gaplessPlayback: true),
             )
           else
             ColoredBox(color: theme.background),
@@ -219,9 +156,15 @@ class _LyricsSheetBodyState extends ConsumerState<_LyricsSheetBody> {
                     loading: () => Center(
                         child: CircularProgressIndicator(
                             color: theme.primary)),
-                    error: (_, __) => _NoLyrics(theme: theme),
+                    error: (_, __) => _NoLyrics(
+                        theme: theme,
+                        onPickSource: () =>
+                            _showSourcePicker(context, track)),
                     data: (l) => l == null || l.isEmpty
-                        ? _NoLyrics(theme: theme)
+                        ? _NoLyrics(
+                            theme: theme,
+                            onPickSource: () =>
+                                _showSourcePicker(context, track))
                         : l.isSynced
                             ? _KaraokeLines(
                                 key: ValueKey(track.id),
@@ -407,6 +350,7 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
   // instead of stepping at the stream's update rate.
   Duration _lastPosition = Duration.zero;
   late final Stopwatch _sinceReport = Stopwatch();
+  Duration _builtPosition = Duration.zero;
   int _scrolledTo = -2;
 
   static const _lineExtent = 72.0;
@@ -431,7 +375,14 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
     _lastPosition = ref.read(positionProvider).value ?? Duration.zero;
     _sinceReport.start();
 
-    _ticker = createTicker((_) => setState(() {}))..start();
+    // Skip frames where the position hasn't moved (paused, buffering)
+    // instead of rebuilding the whole line list at the display rate.
+    _ticker = createTicker((_) {
+      final pos = _smoothPosition;
+      if (pos == _builtPosition) return;
+      _builtPosition = pos;
+      setState(() {});
+    })..start();
   }
 
   /// When the singing of line [index] actually stops: richsync `te`,
@@ -888,9 +839,10 @@ class _PlainLines extends StatelessWidget {
 }
 
 class _NoLyrics extends StatelessWidget {
-  const _NoLyrics({required this.theme});
+  const _NoLyrics({required this.theme, this.onPickSource});
 
   final HanamimiTheme theme;
+  final VoidCallback? onPickSource;
 
   @override
   Widget build(BuildContext context) {
@@ -903,8 +855,142 @@ class _NoLyrics extends StatelessWidget {
           Text('No lyrics found', style: AppText.body(theme)),
           Text('This one\'s just for listening',
               style: AppText.caption(theme)),
+          if (onPickSource != null) ...[
+            const SizedBox(height: Space.s2),
+            TextButton(
+              onPressed: onPickSource,
+              child: Text(
+                'Try another source',
+                style: TextStyle(
+                  fontFamily: 'Nunito',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: theme.primary,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
+    );
+  }
+}
+
+/// Source picker that probes each provider first: sources with nothing
+/// for this song are greyed out and labeled instead of silently doing
+/// nothing when tapped.
+class _SourcePickerSheet extends ConsumerStatefulWidget {
+  const _SourcePickerSheet({required this.track, required this.onSelect});
+
+  final Track track;
+  final ValueChanged<LyricsSource?> onSelect;
+
+  @override
+  ConsumerState<_SourcePickerSheet> createState() =>
+      _SourcePickerSheetState();
+}
+
+class _SourcePickerSheetState extends ConsumerState<_SourcePickerSheet> {
+  // Missing key = still probing.
+  final Map<LyricsSource, bool> _available = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _probe();
+  }
+
+  Future<void> _probe() async {
+    final repo = await ref.read(libraryRepositoryProvider.future);
+    final service = LyricsService(repo);
+    for (final source in LyricsSource.values) {
+      // Fire concurrently; each row updates as its answer lands.
+      service.fetchFromSource(widget.track, source).then((lyrics) {
+        if (mounted) setState(() => _available[source] = lyrics != null);
+      }).catchError((_) {
+        if (mounted) setState(() => _available[source] = false);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ref.watch(currentThemeProvider);
+    final current = ref
+        .read(sharedPrefsProvider)
+        .getString('lyrics_source_${widget.track.id}');
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(Space.s4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Lyrics source',
+                style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: theme.textPrimary)),
+            const SizedBox(height: Space.s2),
+            for (final (name, source, subtitle) in [
+              ('Auto', null, 'Best available quality'),
+              (
+                'Embedded',
+                LyricsSource.embedded,
+                'From the audio file\'s own tags'
+              ),
+              (
+                'Musixmatch',
+                LyricsSource.musixmatch,
+                'Word-synced (online)'
+              ),
+              ('LRCLIB', LyricsSource.lrclib, 'Line-synced (online)'),
+            ])
+              _buildRow(theme, name, source, subtitle, current),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRow(HanamimiTheme theme, String name, LyricsSource? source,
+      String subtitle, String? current) {
+    // Auto is always offered; concrete sources once verified.
+    final available = source == null ? true : _available[source];
+    final probing = available == null;
+    final selected = (current == null && source == null) ||
+        (source != null && current == source.name);
+
+    return ListTile(
+      enabled: available ?? false,
+      title: Text(name,
+          style: AppText.rowSongTitle(theme).copyWith(
+            color: (available ?? false)
+                ? theme.textPrimary
+                : theme.textMuted.withValues(alpha: 0.6),
+          )),
+      subtitle: Text(
+        available == false ? 'Not found for this song' : subtitle,
+        style: AppText.caption(theme),
+      ),
+      trailing: probing
+          ? SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, color: theme.textMuted),
+            )
+          : selected
+              ? Icon(Icons.check, size: 20, color: theme.primary)
+              : null,
+      onTap: (available ?? false)
+          ? () {
+              Navigator.pop(context);
+              widget.onSelect(source);
+            }
+          : null,
     );
   }
 }

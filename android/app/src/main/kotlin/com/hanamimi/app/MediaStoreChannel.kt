@@ -4,11 +4,14 @@ import android.content.ContentUris
 import android.content.Context
 import android.graphics.Bitmap
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.util.Size
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.Executors
 
 /**
  * Scans MediaStore for audio files and extracts album art thumbnails.
@@ -16,14 +19,32 @@ import java.io.FileOutputStream
  */
 class MediaStoreChannel(private val context: Context) {
 
+    // MethodChannel handlers run on the main thread; the scan and the
+    // per-album thumbnail decode/compress are far too slow for it
+    // (visible freezes/ANRs on large libraries), so do the work here
+    // and post only the reply back.
+    private val executor = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     fun handle(call: io.flutter.plugin.common.MethodCall, result: MethodChannel.Result) {
         when (call.method) {
-            "queryTracks" -> result.success(queryTracks())
+            "queryTracks" -> runAsync(result) { queryTracks() }
             "getAlbumArt" -> {
                 val albumId = call.argument<Number>("albumId")!!.toLong()
-                result.success(getAlbumArt(albumId))
+                runAsync(result) { getAlbumArt(albumId) }
             }
             else -> result.notImplemented()
+        }
+    }
+
+    private fun <T> runAsync(result: MethodChannel.Result, block: () -> T) {
+        executor.execute {
+            try {
+                val value = block()
+                mainHandler.post { result.success(value) }
+            } catch (e: Exception) {
+                mainHandler.post { result.error("mediastore", e.message, null) }
+            }
         }
     }
 

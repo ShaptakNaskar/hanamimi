@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../library/media_store_channel.dart';
 import '../../providers/cat_mode_provider.dart';
 import '../../providers/companion_provider.dart';
 import '../../providers/dev_provider.dart';
@@ -245,6 +247,16 @@ class _MoreCard extends ConsumerWidget {
               ));
             },
           ),
+          Divider(height: 0.5, color: theme.divider),
+          ListTile(
+            leading: Icon(Icons.folder_off_outlined,
+                size: 20, color: theme.textMuted),
+            title: Text('Excluded folders',
+                style: AppText.rowSongTitle(theme)),
+            subtitle: Text('Hide folders from your library',
+                style: AppText.caption(theme)),
+            onTap: () => _showExcludedFoldersSheet(context, ref, theme),
+          ),
           // Hidden until unlocked by tapping the mascot 7 times.
           if (ref.watch(catModeProvider).unlocked) ...[
             Divider(height: 0.5, color: theme.divider),
@@ -285,6 +297,136 @@ class _MoreCard extends ConsumerWidget {
             const _DevOptions(),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// Opens the excluded-folders manager; rescans on close if the
+/// selection changed so the library reflects it right away.
+Future<void> _showExcludedFoldersSheet(
+    BuildContext context, WidgetRef ref, HanamimiTheme theme) async {
+  final before = ref.read(excludedFoldersProvider);
+  await showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => const FractionallySizedBox(
+      heightFactor: 0.7,
+      child: _ExcludedFoldersSheet(),
+    ),
+  );
+  if (!setEquals(before, ref.read(excludedFoldersProvider))) {
+    ref.read(libraryProvider.notifier).rescan();
+  }
+}
+
+/// Every device folder that contains music (straight from MediaStore,
+/// so already-excluded folders stay listed and can be re-included).
+class _ExcludedFoldersSheet extends ConsumerStatefulWidget {
+  const _ExcludedFoldersSheet();
+
+  @override
+  ConsumerState<_ExcludedFoldersSheet> createState() =>
+      _ExcludedFoldersSheetState();
+}
+
+class _ExcludedFoldersSheetState
+    extends ConsumerState<_ExcludedFoldersSheet> {
+  List<(String, String, int)>? _folders; // (path, name, song count)
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final scanned = await MediaStoreChannel.queryTracks();
+      final counts = <String, int>{};
+      for (final s in scanned) {
+        final path = s['filePath'] as String? ?? '';
+        final slash = path.lastIndexOf('/');
+        final dir = slash <= 0 ? '/' : path.substring(0, slash);
+        counts[dir] = (counts[dir] ?? 0) + 1;
+      }
+      // Keep excluded folders visible even if their files vanished.
+      for (final dir in ref.read(excludedFoldersProvider)) {
+        counts.putIfAbsent(dir, () => 0);
+      }
+      final folders = counts.entries.map((e) {
+        final name = e.key.substring(e.key.lastIndexOf('/') + 1);
+        return (e.key, name.isEmpty ? '/' : name, e.value);
+      }).toList()
+        ..sort((a, b) => a.$2.toLowerCase().compareTo(b.$2.toLowerCase()));
+      if (mounted) setState(() => _folders = folders);
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ref.watch(currentThemeProvider);
+    final excluded = ref.watch(excludedFoldersProvider);
+    final folders = _folders;
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(Space.s4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Excluded folders',
+                style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: theme.textPrimary)),
+            const SizedBox(height: Space.s1),
+            Text('Songs in switched-off folders are left out of your library',
+                style: AppText.caption(theme)),
+            const SizedBox(height: Space.s2),
+            Expanded(
+              child: _failed
+                  ? Center(
+                      child: Text('Couldn\'t read your music folders',
+                          style: AppText.body(theme)))
+                  : folders == null
+                      ? Center(
+                          child: CircularProgressIndicator(
+                              color: theme.primary))
+                      : folders.isEmpty
+                          ? Center(
+                              child: Text('No music folders found',
+                                  style: AppText.body(theme)))
+                          : ListView.builder(
+                              itemCount: folders.length,
+                              itemBuilder: (context, i) {
+                                final (path, name, count) = folders[i];
+                                return SwitchListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  value: !excluded.contains(path),
+                                  title: Text(name,
+                                      style: AppText.rowSongTitle(theme),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis),
+                                  subtitle: Text(
+                                    '$count song${count == 1 ? '' : 's'} · $path',
+                                    style: AppText.caption(theme),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  onChanged: (_) => ref
+                                      .read(excludedFoldersProvider.notifier)
+                                      .toggle(path),
+                                );
+                              },
+                            ),
+            ),
+          ],
+        ),
       ),
     );
   }

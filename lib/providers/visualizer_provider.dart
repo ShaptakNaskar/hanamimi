@@ -18,10 +18,17 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   int? attachedSession;
   StreamSubscription? fftSub;
   Timer? synthTimer;
+  var askedForPermission = false;
 
   Future<void> tryAttach(int sessionId) async {
     if (attachedSession == sessionId) return;
-    final status = await Permission.microphone.request();
+    // A new session arrives on every track change once crossfade is on —
+    // ask once, then only re-check quietly so a denial doesn't turn into
+    // a permission dialog per song.
+    final status = askedForPermission
+        ? await Permission.microphone.status
+        : await Permission.microphone.request();
+    askedForPermission = true;
     if (!status.isGranted) return;
     // The Kotlin side releases any previous Visualizer on re-attach —
     // needed because every crossfade swap creates a new audio session.

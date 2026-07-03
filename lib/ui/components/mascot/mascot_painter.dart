@@ -188,6 +188,13 @@ class MascotPainter extends CustomPainter {
   void _drawBody(Canvas canvas) {
     final tan = Paint()..color = HanaColors.tan;
     final muzzle = Paint()..color = HanaColors.muzzle;
+    // The cream belly/paws sit directly on the app background, which on
+    // the light themes is nearly the same color — a soft brown edge
+    // keeps the silhouette readable there (barely shows on dark).
+    final edge = Paint()
+      ..color = HanaColors.earDark.withValues(alpha: 0.28)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8;
 
     // Tail.
     final tail = Path()
@@ -201,16 +208,19 @@ class MascotPainter extends CustomPainter {
     canvas.drawOval(
         Rect.fromCenter(center: const Offset(60, 124), width: 62, height: 48),
         tan);
-    canvas.drawOval(
-        Rect.fromCenter(center: const Offset(60, 134), width: 40, height: 32),
-        muzzle);
+    final belly =
+        Rect.fromCenter(center: const Offset(60, 134), width: 40, height: 32);
+    canvas.drawOval(belly, muzzle);
+    canvas.drawOval(belly, edge);
     // Paws.
-    canvas.drawOval(
-        Rect.fromCenter(center: const Offset(44, 150), width: 18, height: 14),
-        muzzle);
-    canvas.drawOval(
-        Rect.fromCenter(center: const Offset(76, 150), width: 18, height: 14),
-        muzzle);
+    final leftPaw =
+        Rect.fromCenter(center: const Offset(44, 150), width: 18, height: 14);
+    final rightPaw =
+        Rect.fromCenter(center: const Offset(76, 150), width: 18, height: 14);
+    canvas.drawOval(leftPaw, muzzle);
+    canvas.drawOval(rightPaw, muzzle);
+    canvas.drawOval(leftPaw, edge);
+    canvas.drawOval(rightPaw, edge);
   }
 
   void _drawEars(Canvas canvas) {
