@@ -1,15 +1,27 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../theme/hanamimi_theme.dart';
 import '../theme/themes.dart';
 
-/// Current app theme. Persistence to the prefs store is wired in the
-/// data layer milestone; until then this is session-only.
-class ThemeNotifier extends Notifier<HanamimiTheme> {
-  @override
-  HanamimiTheme build() => cherryBlossom;
+/// Injected in main() with the loaded instance.
+final sharedPrefsProvider = Provider<SharedPreferences>(
+  (ref) => throw UnimplementedError('overridden in main'),
+);
 
-  void setTheme(String id) => state = themeById(id);
+class ThemeNotifier extends Notifier<HanamimiTheme> {
+  static const _key = 'theme_id';
+
+  @override
+  HanamimiTheme build() {
+    final saved = ref.watch(sharedPrefsProvider).getString(_key);
+    return saved == null ? cherryBlossom : themeById(saved);
+  }
+
+  void setTheme(String id) {
+    state = themeById(id);
+    ref.read(sharedPrefsProvider).setString(_key, id);
+  }
 }
 
 final currentThemeProvider =
