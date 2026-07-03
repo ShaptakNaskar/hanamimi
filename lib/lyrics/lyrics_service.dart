@@ -8,6 +8,7 @@ import 'embedded_lyrics.dart';
 import 'lrc_parser.dart';
 import 'models/lyric_line.dart';
 import 'musixmatch_provider.dart';
+import 'richsync_parser.dart';
 
 /// Resolves lyrics for a track from three sources and picks the best:
 ///
@@ -49,24 +50,29 @@ class LyricsService {
         final text = cached['lrc_text'] as String;
         if (text.isEmpty) return null; // cached "not found"
         final quality = cached['quality'] as int? ?? 0;
-        return quality >= 1
-            ? LrcParser.parseSynced(text,
-                source: quality == 2
-                    ? LyricsSource.musixmatch
-                    : LyricsSource.lrclib)
-            : LrcParser.parsePlain(text);
+        if (quality == 2 && RichsyncParser.looksLikeRichsync(text)) {
+          return RichsyncParser.parse(text);
+        }
+        if (quality == 1) return LrcParser.parseSynced(text);
+        if (quality == 0) return LrcParser.parsePlain(text);
+        // quality 2 in legacy enhanced-LRC format: it lost the line-end
+        // times, which makes highlights bleed across instrumental
+        // breaks — fall through and refetch as richsync JSON.
       }
     }
 
     // Word-level first: Musixmatch richsync.
-    final rich = await MusixmatchProvider.fetchEnhancedLrc(
+    final rich = await MusixmatchProvider.fetchRichsyncJson(
       title: track.title,
       artist: track.artist,
       duration: track.duration,
     );
     if (rich != null) {
-      await _repo.cacheLyrics(track.title, track.artist, rich, 2);
-      return LrcParser.parseSynced(rich, source: LyricsSource.musixmatch);
+      final parsed = RichsyncParser.parse(rich);
+      if (!parsed.isEmpty) {
+        await _repo.cacheLyrics(track.title, track.artist, rich, 2);
+        return parsed;
+      }
     }
 
     // Line-level fallback: LRCLIB.

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -6,7 +7,6 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../library/models/track.dart';
-import '../../lyrics/lrc_parser.dart';
 import '../../lyrics/models/lyric_line.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/lyrics_provider.dart';
@@ -32,15 +32,37 @@ void showLyricsSheet(BuildContext context, Track track) {
   );
 }
 
-class _LyricsSheetBody extends ConsumerWidget {
+class _LyricsSheetBody extends ConsumerStatefulWidget {
   const _LyricsSheetBody({required this.track});
 
   final Track track;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_LyricsSheetBody> createState() => _LyricsSheetBodyState();
+}
+
+class _LyricsSheetBodyState extends ConsumerState<_LyricsSheetBody> {
+  Duration _offsetFor(int trackId) => Duration(
+      milliseconds:
+          ref.read(sharedPrefsProvider).getInt('lyrics_offset_$trackId') ??
+              0);
+
+  void _adjustOffset(int trackId, int deltaMs) {
+    final ms = (_offsetFor(trackId).inMilliseconds + deltaMs)
+        .clamp(-15000, 15000);
+    ref.read(sharedPrefsProvider).setInt('lyrics_offset_$trackId', ms);
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = ref.watch(currentThemeProvider);
+    // Follow playback: if the song changes while the sheet is open,
+    // show the new song's lyrics instead of going stale.
+    final track =
+        ref.watch(audioStateProvider).value?.currentTrack ?? widget.track;
     final lyrics = ref.watch(lyricsProvider(track.id));
+    final offset = _offsetFor(track.id);
 
     return ClipRRect(
       borderRadius:
@@ -80,7 +102,21 @@ class _LyricsSheetBody extends ConsumerWidget {
                 Text(track.artist, style: AppText.caption(theme)),
                 if (lyrics.value != null) ...[
                   const SizedBox(height: Space.s1),
-                  _QualityBadge(lyrics: lyrics.value!, theme: theme),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _QualityBadge(lyrics: lyrics.value!, theme: theme),
+                      if (lyrics.value!.isSynced) ...[
+                        const SizedBox(width: Space.s2),
+                        _OffsetControl(
+                          offset: offset,
+                          theme: theme,
+                          onAdjust: (delta) =>
+                              _adjustOffset(track.id, delta),
+                        ),
+                      ],
+                    ],
+                  ),
                 ],
                 const SizedBox(height: Space.s3),
                 Expanded(
@@ -92,7 +128,12 @@ class _LyricsSheetBody extends ConsumerWidget {
                     data: (l) => l == null || l.isEmpty
                         ? _NoLyrics(theme: theme)
                         : l.isSynced
-                            ? _KaraokeLines(lyrics: l, theme: theme)
+                            ? _KaraokeLines(
+                                key: ValueKey(track.id),
+                                lyrics: l,
+                                theme: theme,
+                                offset: offset,
+                              )
                             : _PlainLines(lyrics: l, theme: theme),
                   ),
                 ),
@@ -103,6 +144,62 @@ class _LyricsSheetBody extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Nudges lyric timing for this track: − plays lyrics earlier, + later.
+/// For local files that are a different master than the timing source.
+class _OffsetControl extends StatelessWidget {
+  const _OffsetControl({
+    required this.offset,
+    required this.theme,
+    required this.onAdjust,
+  });
+
+  final Duration offset;
+  final HanamimiTheme theme;
+  final ValueChanged<int> onAdjust;
+
+  @override
+  Widget build(BuildContext context) {
+    final seconds = offset.inMilliseconds / 1000;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: Space.s1),
+      decoration: BoxDecoration(
+        color: theme.surface.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(Radii.sm),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _nudge(Icons.remove, () => onAdjust(-500)),
+          GestureDetector(
+            onLongPress: () => onAdjust(-offset.inMilliseconds),
+            child: Text(
+              '${seconds >= 0 ? '+' : ''}${seconds.toStringAsFixed(1)}s',
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: offset == Duration.zero
+                    ? theme.textMuted
+                    : theme.accent,
+              ),
+            ),
+          ),
+          _nudge(Icons.add, () => onAdjust(500)),
+        ],
+      ),
+    );
+  }
+
+  Widget _nudge(IconData icon, VoidCallback onTap) => InkResponse(
+        onTap: onTap,
+        radius: 16,
+        child: Padding(
+          padding: const EdgeInsets.all(Space.s1),
+          child: Icon(icon, size: 14, color: theme.textMuted),
+        ),
+      );
 }
 
 class _QualityBadge extends StatelessWidget {
@@ -150,11 +247,34 @@ class _TimedWord {
   final Duration end;
 }
 
+/// One slot in the scrolling list: either a lyric line or an interlude
+/// (intro / instrumental break) rendered as filling dots.
+class _Entry {
+  _Entry.line(this.lineIndex, this.start) : interludeEnd = null;
+  _Entry.interlude(this.start, Duration this.interludeEnd)
+      : lineIndex = null;
+
+  final int? lineIndex;
+  final Duration start;
+  final Duration? interludeEnd;
+
+  bool get isInterlude => lineIndex == null;
+}
+
 class _KaraokeLines extends ConsumerStatefulWidget {
-  const _KaraokeLines({required this.lyrics, required this.theme});
+  const _KaraokeLines({
+    super.key,
+    required this.lyrics,
+    required this.theme,
+    this.offset = Duration.zero,
+  });
 
   final Lyrics lyrics;
   final HanamimiTheme theme;
+
+  /// Per-track sync nudge: positive = lyrics wait longer (for files
+  /// with extra intro silence vs. the version the timings match).
+  final Duration offset;
 
   @override
   ConsumerState<_KaraokeLines> createState() => _KaraokeLinesState();
@@ -165,6 +285,7 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
   final _scroll = ScrollController();
   late final Ticker _ticker;
   late final List<List<_TimedWord>> _timedLines;
+  late final List<_Entry> _entries;
 
   // Last position report from the player, and when we received it —
   // the ticker extrapolates between reports so the word fill glides
@@ -175,14 +296,55 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
 
   static const _lineExtent = 72.0;
 
+  /// Intro shorter than this just shows dim upcoming lines.
+  static const _introInterlude = Duration(seconds: 3);
+
+  /// Vocal gap that earns an instrumental-break indicator.
+  static const _gapInterlude = Duration(seconds: 7);
+
   @override
   void initState() {
     super.initState();
+    final lines = widget.lyrics.lines;
     _timedLines = [
-      for (var i = 0; i < widget.lyrics.lines.length; i++)
-        _resolveWords(widget.lyrics.lines, i),
+      for (var i = 0; i < lines.length; i++) _resolveWords(lines, i),
     ];
+    _entries = _buildEntries(lines);
+
+    // Seed from the player's current position so opening the sheet
+    // mid-song doesn't flash the first line.
+    _lastPosition = ref.read(positionProvider).value ?? Duration.zero;
+    _sinceReport.start();
+
     _ticker = createTicker((_) => setState(() {}))..start();
+  }
+
+  /// When the singing of line [index] actually stops: richsync `te`,
+  /// or the end of the last (possibly synthesized) word.
+  Duration _lineEnd(int index) {
+    final end = widget.lyrics.lines[index].end;
+    if (end != null) return end;
+    final words = _timedLines[index];
+    return words.isEmpty
+        ? widget.lyrics.lines[index].timestamp
+        : words.last.end;
+  }
+
+  List<_Entry> _buildEntries(List<LyricLine> lines) {
+    final entries = <_Entry>[];
+    if (lines.isNotEmpty && lines.first.timestamp >= _introInterlude) {
+      entries.add(_Entry.interlude(Duration.zero, lines.first.timestamp));
+    }
+    for (var i = 0; i < lines.length; i++) {
+      entries.add(_Entry.line(i, lines[i].timestamp));
+      if (i + 1 < lines.length) {
+        final vocalEnd = _lineEnd(i);
+        if (lines[i + 1].timestamp - vocalEnd >= _gapInterlude) {
+          entries.add(_Entry.interlude(vocalEnd, lines[i + 1].timestamp));
+        }
+      }
+    }
+    return entries;
   }
 
   /// Real word timings when the source has them; otherwise synthesized:
@@ -196,21 +358,27 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
 
     if (line.hasWordTimings) {
       final words = line.words!;
+      // Richsync tells us when the vocal ends; sources without a line
+      // end get the last word capped at 2s so a trailing word never
+      // keeps filling through an instrumental break.
+      final lastEnd = line.end ??
+          _min(nextStart, words.last.start + const Duration(seconds: 2));
       return [
         for (var w = 0; w < words.length; w++)
           _TimedWord(
             words[w].text,
             words[w].start,
-            w + 1 < words.length ? words[w + 1].start : nextStart,
+            w + 1 < words.length ? words[w + 1].start : lastEnd,
           ),
       ];
     }
+    final lineEnd = line.end ?? nextStart;
 
     final tokens =
         line.text.split(' ').where((t) => t.isNotEmpty).toList();
     if (tokens.isEmpty) return [];
     final gapMs =
-        (nextStart - line.timestamp).inMilliseconds.clamp(400, 30000);
+        (lineEnd - line.timestamp).inMilliseconds.clamp(400, 30000);
     // ~350ms per word + lead-in, but never longer than the actual gap.
     final singMs =
         (tokens.length * 350 + 500).clamp(400, gapMs).toDouble();
@@ -230,11 +398,28 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
     return result;
   }
 
+  static Duration _min(Duration a, Duration b) => a < b ? a : b;
+
   Duration get _smoothPosition {
     final playing =
         ref.read(audioStateProvider).value?.isPlaying ?? false;
-    if (!playing) return _lastPosition;
-    return _lastPosition + _sinceReport.elapsed;
+    final raw =
+        playing ? _lastPosition + _sinceReport.elapsed : _lastPosition;
+    return raw - widget.offset;
+  }
+
+  /// Last entry whose start has passed, or -1 before everything.
+  int _activeEntry(Duration position) {
+    var lo = -1, hi = _entries.length - 1;
+    while (lo < hi) {
+      final mid = (lo + hi + 1) ~/ 2;
+      if (_entries[mid].start <= position) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return lo;
   }
 
   void _autoScroll(int active) {
@@ -270,7 +455,7 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
     final theme = widget.theme;
     final lines = widget.lyrics.lines;
     final position = _smoothPosition;
-    final active = LrcParser.activeLine(lines, position);
+    final active = _activeEntry(position);
     WidgetsBinding.instance.addPostFrameCallback((_) => _autoScroll(active));
 
     final bright = theme.isDark ? Colors.white : theme.textPrimary;
@@ -299,11 +484,26 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
             physics: const BouncingScrollPhysics(),
             padding:
                 EdgeInsets.symmetric(vertical: pad, horizontal: Space.s6),
-            itemCount: lines.length,
+            itemCount: _entries.length,
             itemExtent: _lineExtent,
             itemBuilder: (context, i) {
+              final entry = _entries[i];
               final isActive = i == active;
               final isPast = i < active;
+
+              if (entry.isInterlude) {
+                return RepaintBoundary(
+                  child: _InterludeDots(
+                    start: entry.start,
+                    end: entry.interludeEnd!,
+                    position: position,
+                    active: isActive,
+                    color: bright,
+                  ),
+                );
+              }
+
+              final lineIndex = entry.lineIndex!;
               return RepaintBoundary(
                 child: AnimatedScale(
                   scale: isActive ? 1.0 : 0.92,
@@ -312,21 +512,23 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
                   child: Center(
                     child: isActive
                         ? _KaraokeLine(
-                            words: _timedLines[i],
+                            words: _timedLines[lineIndex],
                             position: position,
                             bright: bright,
                             dim: bright.withValues(alpha: 0.35),
                           )
                         : Text(
-                            lines[i].text,
+                            lines[lineIndex].text,
                             textAlign: TextAlign.center,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
+                            // beautiful-lyrics line opacities:
+                            // idle 0.51, sung ~0.50.
                             style: AppText.body(theme).copyWith(
                               height: 1.25,
                               fontWeight: FontWeight.w600,
                               color: bright.withValues(
-                                  alpha: isPast ? 0.30 : 0.50),
+                                  alpha: isPast ? 0.45 : 0.51),
                             ),
                           ),
                   ),
@@ -337,6 +539,65 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
         ],
       );
     });
+  }
+}
+
+/// Instrumental indicator: three dots that fill across the break, with
+/// a gentle breathing pulse while active (Beautiful Lyrics-style).
+class _InterludeDots extends StatelessWidget {
+  const _InterludeDots({
+    required this.start,
+    required this.end,
+    required this.position,
+    required this.active,
+    required this.color,
+  });
+
+  final Duration start;
+  final Duration end;
+  final Duration position;
+  final bool active;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final totalMs = (end - start).inMilliseconds;
+    final progress = totalMs <= 0
+        ? 1.0
+        : ((position - start).inMilliseconds / totalMs).clamp(0.0, 1.0);
+    // Ease the last two seconds out so the dots feel like a lead-in.
+    final breathe = active
+        ? 1.0 + 0.12 * math.sin(position.inMilliseconds / 320)
+        : 1.0;
+
+    return Center(
+      child: Transform.scale(
+        scale: breathe,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var d = 0; d < 3; d++)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                child: Container(
+                  width: 11,
+                  height: 11,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: color.withValues(
+                      alpha: !active
+                          ? 0.18
+                          : progress >= (d + 1) / 3
+                              ? 0.9
+                              : 0.25,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -391,6 +652,10 @@ class _KaraokeLine extends StatelessWidget {
   }
 }
 
+/// Animation curves ported from beautiful-lyrics (SyllableVocals.ts):
+/// while a word is being sung it scales 0.95 → 1.025 (peak at 70% of
+/// its duration) → 1.0, lifts slightly, and glows — with a feathered
+/// gradient fill edge instead of a hard clip.
 class _WordFill extends StatelessWidget {
   const _WordFill({
     required this.text,
@@ -412,17 +677,53 @@ class _WordFill extends StatelessWidget {
     if (fraction >= 1) {
       return Text(text, style: style.copyWith(color: bright));
     }
-    return Stack(
-      children: [
-        Text(text, style: style.copyWith(color: dim)),
-        ClipRect(
-          child: Align(
-            alignment: Alignment.centerLeft,
-            widthFactor: fraction,
-            child: Text(text, style: style.copyWith(color: bright)),
-          ),
+
+    final t = fraction;
+    final scale = t < 0.7
+        ? lerpDouble(0.95, 1.025, t / 0.7)!
+        : lerpDouble(1.025, 1.0, (t - 0.7) / 0.3)!;
+    final fontSize = style.fontSize ?? 18;
+    final lift = (t < 0.9
+            ? lerpDouble(0.010, -0.017, t / 0.9)!
+            : lerpDouble(-0.017, 0, (t - 0.9) / 0.1)!) *
+        fontSize;
+    final glow = t < 0.15
+        ? t / 0.15
+        : t < 0.6
+            ? 1.0
+            : 1 - (t - 0.6) / 0.4;
+
+    final glowing = style.copyWith(
+      color: bright,
+      shadows: [
+        Shadow(
+          color: bright.withValues(alpha: 0.65 * glow),
+          blurRadius: fontSize * 0.7 * glow,
         ),
       ],
+    );
+
+    return Transform.translate(
+      offset: Offset(0, lift),
+      child: Transform.scale(
+        scale: scale,
+        child: Stack(
+          children: [
+            Text(text, style: style.copyWith(color: dim)),
+            ShaderMask(
+              blendMode: BlendMode.dstIn,
+              shaderCallback: (rect) => LinearGradient(
+                colors: const [Colors.white, Colors.transparent],
+                stops: [
+                  (t - 0.12).clamp(0.0, 1.0),
+                  (t + 0.12).clamp(0.0, 1.0),
+                ],
+              ).createShader(rect),
+              child: Text(text, style: glowing),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -10,11 +10,18 @@ class LyricLine {
   const LyricLine({
     required this.timestamp,
     required this.text,
+    this.end,
     this.words,
   });
 
   final Duration timestamp;
   final String text;
+
+  /// When the vocal for this line stops (richsync `te`). Null for LRC
+  /// sources, which only mark line starts — the UI estimates then.
+  /// Without this, the last word would keep "filling" through any
+  /// instrumental break that follows the line.
+  final Duration? end;
 
   /// Word-level timings when the source provides them; null for plain
   /// line-level lyrics (the UI synthesizes an approximation then).

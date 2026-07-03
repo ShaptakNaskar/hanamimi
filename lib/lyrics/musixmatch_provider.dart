@@ -20,8 +20,8 @@ abstract final class MusixmatchProvider {
   static String? _token;
   static DateTime? _tokenFetchedAt;
 
-  /// Returns enhanced LRC text (`[line]<word>` tags) or null.
-  static Future<String?> fetchEnhancedLrc({
+  /// Returns the raw richsync JSON body (see [RichsyncParser]) or null.
+  static Future<String?> fetchRichsyncJson({
     required String title,
     required String artist,
     required Duration duration,
@@ -39,7 +39,7 @@ abstract final class MusixmatchProvider {
       final richsyncBody = ((body?['richsync']
           as Map<String, dynamic>?)?['richsync_body']) as String?;
       if (richsyncBody == null || richsyncBody.isEmpty) return null;
-      return _toEnhancedLrc(jsonDecode(richsyncBody) as List);
+      return richsyncBody;
     } catch (_) {
       return null;
     }
@@ -117,35 +117,4 @@ abstract final class MusixmatchProvider {
     return null;
   }
 
-  /// Richsync line: {ts: startSec, l: [{c: text, o: offsetSec}], x: text}
-  static String? _toEnhancedLrc(List lines) {
-    String stamp(double seconds, String open, String close) {
-      final ms = (seconds * 1000).round();
-      final m = ms ~/ 60000;
-      final s = (ms % 60000) / 1000;
-      return '$open${m.toString().padLeft(2, '0')}:'
-          '${s.toStringAsFixed(2).padLeft(5, '0')}$close';
-    }
-
-    final buffer = StringBuffer();
-    var wroteAny = false;
-    for (final raw in lines) {
-      final line = raw as Map<String, dynamic>;
-      final ts = (line['ts'] as num?)?.toDouble();
-      final tokens = line['l'] as List?;
-      if (ts == null || tokens == null) continue;
-      final words = <String>[];
-      for (final t in tokens) {
-        final token = t as Map<String, dynamic>;
-        final text = (token['c'] as String? ?? '').trim();
-        if (text.isEmpty) continue;
-        final offset = (token['o'] as num?)?.toDouble() ?? 0;
-        words.add('${stamp(ts + offset, '<', '>')}$text');
-      }
-      if (words.isEmpty) continue;
-      buffer.writeln('${stamp(ts, '[', ']')}${words.join(' ')}');
-      wroteAny = true;
-    }
-    return wroteAny ? buffer.toString() : null;
-  }
 }
