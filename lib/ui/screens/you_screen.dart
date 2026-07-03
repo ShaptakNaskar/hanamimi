@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../providers/mascot_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
 import '../../theme/themes.dart';
+import '../components/mascot/hanamimi_widget.dart';
 
 class YouScreen extends ConsumerWidget {
   const YouScreen({super.key});
@@ -40,6 +42,24 @@ class YouScreen extends ConsumerWidget {
                       ref.read(currentThemeProvider.notifier).setTheme(t.id),
                 ),
             ],
+          ),
+          const SizedBox(height: Space.s8),
+          Text('YOUR COMPANION', style: AppText.sectionLabel(theme)),
+          const SizedBox(height: Space.s3),
+          Container(
+            padding: const EdgeInsets.all(Space.s4),
+            decoration: BoxDecoration(
+              color: theme.surface,
+              borderRadius: BorderRadius.circular(Radii.lg),
+              border: Border.all(color: theme.divider, width: 0.5),
+            ),
+            child: Center(
+              child: HanamimiMascot(
+                state: ref.watch(mascotStateProvider),
+                size: 130,
+                fullBody: true,
+              ),
+            ),
           ),
           const SizedBox(height: Space.s8),
           Text('SOUND', style: AppText.sectionLabel(theme)),
