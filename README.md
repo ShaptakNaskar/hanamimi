@@ -11,17 +11,19 @@ Hanamimi plays the music already on your phone — no accounts, no streaming, no
 |:---:|:---:|:---:|
 | ![Library](docs/screenshots/library.png) | ![Now Playing](docs/screenshots/now-playing.png) | ![Starry Night](docs/screenshots/starry-night.png) |
 
-| Karaoke lyrics | Instrumental breaks | You | Sleep timer |
-|:---:|:---:|:---:|:---:|
-| ![Lyrics](docs/screenshots/lyrics-karaoke.png) | ![Interlude](docs/screenshots/lyrics-interlude.png) | ![You](docs/screenshots/you-screen.png) | ![Sleep timer](docs/screenshots/sleep-timer.png) |
+| Karaoke lyrics | Instrumental breaks | Folders | You | Sleep timer |
+|:---:|:---:|:---:|:---:|:---:|
+| ![Lyrics](docs/screenshots/lyrics-karaoke.png) | ![Interlude](docs/screenshots/lyrics-interlude.png) | ![Folders](docs/screenshots/folders.png) | ![You](docs/screenshots/you-screen.png) | ![Sleep timer](docs/screenshots/sleep-timer.png) |
 
 ## Features
 
 **Player**
-- Local playback via MediaStore scan — songs, albums, playlists
+- Local playback via MediaStore scan — songs, albums, **folders** (VLC-style directory browsing), playlists
 - Background audio with lock-screen / notification controls and media buttons
 - True two-player **crossfade** (2–12 s, smoothstep ramp), shuffle / repeat / repeat-one
 - Queue sheet with tap-to-jump, swipe a track right to queue it, left to add to a playlist
+- Playlists with pastel covers: play all, swipe-left to remove a song, delete with confirm
+- Library-wide search across songs, albums, folders and playlists
 - Sleep timer with moon-phase presets: countdown or end-of-track, 30 s volume fade with screen dimming
 
 **Lyrics (the fun part)**
