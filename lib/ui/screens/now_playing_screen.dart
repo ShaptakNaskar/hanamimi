@@ -9,6 +9,7 @@ import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../providers/visualizer_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
@@ -16,6 +17,7 @@ import '../components/mascot/hanamimi_widget.dart';
 import '../components/now_playing/album_art_widget.dart';
 import '../components/now_playing/playback_controls.dart';
 import '../components/now_playing/seek_bar_widget.dart';
+import '../components/now_playing/visualizer_widget.dart';
 
 class NowPlayingScreen extends ConsumerWidget {
   const NowPlayingScreen({super.key});
@@ -98,14 +100,16 @@ class NowPlayingScreen extends ConsumerWidget {
                   _SeekBarSection(theme: theme),
                   const SizedBox(height: Space.s6),
                   const PlaybackControls(),
+                  const SizedBox(height: Space.s4),
+                  const VisualizerWidget(height: 56),
                   const Spacer(flex: 1),
-                  // Visualizer (M8) lands between the controls and her.
                   Icon(Icons.keyboard_arrow_up,
                       color: theme.textMuted, size: 20),
                   Text('Lyrics', style: AppText.caption(theme)),
                   const SizedBox(height: Space.s2),
                   HanamimiMascot(
                     state: ref.watch(mascotStateProvider),
+                    amplitude: ref.watch(amplitudeProvider),
                     size: 90,
                   ),
                   const SizedBox(height: Space.s2),
