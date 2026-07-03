@@ -18,6 +18,7 @@ import '../components/now_playing/album_art_widget.dart';
 import '../components/now_playing/playback_controls.dart';
 import '../components/now_playing/seek_bar_widget.dart';
 import '../components/now_playing/visualizer_widget.dart';
+import '../modals/lyrics_sheet.dart';
 
 class NowPlayingScreen extends ConsumerWidget {
   const NowPlayingScreen({super.key});
@@ -103,9 +104,22 @@ class NowPlayingScreen extends ConsumerWidget {
                   const SizedBox(height: Space.s4),
                   const VisualizerWidget(height: 56),
                   const Spacer(flex: 1),
-                  Icon(Icons.keyboard_arrow_up,
-                      color: theme.textMuted, size: 20),
-                  Text('Lyrics', style: AppText.caption(theme)),
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => showLyricsSheet(context, track),
+                    onVerticalDragEnd: (d) {
+                      if ((d.primaryVelocity ?? 0) < -200) {
+                        showLyricsSheet(context, track);
+                      }
+                    },
+                    child: Column(
+                      children: [
+                        Icon(Icons.keyboard_arrow_up,
+                            color: theme.textMuted, size: 20),
+                        Text('Lyrics', style: AppText.caption(theme)),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: Space.s2),
                   HanamimiMascot(
                     state: ref.watch(mascotStateProvider),
