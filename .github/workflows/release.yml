@@ -1,0 +1,158 @@
+# Hanamimi release pipeline.
+#
+# Every push to main/plus builds signed release APKs (per-ABI + universal),
+# writes AI patch notes from the commit (Groq; falls back to the raw
+# commit message), publishes a GitHub Release tagged <branch>-v<version>,
+# and posts the arm64 APK to Telegram when bot secrets are configured.
+#
+# Versioning: versionCode = the workflow run number (monotonic across
+# both branches), versionName = <pubspec version>-<branch>.<run>.
+# The in-app update checker compares run numbers per branch tag prefix.
+#
+# Required repo secrets:
+#   KEYSTORE_BASE64     — base64 of sappy-release.jks
+#   KEYSTORE_PASSWORD   — store password
+#   KEY_ALIAS           — key alias (sappy-release)
+#   KEY_PASSWORD        — key password
+# Optional:
+#   GROQ_API_KEY        — enables AI-generated patch notes
+#   TELEGRAM_BOT_TOKEN  — enables the Telegram post
+#   TELEGRAM_CHAT_ID    — chat/channel id for the bot
+
+name: release
+
+on:
+  push:
+    branches: [main, plus]
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write # create releases + tags
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # HEAD + parent for the changelog diff
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.29.3
+          channel: stable
+          cache: true
+
+      - name: Restore signing config
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          mkdir -p android/keystore
+          echo "$KEYSTORE_BASE64" | base64 -d > android/keystore/release.jks
+          cat > android/key.properties <<EOF
+          storeFile=../keystore/release.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
+      - name: Compute version
+        id: ver
+        run: |
+          BASE=$(grep '^version:' pubspec.yaml | sed 's/version: *//; s/+.*//')
+          BRANCH="${{ github.ref_name }}"
+          RUN="${{ github.run_number }}"
+          echo "name=${BASE}-${BRANCH}.${RUN}" >> "$GITHUB_OUTPUT"
+          echo "code=${RUN}" >> "$GITHUB_OUTPUT"
+          echo "tag=${BRANCH}-v${BASE}-${RUN}" >> "$GITHUB_OUTPUT"
+
+      - name: Build APKs (per-ABI + universal)
+        run: |
+          flutter pub get
+          flutter build apk --release \
+            --build-name="${{ steps.ver.outputs.name }}" \
+            --build-number="${{ steps.ver.outputs.code }}" \
+            --split-per-abi
+          flutter build apk --release \
+            --build-name="${{ steps.ver.outputs.name }}" \
+            --build-number="${{ steps.ver.outputs.code }}"
+          cd build/app/outputs/flutter-apk
+          BRANCH="${{ github.ref_name }}"
+          for f in app-*-release.apk; do
+            abi=$(echo "$f" | sed 's/app-//; s/-release.apk//')
+            mv "$f" "hanamimi-${BRANCH}-${abi}.apk"
+          done
+          mv app-release.apk "hanamimi-${BRANCH}-universal.apk"
+          ls -la
+
+      - name: Generate patch notes
+        id: notes
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=format:'%s%n%n%b')
+          DIFF=$( (git diff HEAD~1 --stat; git diff HEAD~1 | head -c 6000) 2>/dev/null || echo "(no diff available)")
+          NOTES=""
+          if [ -n "$GROQ_API_KEY" ]; then
+            BODY=$(jq -n \
+              --arg msg "$COMMIT_MSG" --arg diff "$DIFF" \
+              '{model: "llama-3.3-70b-versatile",
+                temperature: 0.3,
+                messages: [
+                  {role: "system", content: "You write short, user-facing release notes for a music player app called Hanamimi. Output only markdown bullet points (3-8 bullets), no heading, no preamble. Describe what changed for USERS; skip refactors and internal chores unless user-visible."},
+                  {role: "user", content: ("Commit message:\n" + $msg + "\n\nDiff:\n" + $diff)}
+                ]}')
+            NOTES=$(curl -sS --max-time 60 \
+              -H "Authorization: Bearer $GROQ_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "$BODY" \
+              https://api.groq.com/openai/v1/chat/completions \
+              | jq -r '.choices[0].message.content // empty' || true)
+          fi
+          if [ -z "$NOTES" ]; then
+            # Fallback: the raw commit title + description as patch notes.
+            NOTES="$COMMIT_MSG"
+          fi
+          {
+            echo 'notes<<NOTES_EOF'
+            echo "$NOTES"
+            echo 'NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: Hanamimi ${{ github.ref_name }} ${{ steps.ver.outputs.name }}
+          body: ${{ steps.notes.outputs.notes }}
+          files: build/app/outputs/flutter-apk/hanamimi-*.apk
+
+      - name: Post to Telegram
+        if: ${{ env.BOT != '' && env.CHAT != '' }}
+        env:
+          BOT: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          NOTES: ${{ steps.notes.outputs.notes }}
+        run: |
+          CAPTION="Hanamimi ${{ github.ref_name }} ${{ steps.ver.outputs.name }}
+
+          ${NOTES}"
+          # Telegram caps captions at 1024 chars.
+          CAPTION=$(printf '%s' "$CAPTION" | head -c 1000)
+          curl -sS --max-time 300 \
+            -F chat_id="$CHAT" \
+            -F document=@"build/app/outputs/flutter-apk/hanamimi-${{ github.ref_name }}-arm64-v8a.apk" \
+            -F caption="$CAPTION" \
+            "https://api.telegram.org/bot${BOT}/sendDocument" >/dev/null
+          echo "sent"
