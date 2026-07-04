@@ -13,7 +13,7 @@
          (FftExtractorChannel) instead of tapping the output mix. -->
 
     <application
-        android:label="Hanamimi"
+        android:label="Hanamimi+"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

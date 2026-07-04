@@ -29,7 +29,8 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.hanamimi.app"
+        // Plus flavor installs side-by-side with the Play Store build.
+        applicationId = "com.hanamimi.app.plus"
         minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
