@@ -9,6 +9,20 @@ import 'package:path_provider/path_provider.dart';
 
 const _repo = 'ShaptakNaskar/hanamimi';
 
+/// The version string to show in About — read live from the built
+/// package, so it always reflects what CI stamped and never needs a
+/// hand-edit: e.g. "Hanamimi+ 花耳 · 1.0.3+42" (semver + build/run).
+final appVersionLabelProvider = FutureProvider<String>((ref) async {
+  try {
+    final info = await PackageInfo.fromPlatform();
+    final edition =
+        info.packageName.endsWith('.plus') ? 'Hanamimi+' : 'Hanamimi';
+    return '$edition 花耳 · ${info.version}+${info.buildNumber}';
+  } catch (_) {
+    return 'Hanamimi 花耳';
+  }
+});
+
 /// The release channel THIS build follows, derived from its own package
 /// id so main and plus never cross-update: `com.hanamimi.app.plus` →
 /// `plus-v…` tags, `com.hanamimi.app` → `main-v…`. Same source on both
