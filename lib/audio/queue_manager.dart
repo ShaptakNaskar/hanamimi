@@ -154,20 +154,39 @@ class QueueManager {
     await _playCurrent();
   }
 
-  /// Pops history when available (correct for shuffle); restarts the
-  /// track when it's more than 3 seconds in.
+  /// Restarts the track when it's more than 3 seconds in. Otherwise:
+  /// shuffle retraces the actual play history (so "previous" undoes
+  /// the random order you heard); every other mode steps back through
+  /// the queue itself — including songs before the one you started
+  /// from, which history alone can never reach.
   Future<void> previous() async {
     await _abortCrossfade();
-    if (_primary.position > const Duration(seconds: 3) || _history.isEmpty) {
+    if (_primary.position > const Duration(seconds: 3)) {
       await _primary.seek(Duration.zero);
       return;
     }
-    final target = _history.removeLast();
-    final sourceIndex = _source.indexWhere((t) => t.id == target.id);
-    if (sourceIndex == -1) return;
-    final orderIndex = _order.indexOf(sourceIndex);
-    if (orderIndex != -1) {
-      _cursor = orderIndex;
+
+    if (_mode == QueueMode.shuffle && _history.isNotEmpty) {
+      final target = _history.removeLast();
+      final sourceIndex = _source.indexWhere((t) => t.id == target.id);
+      final orderIndex =
+          sourceIndex == -1 ? -1 : _order.indexOf(sourceIndex);
+      if (orderIndex != -1) {
+        _cursor = orderIndex;
+        await _playCurrent();
+        return;
+      }
+      // Track vanished from the queue — fall through to queue order.
+    }
+
+    if (_cursor > 0) {
+      _cursor--;
+    } else if (_mode == QueueMode.repeatAll ||
+        _mode == QueueMode.repeatOne) {
+      _cursor = _order.length - 1; // wrap like next() does
+    } else {
+      await _primary.seek(Duration.zero); // start of the queue
+      return;
     }
     await _playCurrent();
   }
