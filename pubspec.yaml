@@ -48,6 +48,7 @@ dependencies:
   path_provider: ^2.1.5
   pointycastle: ^4.0.0
   connectivity_plus: ^6.1.0
+  package_info_plus: ^8.3.0 # current versionCode for the update checker
 
 dev_dependencies:
   flutter_test:

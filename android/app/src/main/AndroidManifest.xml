@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <!-- Lyrics fetching (LRCLIB) -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- In-app updater: hand downloaded release APKs to the installer -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <!-- No RECORD_AUDIO: the visualizer decodes the audio file itself
          (FftExtractorChannel) instead of tapping the output mix. -->
 
@@ -73,6 +75,18 @@
         <meta-data
             android:name="io.flutter.embedding.android.EnableImpeller"
             android:value="false" />
+
+        <!-- In-app updater: exposes the downloaded APK to the package
+             installer (content:// — file:// is banned since N). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
