@@ -63,8 +63,10 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   });
 
   void startFor(Track track) {
+    // v2: fractional-hop frame timing (old caches drift on rates not
+    // divisible by 60).
     final key =
-        'v1_${track.mediaId}_${track.filePath.hashCode}_${track.duration.inMilliseconds}';
+        'v2_${track.mediaId}_${track.filePath.hashCode}_${track.duration.inMilliseconds}';
     if (key == currentKey) return;
     currentKey = key;
     frames = <double>[];

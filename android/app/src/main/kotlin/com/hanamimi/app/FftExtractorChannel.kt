@@ -172,13 +172,15 @@ class FftExtractorChannel(private val context: Context) : EventChannel.StreamHan
         var sampleRate = format.getIntOrDefault(MediaFormat.KEY_SAMPLE_RATE, 44100)
         var channels = format.getIntOrDefault(MediaFormat.KEY_CHANNEL_COUNT, 2)
         var pcmFloat = false
-        var hop = sampleRate / FRAME_RATE
+        // Fractional hop: integer division drifts for rates not divisible
+        // by 60 (22050 → 367 vs 367.5 ≈ 0.2s/3min visual lead).
+        var hop = sampleRate.toDouble() / FRAME_RATE
 
         val fft = Fft(WINDOW)
         val window = DoubleArray(WINDOW) { 0.5 * (1 - cos(2 * PI * it / (WINDOW - 1))) }
         val ring = FloatArray(WINDOW)
         var written = 0L // total mono samples seen
-        var nextFrameAt = hop.toLong()
+        var nextFrameAt = hop
         var bandEdges = bandEdgeBins(sampleRate)
 
         val pending = ArrayList<Double>(CHUNK_FRAMES * BANDS)
@@ -263,7 +265,7 @@ class FftExtractorChannel(private val context: Context) : EventChannel.StreamHan
                         channels = f.getIntOrDefault(MediaFormat.KEY_CHANNEL_COUNT, channels)
                         pcmFloat = f.getIntOrDefault(MediaFormat.KEY_PCM_ENCODING,
                             AudioFormat.ENCODING_PCM_16BIT) == AudioFormat.ENCODING_PCM_FLOAT
-                        hop = sampleRate / FRAME_RATE
+                        hop = sampleRate.toDouble() / FRAME_RATE
                         bandEdges = bandEdgeBins(sampleRate)
                     }
                     outIndex >= 0 -> {
