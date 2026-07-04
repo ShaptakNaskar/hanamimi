@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../library/models/playlist.dart';
 import '../../library/models/track.dart';
+import '../../online/models/online_search_result.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
+import '../../providers/online_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
@@ -25,18 +29,38 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   int _tab = 0;
   bool _searching = false;
   String _query = '';
+
+  /// 0 = Library; 1.. index into [registeredOnlineSources].
+  int _searchScope = 0;
+
+  /// Debounced (400 ms) copy of the query for online scopes, so typing
+  /// doesn't fire a provider request per keystroke.
+  String _onlineQuery = '';
+  Timer? _debounce;
   final _searchController = TextEditingController();
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
+  void _onQueryChanged(String q) {
+    setState(() => _query = q);
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 400), () {
+      if (mounted) setState(() => _onlineQuery = q);
+    });
+  }
+
   void _closeSearch() {
+    _debounce?.cancel();
     setState(() {
       _searching = false;
       _query = '';
+      _onlineQuery = '';
+      _searchScope = 0;
       _searchController.clear();
     });
   }
@@ -44,6 +68,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = ref.watch(currentThemeProvider);
+    final onlineSources = registeredOnlineSources;
+    final onlineScope = _searching && _searchScope > 0
+        ? onlineSources[_searchScope - 1]
+        : null;
 
     return SafeArea(
       bottom: false,
@@ -62,10 +90,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                           child: TextField(
                             controller: _searchController,
                             autofocus: true,
-                            onChanged: (q) => setState(() => _query = q),
+                            onChanged: _onQueryChanged,
                             style: AppText.body(theme),
                             decoration: InputDecoration(
-                              hintText: 'Search your music…',
+                              hintText: onlineScope == null
+                                  ? 'Search your music…'
+                                  : 'Search ${onlineSourceLabels[onlineScope]}…',
                               hintStyle: AppText.body(theme)
                                   .copyWith(color: theme.textMuted),
                               prefixIcon: Icon(Icons.search,
@@ -109,10 +139,23 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
           const SizedBox(height: Space.s4),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: Space.s4),
+            // While searching the pills become the search scope:
+            // Library | YouTube | JioSaavn (ARCHITECTURE-ONLINE.md §9).
             child: PillTabBar(
-              tabs: const ['Songs', 'Albums', 'Folders', 'Playlists'],
-              activeIndex: _tab,
-              onChanged: (i) => setState(() => _tab = i),
+              tabs: _searching
+                  ? [
+                      'Library',
+                      for (final s in onlineSources) onlineSourceLabels[s]!,
+                    ]
+                  : const ['Songs', 'Albums', 'Folders', 'Playlists'],
+              activeIndex: _searching ? _searchScope : _tab,
+              onChanged: (i) => setState(() {
+                if (_searching) {
+                  _searchScope = i;
+                } else {
+                  _tab = i;
+                }
+              }),
               theme: theme,
             ),
           ),
@@ -120,12 +163,18 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
           Expanded(
             child: AnimatedSwitcher(
               duration: Anim.minTransition,
-              child: switch (_tab) {
-                0 => _SongsTab(key: const ValueKey(0), query: _query),
-                1 => _AlbumsTab(key: const ValueKey(1), query: _query),
-                2 => _FoldersTab(key: const ValueKey(2), query: _query),
-                _ => _PlaylistsTab(key: const ValueKey(3), query: _query),
-              },
+              child: onlineScope != null
+                  ? _OnlineSearchTab(
+                      key: ValueKey('online_${onlineScope.name}'),
+                      source: onlineScope,
+                      query: _onlineQuery,
+                    )
+                  : switch (_tab) {
+                      0 => _SongsTab(key: const ValueKey(0), query: _query),
+                      1 => _AlbumsTab(key: const ValueKey(1), query: _query),
+                      2 => _FoldersTab(key: const ValueKey(2), query: _query),
+                      _ => _PlaylistsTab(key: const ValueKey(3), query: _query),
+                    },
             ),
           ),
         ],
@@ -204,6 +253,93 @@ class _SongsTab extends ConsumerWidget {
         );
       },
     );
+  }
+}
+
+/// Provider search results as track rows with a cloud badge. Tap /
+/// swipe materializes the result into a real library row first
+/// (ensureOnlineTrack), so likes, play counts and playlists just work.
+class _OnlineSearchTab extends ConsumerWidget {
+  const _OnlineSearchTab({
+    super.key,
+    required this.source,
+    required this.query,
+  });
+
+  final TrackSource source;
+  final String query;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    final label = onlineSourceLabels[source]!;
+    if (query.trim().length < 2) {
+      return _Message('Type to search $label', theme: theme);
+    }
+
+    final results =
+        ref.watch(onlineSearchProvider((source: source, query: query)));
+    return results.when(
+      loading: () => Center(
+          child: CircularProgressIndicator(color: theme.primary)),
+      error: (_, __) =>
+          _Message('$label is unavailable right now', theme: theme),
+      data: (hits) {
+        if (hits.isEmpty) {
+          return _Message('Nothing matches "$query"', theme: theme);
+        }
+        final playing = ref.watch(audioStateProvider).value?.currentTrack;
+        return ListView.builder(
+          padding: const EdgeInsets.symmetric(
+              horizontal: Space.s4, vertical: Space.s2),
+          itemCount: hits.length,
+          itemExtent: Sizes.trackRowHeight,
+          itemBuilder: (context, i) {
+            final hit = hits[i];
+            return TrackRow(
+              // Display-only stand-in; the real row is created on tap.
+              track: Track(
+                id: -1,
+                title: hit.title,
+                artist: hit.artist,
+                album: hit.album,
+                duration: hit.duration,
+                source: hit.source,
+                sourceId: hit.sourceId,
+                artUrl: hit.artUrl,
+              ),
+              theme: theme,
+              isPlaying: playing?.source == hit.source &&
+                  playing?.sourceId == hit.sourceId,
+              onTap: () => _play(ref, hit),
+              onAddToQueue: () => _queue(context, ref, hit),
+              onAddToPlaylist: () => _playlist(context, ref, theme, hit),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _play(WidgetRef ref, OnlineSearchResult hit) async {
+    final track =
+        await ref.read(libraryProvider.notifier).ensureOnlineTrack(hit);
+    await ref.read(audioHandlerProvider).playTracks([track]);
+  }
+
+  Future<void> _queue(
+      BuildContext context, WidgetRef ref, OnlineSearchResult hit) async {
+    final track =
+        await ref.read(libraryProvider.notifier).ensureOnlineTrack(hit);
+    await ref.read(audioHandlerProvider).engine.addToQueue(track);
+    if (context.mounted) _toast(context, 'Added to queue');
+  }
+
+  Future<void> _playlist(BuildContext context, WidgetRef ref,
+      HanamimiTheme theme, OnlineSearchResult hit) async {
+    final track =
+        await ref.read(libraryProvider.notifier).ensureOnlineTrack(hit);
+    if (context.mounted) _showPlaylistPicker(context, ref, theme, track.id);
   }
 }
 

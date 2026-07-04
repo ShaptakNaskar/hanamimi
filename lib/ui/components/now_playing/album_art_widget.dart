@@ -94,8 +94,11 @@ class _AlbumArtWidgetState extends State<AlbumArtWidget>
           ),
           child: ArtThumb(
             key: ValueKey(widget.track.id),
-            title: widget.track.album,
+            title: widget.track.album.isEmpty
+                ? widget.track.title
+                : widget.track.album,
             artPath: widget.track.albumArtPath,
+            artUrl: widget.track.artUrl,
             size: widget.size,
             radius: Radii.lg,
           ),

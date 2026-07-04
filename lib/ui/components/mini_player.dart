@@ -45,8 +45,11 @@ class MiniPlayer extends ConsumerWidget {
                         child: Row(
                           children: [
                             ArtThumb(
-                              title: track.album,
+                              title: track.album.isEmpty
+                                  ? track.title
+                                  : track.album,
                               artPath: track.albumArtPath,
+                              artUrl: track.artUrl,
                               size: Sizes.miniPlayerArt,
                               radius: Radii.md,
                             ),

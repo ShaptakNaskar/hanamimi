@@ -1,0 +1,3 @@
+tags:
+  online:
+    skip: "Live-network smoke test — run explicitly: flutter test --run-skipped -t online"

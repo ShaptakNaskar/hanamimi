@@ -1,5 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 
+import '../online/models/online_search_result.dart';
 import 'models/playlist.dart';
 import 'models/track.dart';
 
@@ -170,6 +171,43 @@ class LibraryRepository {
   Future<void> setAlbumArt(int albumId, String path) => _db.update(
       'tracks', {'album_art_path': path},
       where: 'album_id = ?', whereArgs: [albumId]);
+
+  /// Per-track art for online rows (they all share album_id 0, so the
+  /// album-wide setter would stamp every online track at once).
+  Future<void> setTrackArt(int trackId, String path) => _db.update(
+      'tracks', {'album_art_path': path},
+      where: 'id = ?', whereArgs: [trackId]);
+
+  /// Marks an online track as downloaded: playback short-circuits to
+  /// the file while the row keeps its online identity.
+  Future<void> setFilePath(int trackId, String path) => _db.update(
+      'tracks', {'file_path': path},
+      where: 'id = ?', whereArgs: [trackId]);
+
+  /// Upserts a search result into the library (keyed source+sourceId)
+  /// and returns the real row. Runs at the moment of interaction —
+  /// play, queue, like, playlist — so every downstream system only
+  /// ever sees real rows (ARCHITECTURE-ONLINE.md §3.3).
+  Future<Track> ensureOnlineTrack(OnlineSearchResult result) async {
+    final existing = await _db.query('tracks',
+        where: 'source = ? AND source_id = ?',
+        whereArgs: [result.source.name, result.sourceId],
+        limit: 1);
+    if (existing.isNotEmpty) return Track.fromRow(existing.first);
+
+    final id = await _db.insert('tracks', {
+      'title': result.title,
+      'artist': result.artist,
+      'album': result.album,
+      'duration_ms': result.duration.inMilliseconds,
+      'source': result.source.name,
+      'source_id': result.sourceId,
+      'art_url': result.artUrl,
+    });
+    final rows =
+        await _db.query('tracks', where: 'id = ?', whereArgs: [id], limit: 1);
+    return Track.fromRow(rows.first);
+  }
 
   Future<void> setLiked(int trackId, bool liked) => _db.update(
       'tracks', {'liked': liked ? 1 : 0},

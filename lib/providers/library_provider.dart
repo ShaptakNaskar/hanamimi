@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../library/library_repository.dart';
 import '../library/library_scanner.dart';
 import '../library/models/playlist.dart';
 import '../library/models/track.dart';
+import '../online/models/online_search_result.dart';
+import '../online/online_art_cache.dart';
 import 'theme_provider.dart';
 
 final libraryRepositoryProvider = FutureProvider<LibraryRepository>(
@@ -59,6 +63,35 @@ class LibraryNotifier extends AsyncNotifier<List<Track>> {
     final result = await _scanner(repo).scan();
     _permissionDenied = result == ScanResult.permissionDenied;
     state = AsyncData(await repo.allTracks());
+  }
+
+  /// Materializes an online search result into a real library row
+  /// (play/queue/playlist all call this first) and keeps the in-memory
+  /// list in sync. Remote art is cached to disk in the background.
+  Future<Track> ensureOnlineTrack(OnlineSearchResult result) async {
+    final repo = await ref.read(libraryRepositoryProvider.future);
+    final track = await repo.ensureOnlineTrack(result);
+
+    final current = state.value ?? <Track>[];
+    if (!current.any((t) => t.id == track.id)) {
+      state = AsyncData([...current, track]
+        ..sort((a, b) =>
+            a.title.toLowerCase().compareTo(b.title.toLowerCase())));
+    }
+
+    if (track.albumArtPath == null && track.artUrl != null) {
+      unawaited(OnlineArtCache.fetch(
+              track.artUrl!, '${track.source.name}_${track.sourceId}')
+          .then((path) async {
+        if (path == null) return;
+        await repo.setTrackArt(track.id, path);
+        state = AsyncData([
+          for (final t in state.value ?? <Track>[])
+            t.id == track.id ? t.copyWith(albumArtPath: path) : t,
+        ]);
+      }));
+    }
+    return track;
   }
 
   Future<void> toggleLiked(Track track) async {

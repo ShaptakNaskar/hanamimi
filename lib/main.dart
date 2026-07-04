@@ -6,12 +6,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'app.dart';
 import 'audio/audio_handler.dart';
 import 'audio/queue_manager.dart';
+import 'library/models/track.dart';
+import 'online/music_provider.dart';
+import 'online/youtube_provider.dart';
 import 'providers/audio_provider.dart';
 import 'providers/theme_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
+
+  // Online catalogs (plus build). StreamResolver and the search scopes
+  // read this registry.
+  musicProviderRegistry[TrackSource.youtube] = YouTubeProvider();
 
   final audioHandler = await AudioService.init(
     builder: () => HanamimiAudioHandler(QueueManager()),

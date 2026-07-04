@@ -10,12 +10,17 @@ class ArtThumb extends StatelessWidget {
     super.key,
     required this.title,
     this.artPath,
+    this.artUrl,
     required this.size,
     required this.radius,
   });
 
   final String title;
   final String? artPath;
+
+  /// Remote fallback for online tracks, used only until the art cache
+  /// writes a local copy (then [artPath] takes over).
+  final String? artUrl;
   final double size;
   final double radius;
 
@@ -24,9 +29,8 @@ class ArtThumb extends StatelessWidget {
     // No existsSync here — synchronous disk IO on every list-row build
     // makes scrolling jank. Missing files fall through to the
     // placeholder via errorBuilder instead.
-    final child = artPath == null
-        ? _placeholder()
-        : Image.file(
+    final child = artPath != null
+        ? Image.file(
             File(artPath!),
             width: size,
             height: size,
@@ -34,7 +38,18 @@ class ArtThumb extends StatelessWidget {
             gaplessPlayback: true,
             cacheWidth: (size * 3).round(),
             errorBuilder: (_, __, ___) => _placeholder(),
-          );
+          )
+        : artUrl != null
+            ? Image.network(
+                artUrl!,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                cacheWidth: (size * 3).round(),
+                errorBuilder: (_, __, ___) => _placeholder(),
+              )
+            : _placeholder();
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
       child: child,

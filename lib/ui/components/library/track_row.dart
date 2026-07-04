@@ -42,7 +42,9 @@ class TrackRow extends StatelessWidget {
     }
 
     return Dismissible(
-      key: ValueKey('track_${track.id}'),
+      // Source-qualified: ephemeral online search rows all carry id -1,
+      // but their sourceId is unique.
+      key: ValueKey('track_${track.source.name}_${track.sourceId ?? track.id}'),
       direction: DismissDirection.horizontal,
       dismissThresholds: const {
         DismissDirection.startToEnd: 0.35,
@@ -102,8 +104,9 @@ class TrackRow extends StatelessWidget {
                 )
               else
                 ArtThumb(
-                  title: track.album,
+                  title: track.album.isEmpty ? track.title : track.album,
                   artPath: track.albumArtPath,
+                  artUrl: track.artUrl,
                   size: Sizes.trackRowArt,
                   radius: 8,
                 ),
@@ -113,14 +116,31 @@ class TrackRow extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      track.title,
-                      style: isPlaying
-                          ? AppText.rowSongTitle(theme)
-                              .copyWith(color: theme.primary)
-                          : AppText.rowSongTitle(theme),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            track.title,
+                            style: isPlaying
+                                ? AppText.rowSongTitle(theme)
+                                    .copyWith(color: theme.primary)
+                                : AppText.rowSongTitle(theme),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        // Cloud badge: streamed / downloaded (§9).
+                        if (!track.isLocal) ...[
+                          const SizedBox(width: Space.s1),
+                          Icon(
+                            track.isPlayableOffline
+                                ? Icons.cloud_done_outlined
+                                : Icons.cloud_outlined,
+                            size: 13,
+                            color: theme.textMuted,
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 2),
                     Text(
