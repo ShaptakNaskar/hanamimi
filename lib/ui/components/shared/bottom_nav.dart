@@ -13,6 +13,7 @@ class NavItem {
 const _items = [
   NavItem('Library', Icons.music_note_outlined, Icons.music_note_outlined),
   NavItem('Playing', Icons.play_circle_outline, Icons.play_circle),
+  NavItem('Downloads', Icons.download_outlined, Icons.download),
   NavItem('You', Icons.pets_outlined, Icons.pets_outlined),
 ];
 

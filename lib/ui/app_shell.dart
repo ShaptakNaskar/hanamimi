@@ -14,6 +14,7 @@ import '../theme/theme_tokens.dart';
 import '../utils/duration_ext.dart';
 import 'components/mini_player.dart';
 import 'components/shared/bottom_nav.dart';
+import 'screens/downloads_screen.dart';
 import 'screens/library_screen.dart';
 import 'screens/now_playing_screen.dart';
 import 'screens/you_screen.dart';
@@ -82,6 +83,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   static const _screens = [
     LibraryScreen(),
     NowPlayingScreen(),
+    DownloadsScreen(),
     YouScreen(),
   ];
 

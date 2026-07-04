@@ -9,6 +9,7 @@ import '../../library/models/track.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/cat_mode_provider.dart';
 import '../../providers/companion_provider.dart';
+import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
 import '../../providers/nerd_provider.dart';
@@ -24,6 +25,7 @@ import '../components/now_playing/playback_controls.dart';
 import '../components/now_playing/seek_bar_widget.dart';
 import '../components/now_playing/visualizer_widget.dart';
 import '../components/shared/particle_overlay.dart';
+import '../modals/download_quality_sheet.dart';
 import '../modals/lyrics_sheet.dart';
 import '../modals/queue_sheet.dart';
 import '../modals/sleep_timer_modal.dart';
@@ -345,62 +347,59 @@ class _SeekBarSection extends ConsumerWidget {
   }
 }
 
-/// Download-for-offline button, shown only for online tracks. Spins
-/// while fetching, becomes a filled check once the file is saved.
-class _DownloadButton extends ConsumerStatefulWidget {
+/// Download-for-offline button, shown only for online tracks. Opens
+/// the quality picker (unless a choice is remembered), hands the job
+/// to the download manager, spins while it's queued/running, becomes a
+/// filled check once the file is saved.
+class _DownloadButton extends ConsumerWidget {
   const _DownloadButton({required this.track, required this.theme});
 
   final Track track;
   final HanamimiTheme theme;
 
-  @override
-  ConsumerState<_DownloadButton> createState() => _DownloadButtonState();
-}
-
-class _DownloadButtonState extends ConsumerState<_DownloadButton> {
-  bool _busy = false;
-
-  Future<void> _download() async {
-    if (_busy || widget.track.isPlayableOffline) return;
-    setState(() => _busy = true);
-    final ok = await ref
-        .read(libraryProvider.notifier)
-        .downloadTrack(widget.track);
-    if (!mounted) return;
-    setState(() => _busy = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(Radii.md),
+  Future<void> _download(BuildContext context, WidgetRef ref) async {
+    final quality = await resolveDownloadQuality(context, ref);
+    if (quality == null) return; // dismissed the picker
+    ref.read(downloadManagerProvider.notifier).enqueue(track, quality);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Radii.md),
+          ),
+          content: const Text(
+            'Added to Downloads',
+            style: TextStyle(fontFamily: 'Nunito'),
+          ),
         ),
-        content: Text(
-          ok ? 'Saved for offline' : "Couldn't download",
-          style: const TextStyle(fontFamily: 'Nunito'),
-        ),
-      ),
-    );
+      );
+    }
   }
 
   @override
-  Widget build(BuildContext context) {
-    final downloaded = widget.track.isPlayableOffline;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final downloaded = track.isPlayableOffline;
+    final busy = ref.watch(downloadManagerProvider).any((t) =>
+        t.track.id == track.id &&
+        (t.status == DownloadStatus.queued ||
+            t.status == DownloadStatus.downloading));
     return InkResponse(
       radius: Sizes.minTouchTarget / 2,
-      onTap: downloaded ? null : _download,
+      onTap: downloaded || busy ? null : () => _download(context, ref),
       child: SizedBox(
         width: Sizes.minTouchTarget,
         height: Sizes.minTouchTarget,
         child: Center(
           child:
-              _busy
+              busy
                   ? SizedBox(
                     width: 20,
                     height: 20,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: widget.theme.primary,
+                      color: theme.primary,
                     ),
                   )
                   : Icon(
@@ -410,8 +409,8 @@ class _DownloadButtonState extends ConsumerState<_DownloadButton> {
                     size: 24,
                     color:
                         downloaded
-                            ? widget.theme.primary
-                            : widget.theme.textMuted,
+                            ? theme.primary
+                            : theme.textMuted,
                   ),
         ),
       ),

@@ -73,20 +73,78 @@ class StreamResolver {
   /// (the explicit "Download" action). Returns true on success. Fetches
   /// with the Dart HTTP stack — the same one [sourceFor]'s proxy uses,
   /// so a URL that plays also downloads.
-  Future<bool> download(Track track, String destination) async {
-    final resolved = await _resolve(track);
+  ///
+  /// Streams to disk chunk by chunk (a song never sits whole in RAM)
+  /// and reports [onProgress] (received bytes, total or null) so the
+  /// download manager can show progress/speed. [isCancelled] is checked
+  /// between chunks; cancelling deletes the partial file.
+  /// [quality] overrides the playback quality setting — the download
+  /// picker's choice; resolution bypasses the URL cache so a cached
+  /// low-quality playback URL can't sneak into a high-quality download.
+  Future<bool> download(
+    Track track,
+    String destination, {
+    StreamQuality? quality,
+    void Function(int received, int? total)? onProgress,
+    bool Function()? isCancelled,
+  }) async {
+    final resolved = quality == null
+        ? await _resolve(track)
+        : await _resolveFresh(track, quality);
     if (resolved == null) return false;
+
+    final client = http.Client();
+    final tmp = File('$destination.part');
     try {
-      final res = await http.get(resolved.url,
-          headers: resolved.headers.isEmpty ? null : resolved.headers);
-      if (res.statusCode != 200 || res.bodyBytes.isEmpty) return false;
-      final tmp = File('$destination.part');
-      await tmp.writeAsBytes(res.bodyBytes);
+      final req = http.Request('GET', resolved.url);
+      if (resolved.headers.isNotEmpty) req.headers.addAll(resolved.headers);
+      final res = await client.send(req).timeout(const Duration(seconds: 30));
+      if (res.statusCode != 200) return false;
+
+      final total = res.contentLength;
+      var received = 0;
+      final sink = tmp.openWrite();
+      try {
+        await for (final chunk in res.stream) {
+          if (isCancelled?.call() ?? false) {
+            await sink.close();
+            await tmp.delete();
+            return false;
+          }
+          sink.add(chunk);
+          received += chunk.length;
+          onProgress?.call(received, total);
+        }
+      } finally {
+        await sink.close();
+      }
+      if (received == 0) {
+        await tmp.delete();
+        return false;
+      }
       // Atomic-ish: only expose the final path once fully written.
       await tmp.rename(destination);
       return true;
     } catch (_) {
+      try {
+        if (await tmp.exists()) await tmp.delete();
+      } catch (_) {}
       return false;
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Resolution with an explicit quality, no cache read/write — used by
+  /// downloads so the picked quality is honored exactly.
+  Future<ResolvedStream?> _resolveFresh(
+      Track track, StreamQuality quality) async {
+    final sourceId = track.sourceId;
+    if (sourceId == null || !enabled) return null;
+    try {
+      return await _providers[track.source]?.resolveStream(sourceId, quality);
+    } catch (_) {
+      return null;
     }
   }
 

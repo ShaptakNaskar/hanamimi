@@ -547,6 +547,13 @@ class QueueManager {
   Future<void> _playCurrent() async {
     final track = _currentTrack;
     if (track == null) return;
+    // Silence the outgoing track immediately. Resolving an online
+    // stream takes seconds, and setAudioSource only interrupts the old
+    // audio once the NEW source is ready — without this the UI shows
+    // the next song while the previous one keeps playing through the
+    // whole resolve.
+    await _primary.pause();
+    _position.add(Duration.zero);
     _state.add(state.copyWith(
       currentTrack: track,
       queue: [for (final i in _order) _source[i]],

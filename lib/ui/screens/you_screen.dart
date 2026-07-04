@@ -8,6 +8,7 @@ import '../../online/ytdlp_channel.dart';
 import '../../providers/cat_mode_provider.dart';
 import '../../providers/companion_provider.dart';
 import '../../providers/dev_provider.dart';
+import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
 import '../../providers/nerd_provider.dart';
@@ -665,6 +666,26 @@ class _OnlineSettings extends ConsumerWidget {
                             ],
                           ),
                         ],
+                      ),
+                      Divider(height: Space.s6, color: theme.divider),
+                      _QualityRow(
+                        label: 'Download quality',
+                        subtitle: 'Used when saving songs offline',
+                        value: switch (ref.watch(downloadQualityProvider)) {
+                          null => 'Ask every time',
+                          StreamQuality.low => 'Low',
+                          StreamQuality.high => 'High',
+                        },
+                        onTap: () {
+                          final current = ref.read(downloadQualityProvider);
+                          ref.read(downloadQualityProvider.notifier).set(
+                              switch (current) {
+                            null => StreamQuality.low,
+                            StreamQuality.low => StreamQuality.high,
+                            StreamQuality.high => null,
+                          });
+                        },
+                        theme: theme,
                       ),
                       Divider(height: Space.s6, color: theme.divider),
                       const _UpdateExtractorTile(),

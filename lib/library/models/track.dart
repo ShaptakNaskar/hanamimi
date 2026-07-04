@@ -60,6 +60,7 @@ class Track {
   Track copyWith({
     String? albumArtPath,
     String? filePath,
+    bool clearFilePath = false,
     int? playCount,
     DateTime? lastPlayed,
     bool? liked,
@@ -72,7 +73,7 @@ class Track {
         album: album,
         albumId: albumId,
         albumArtPath: albumArtPath ?? this.albumArtPath,
-        filePath: filePath ?? this.filePath,
+        filePath: clearFilePath ? null : filePath ?? this.filePath,
         duration: duration,
         trackNumber: trackNumber,
         playCount: playCount ?? this.playCount,

@@ -179,8 +179,9 @@ class LibraryRepository {
       where: 'id = ?', whereArgs: [trackId]);
 
   /// Marks an online track as downloaded: playback short-circuits to
-  /// the file while the row keeps its online identity.
-  Future<void> setFilePath(int trackId, String path) => _db.update(
+  /// the file while the row keeps its online identity. A null [path]
+  /// clears the download (back to streaming).
+  Future<void> setFilePath(int trackId, String? path) => _db.update(
       'tracks', {'file_path': path},
       where: 'id = ?', whereArgs: [trackId]);
 

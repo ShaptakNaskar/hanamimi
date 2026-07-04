@@ -233,10 +233,18 @@ class _SongsTab extends ConsumerWidget {
           child: CircularProgressIndicator(color: theme.primary)),
       error: (e, _) => _Message('Something went wrong: $e', theme: theme),
       data: (allTracks) {
+        // Library = what's on the device. Online tracks (streamed or
+        // downloaded) live in search, playlists, the queue and the
+        // Downloads tab — mixing them in here made the library feel
+        // like someone else's.
+        final localTracks = [
+          for (final t in allTracks)
+            if (t.isLocal) t,
+        ];
         final q = query.trim().toLowerCase();
         final tracks = q.isEmpty
-            ? allTracks
-            : allTracks
+            ? localTracks
+            : localTracks
                 .where((t) =>
                     t.title.toLowerCase().contains(q) ||
                     t.artist.toLowerCase().contains(q) ||
