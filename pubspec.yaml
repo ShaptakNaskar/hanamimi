@@ -45,6 +45,7 @@ dependencies:
   screen_brightness: ^2.1.11
   youtube_explode_dart: ^3.1.0
   path_provider: ^2.1.5
+  pointycastle: ^4.0.0
 
 dev_dependencies:
   flutter_test:
