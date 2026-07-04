@@ -7,14 +7,21 @@ import '../../theme/app_theme.dart';
 import '../../theme/theme_tokens.dart';
 import '../../utils/format_bytes.dart';
 
+/// Guards against stacking — the launch auto-check and the manual
+/// "Check for updates" tap can both fire (and a refresh re-runs the
+/// listener), which previously opened several dialogs at once.
+bool _updateDialogOpen = false;
+
 /// "Update available" dialog: changelog + in-app download with a live
 /// progress bar, then hands the APK to the system installer (the app
 /// reopens itself after Android swaps the package).
 Future<void> showUpdateDialog(BuildContext context, AppUpdate update) {
+  if (_updateDialogOpen) return Future.value();
+  _updateDialogOpen = true;
   return showDialog<void>(
     context: context,
     builder: (_) => _UpdateDialog(update: update),
-  );
+  ).whenComplete(() => _updateDialogOpen = false);
 }
 
 class _UpdateDialog extends ConsumerStatefulWidget {

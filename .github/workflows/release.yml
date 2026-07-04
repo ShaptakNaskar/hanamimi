@@ -74,23 +74,36 @@ jobs:
 
       - name: Compute version
         id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          BASE=$(grep '^version:' pubspec.yaml | sed 's/version: *//; s/+.*//')
           BRANCH="${{ github.ref_name }}"
           RUN="${{ github.run_number }}"
-          echo "name=${BASE}-${BRANCH}.${RUN}" >> "$GITHUB_OUTPUT"
+          # major.minor is the ONLY part you edit by hand in pubspec.yaml.
+          # The patch auto-increments per release of that minor: pushes go
+          # 1.0.1, 1.0.2, … and start again at x.y.1 when you bump the
+          # major/minor (e.g. to 1.1.0). versionCode stays the global run
+          # number so the in-app updater's "newer" check is monotonic.
+          MM=$(grep '^version:' pubspec.yaml | sed 's/version: *//; s/+.*//' | cut -d. -f1,2)
+          COUNT=$(gh api "repos/${{ github.repository }}/releases?per_page=100" \
+            --jq "[.[] | select(.tag_name | startswith(\"${BRANCH}-v${MM}.\"))] | length" 2>/dev/null || echo 0)
+          PATCH=$((COUNT + 1))
+          SEMVER="${MM}.${PATCH}"
+          EDITION=$([ "$BRANCH" = "plus" ] && echo "Hanamimi+" || echo "Hanamimi")
+          echo "semver=${SEMVER}" >> "$GITHUB_OUTPUT"
           echo "code=${RUN}" >> "$GITHUB_OUTPUT"
-          echo "tag=${BRANCH}-v${BASE}-${RUN}" >> "$GITHUB_OUTPUT"
+          echo "tag=${BRANCH}-v${SEMVER}-${RUN}" >> "$GITHUB_OUTPUT"
+          echo "display=${EDITION} ${SEMVER}+${RUN}" >> "$GITHUB_OUTPUT"
 
       - name: Build APKs (per-ABI + universal)
         run: |
           flutter pub get
           flutter build apk --release \
-            --build-name="${{ steps.ver.outputs.name }}" \
+            --build-name="${{ steps.ver.outputs.semver }}" \
             --build-number="${{ steps.ver.outputs.code }}" \
             --split-per-abi
           flutter build apk --release \
-            --build-name="${{ steps.ver.outputs.name }}" \
+            --build-name="${{ steps.ver.outputs.semver }}" \
             --build-number="${{ steps.ver.outputs.code }}"
           cd build/app/outputs/flutter-apk
           BRANCH="${{ github.ref_name }}"
@@ -145,7 +158,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
-          name: Hanamimi ${{ github.ref_name }} ${{ steps.ver.outputs.name }}
+          name: ${{ steps.ver.outputs.display }}
           body_path: release_body.md
           files: build/app/outputs/flutter-apk/hanamimi-*.apk
 
@@ -164,7 +177,7 @@ jobs:
           # Reserve room for the diff link (~110 chars) under Telegram's
           # 1024-char cap, so it survives even a long changelog.
           NOTES=$(printf '%s' "$NOTES" | head -c 800)
-          CAPTION="🌸 Hanamimi ${{ github.ref_name }} ${{ steps.ver.outputs.name }}
+          CAPTION="🌸 ${{ steps.ver.outputs.display }}
 
           ${NOTES}
 
