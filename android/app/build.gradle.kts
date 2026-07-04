@@ -36,13 +36,10 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
-        // yt-dlp ships a Python 3 payload per ABI (~25 MB each). This
-        // device and the vast majority of Android phones are arm; drop
-        // x86/x86_64 so the universal APK doesn't carry emulator-only
-        // Python blobs. (M28, plus-only.)
-        ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
-        }
+        // No ndk.abiFilters here: Gradle rejects them alongside the
+        // CI's --split-per-abi builds ("Conflicting configuration").
+        // The per-ABI release APKs keep downloads small; only the
+        // universal APK carries every ABI's yt-dlp Python payload.
     }
 
     // youtubedl-android loads its bundled Python .so from the extracted
