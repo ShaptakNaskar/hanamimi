@@ -12,12 +12,14 @@ import '../../providers/mascot_provider.dart';
 import '../../providers/nerd_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../providers/update_provider.dart';
 import '../../providers/visualizer_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
 import '../../theme/themes.dart';
 import '../components/mascot/hanamimi_widget.dart';
+import '../modals/update_dialog.dart';
 import '../components/mascot/mascot_painter.dart';
 
 class YouScreen extends ConsumerWidget {
@@ -278,7 +280,7 @@ class _MoreCard extends ConsumerWidget {
             leading: Icon(Icons.info_outline,
                 size: 20, color: theme.textMuted),
             title: Text('About', style: AppText.rowSongTitle(theme)),
-            subtitle: Text('Hanamimi 花耳 · Version 1.0.0',
+            subtitle: Text('Hanamimi 花耳 · Version 1.0.2',
                 style: AppText.caption(theme)),
             onTap: () {
               final unlocked =
@@ -289,6 +291,30 @@ class _MoreCard extends ConsumerWidget {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(Radii.md)),
                   content: const Text('🛠️ Developer mode unlocked',
+                      style: TextStyle(fontFamily: 'Nunito')),
+                ));
+              }
+            },
+          ),
+          Divider(height: 0.5, color: theme.divider),
+          ListTile(
+            leading: Icon(Icons.system_update_outlined,
+                size: 20, color: theme.textMuted),
+            title:
+                Text('Check for updates', style: AppText.rowSongTitle(theme)),
+            subtitle: Text('New builds land on GitHub Releases',
+                style: AppText.caption(theme)),
+            onTap: () async {
+              final update = await ref.refresh(updateCheckProvider.future);
+              if (!context.mounted) return;
+              if (update != null) {
+                await showUpdateDialog(context, update);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(Radii.md)),
+                  content: const Text("You're up to date 🐾",
                       style: TextStyle(fontFamily: 'Nunito')),
                 ));
               }

@@ -39,6 +39,13 @@ class MainActivity : AudioServiceActivity() {
             "hanamimi/audio_info",
         ).setMethodCallHandler { call, result -> audioInfo.handle(call, result) }
 
+        // In-app updater: checks main-v releases, installs the matching ABI.
+        val updater = UpdaterChannel(applicationContext)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "hanamimi/updater",
+        ).setMethodCallHandler { call, result -> updater.handle(call, result) }
+
         openWith = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "hanamimi/open_with",

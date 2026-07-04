@@ -112,7 +112,7 @@ jobs:
           if [ -n "$GROQ_API_KEY" ]; then
             BODY=$(jq -n \
               --arg msg "$COMMIT_MSG" --arg diff "$DIFF" \
-              '{model: "llama-3.3-70b-versatile",
+              '{model: "openai/gpt-oss-120b",
                 temperature: 0.3,
                 messages: [
                   {role: "system", content: "You write short, user-facing release notes for a music player app called Hanamimi. Output only markdown bullet points (3-8 bullets), no heading, no preamble. Describe what changed for USERS; skip refactors and internal chores unless user-visible."},

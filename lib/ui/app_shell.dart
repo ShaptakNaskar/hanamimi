@@ -8,12 +8,14 @@ import '../library/models/track.dart';
 import '../providers/audio_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/theme_provider.dart';
+import '../providers/update_provider.dart';
 import '../theme/app_theme.dart';
 import '../theme/hanamimi_theme.dart';
 import '../theme/theme_tokens.dart';
 import '../utils/duration_ext.dart';
 import 'components/mini_player.dart';
 import 'components/shared/bottom_nav.dart';
+import 'modals/update_dialog.dart';
 import 'screens/library_screen.dart';
 import 'screens/now_playing_screen.dart';
 import 'screens/you_screen.dart';
@@ -50,6 +52,11 @@ class _AppShellState extends ConsumerState<AppShell> {
         _resumeTimer?.cancel();
         setState(() => _pendingResume = null);
       }
+    });
+    // One update check per launch (main-v releases only) → changelog dialog.
+    ref.listenManual(updateCheckProvider, (_, next) {
+      final update = next.value;
+      if (update != null && mounted) showUpdateDialog(context, update);
     });
   }
 
