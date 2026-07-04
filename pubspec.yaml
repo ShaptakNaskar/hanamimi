@@ -49,6 +49,7 @@ dependencies:
   pointycastle: ^4.0.0
   connectivity_plus: ^6.1.0
   package_info_plus: ^8.3.0 # current versionCode for the update checker
+  url_launcher: ^6.3.1 # maker links in About
 
 dev_dependencies:
   flutter_test:

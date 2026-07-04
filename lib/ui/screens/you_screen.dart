@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../library/media_store_channel.dart';
 import '../../online/models/resolved_stream.dart';
@@ -287,8 +288,7 @@ class _MoreCard extends ConsumerWidget {
             leading: Icon(Icons.info_outline,
                 size: 20, color: theme.textMuted),
             title: Text('About', style: AppText.rowSongTitle(theme)),
-            subtitle: Text(
-                'Hanamimi 花耳 · Internal Build - July 2026 · v1.0.0',
+            subtitle: Text('Hanamimi+ 花耳 · Version 1.0.0',
                 style: AppText.caption(theme)),
             onTap: () {
               final unlocked =
@@ -336,6 +336,26 @@ class _MoreCard extends ConsumerWidget {
                 style: AppText.rowSongTitle(theme)),
             subtitle: Text('yt-dlp · GPLv3', style: AppText.caption(theme)),
             onTap: () => _showLicenseDialog(context, theme),
+          ),
+          Divider(height: 0.5, color: theme.divider),
+          ListTile(
+            leading: const Text('🐙', style: TextStyle(fontSize: 16)),
+            title: Text('GitHub', style: AppText.rowSongTitle(theme)),
+            subtitle: Text('github.com/ShaptakNaskar',
+                style: AppText.caption(theme)),
+            onTap: () => launchUrl(
+                Uri.parse('https://github.com/ShaptakNaskar/'),
+                mode: LaunchMode.externalApplication),
+          ),
+          Divider(height: 0.5, color: theme.divider),
+          ListTile(
+            leading: const Text('🌸', style: TextStyle(fontSize: 16)),
+            title: Text('Made by Sappy', style: AppText.rowSongTitle(theme)),
+            subtitle: Text('sappy-dir.vercel.app',
+                style: AppText.caption(theme)),
+            onTap: () => launchUrl(
+                Uri.parse('https://sappy-dir.vercel.app/'),
+                mode: LaunchMode.externalApplication),
           ),
           if (ref.watch(devModeProvider).enabled) ...[
             Divider(height: 0.5, color: theme.divider),
