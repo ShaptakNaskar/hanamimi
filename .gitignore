@@ -25,6 +25,12 @@ android/key.properties
 design/prototype/node_modules/
 design/prototype/dist/
 
+# --- Internal planning/design docs (not published) ---
+PROGRESS.md
+ARCHITECTURE.md
+ARCHITECTURE-ONLINE.md
+ARCHITECTURE-YTDLP.md
+
 # --- Misc ---
 Hanamimi-handoff.zip
 *.log
