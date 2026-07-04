@@ -129,10 +129,16 @@ jobs:
             # Fallback: the raw commit title + description as patch notes.
             NOTES="$COMMIT_MSG"
           fi
+          # Every release links the editions explainer so folks browsing
+          # main vs plus builds know what the difference is.
+          DIFF_LINK="ℹ️ Hanamimi vs Hanamimi+ → https://github.com/${{ github.repository }}/blob/main/docs/EDITIONS.md"
+          # GitHub release body (no length limit): changelog + link, to a file.
+          { printf '%s\n\n%s\n' "$NOTES" "$DIFF_LINK"; } > release_body.md
+          # Outputs for the Telegram step: changelog and link kept apart so
+          # the caption can truncate the body but always keep the link.
           {
-            echo 'notes<<NOTES_EOF'
-            echo "$NOTES"
-            echo 'NOTES_EOF'
+            echo 'notes<<NOTES_EOF'; echo "$NOTES"; echo 'NOTES_EOF'
+            echo "difflink=$DIFF_LINK"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub release
@@ -140,7 +146,7 @@ jobs:
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: Hanamimi ${{ github.ref_name }} ${{ steps.ver.outputs.name }}
-          body: ${{ steps.notes.outputs.notes }}
+          body_path: release_body.md
           files: build/app/outputs/flutter-apk/hanamimi-*.apk
 
       - name: Post to Telegram
@@ -149,16 +155,20 @@ jobs:
           BOT: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
           NOTES: ${{ steps.notes.outputs.notes }}
+          DIFFLINK: ${{ steps.notes.outputs.difflink }}
         run: |
           # Groq emits '* ' / '- ' markdown bullets, which Telegram shows
           # as literal asterisks in a plain-text caption. Turn them into
           # real bullet dots so the changelog reads cleanly.
           NOTES=$(printf '%s' "$NOTES" | sed -E 's/^[[:space:]]*[*-][[:space:]]+/• /')
+          # Reserve room for the diff link (~110 chars) under Telegram's
+          # 1024-char cap, so it survives even a long changelog.
+          NOTES=$(printf '%s' "$NOTES" | head -c 800)
           CAPTION="🌸 Hanamimi ${{ github.ref_name }} ${{ steps.ver.outputs.name }}
 
-          ${NOTES}"
-          # Telegram caps captions at 1024 chars.
-          CAPTION=$(printf '%s' "$CAPTION" | head -c 1000)
+          ${NOTES}
+
+          ${DIFFLINK}"
           curl -sS --max-time 300 \
             -F chat_id="$CHAT" \
             -F document=@"build/app/outputs/flutter-apk/hanamimi-${{ github.ref_name }}-arm64-v8a.apk" \
