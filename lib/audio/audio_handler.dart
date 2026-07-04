@@ -18,14 +18,18 @@ class HanamimiAudioHandler extends BaseAudioHandler {
     final track = s.currentTrack;
     if (track != null) {
       mediaItem.add(MediaItem(
-        id: track.filePath,
+        // Online tracks have no file path; their source identity is
+        // just as stable a media id.
+        id: track.filePath ?? '${track.source.name}:${track.sourceId}',
         title: track.title,
         artist: track.artist,
         album: track.album,
         duration: s.duration,
-        artUri: track.albumArtPath == null
-            ? null
-            : Uri.file(track.albumArtPath!),
+        artUri: track.albumArtPath != null
+            ? Uri.file(track.albumArtPath!)
+            : track.artUrl != null
+                ? Uri.tryParse(track.artUrl!)
+                : null,
       ));
     }
 

@@ -64,14 +64,18 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
 
   void startFor(Track track) {
     // v2: fractional-hop frame timing (old caches drift on rates not
-    // divisible by 60).
-    final key =
-        'v2_${track.mediaId}_${track.filePath.hashCode}_${track.duration.inMilliseconds}';
+    // divisible by 60). Streams have no file to decode — leave frames
+    // empty so the synthetic pulse covers them (real bands arrive once
+    // the track is downloaded).
+    final path = track.filePath;
+    final key = path == null
+        ? 'stream_${track.source.name}_${track.sourceId}'
+        : 'v2_${track.mediaId ?? track.sourceId}_${path.hashCode}_${track.duration.inMilliseconds}';
     if (key == currentKey) return;
     currentKey = key;
     frames = <double>[];
     extractionDone = false;
-    FftChannel.start(track.filePath, key);
+    if (path != null) FftChannel.start(path, key);
   }
 
   final frameSub = FftChannel.frames.listen((event) {

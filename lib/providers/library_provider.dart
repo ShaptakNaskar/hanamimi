@@ -74,11 +74,13 @@ class LibraryNotifier extends AsyncNotifier<List<Track>> {
 final libraryProvider =
     AsyncNotifierProvider<LibraryNotifier, List<Track>>(LibraryNotifier.new);
 
-/// Albums derived from the track list, sorted by title.
+/// Albums derived from the track list, sorted by title. MediaStore-only
+/// by definition — online tracks never group into albums here.
 final albumsProvider = Provider<List<Album>>((ref) {
   final tracks = ref.watch(libraryProvider).value ?? [];
   final byAlbum = <int, List<Track>>{};
   for (final t in tracks) {
+    if (!t.isLocal) continue;
     byAlbum.putIfAbsent(t.albumId, () => []).add(t);
   }
   final albums = byAlbum.entries.map((e) {
@@ -102,8 +104,12 @@ final foldersProvider = Provider<List<MusicFolder>>((ref) {
   final tracks = ref.watch(libraryProvider).value ?? [];
   final byDir = <String, List<Track>>{};
   for (final t in tracks) {
-    final slash = t.filePath.lastIndexOf('/');
-    final dir = slash <= 0 ? '/' : t.filePath.substring(0, slash);
+    // MediaStore-only: downloaded online tracks live in app-private
+    // storage and don't belong in folder browsing.
+    final path = t.filePath;
+    if (!t.isLocal || path == null) continue;
+    final slash = path.lastIndexOf('/');
+    final dir = slash <= 0 ? '/' : path.substring(0, slash);
     byDir.putIfAbsent(dir, () => []).add(t);
   }
   final folders = byDir.entries.map((e) {

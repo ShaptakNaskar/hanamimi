@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../providers/audio_provider.dart';
 import '../providers/theme_provider.dart';
 import '../theme/theme_tokens.dart';
 import 'components/mini_player.dart';
@@ -23,6 +26,36 @@ class _AppShellState extends ConsumerState<AppShell> {
   // Tabs visited before the current one; system back walks this before
   // it's allowed to close the app.
   final List<int> _navHistory = [];
+
+  // Engine trouble ("Can't play these tracks") surfaces as a toast.
+  StreamSubscription<String>? _errorSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _errorSub = ref
+        .read(audioHandlerProvider)
+        .engine
+        .errors
+        .stream
+        .listen((message) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Radii.md)),
+        content:
+            Text(message, style: const TextStyle(fontFamily: 'Nunito')),
+      ));
+    });
+  }
+
+  @override
+  void dispose() {
+    _errorSub?.cancel();
+    super.dispose();
+  }
 
   static const _screens = [
     LibraryScreen(),

@@ -5,6 +5,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:rxdart/rxdart.dart';
 
 import '../library/models/track.dart';
+import '../online/stream_resolver.dart';
 import 'models/audio_state.dart';
 import 'models/queue_mode.dart';
 
@@ -12,10 +13,14 @@ import 'models/queue_mode.dart';
 /// from ARCHITECTURE.md §6.1: [_primary] is audible; [_incoming] exists
 /// only while a crossfade is running, then becomes the new primary.
 class QueueManager {
-  QueueManager() {
+  QueueManager({StreamResolver? resolver})
+      : _resolver = resolver ?? StreamResolver() {
     _primary = AudioPlayer();
     _wirePlayer(_primary);
   }
+
+  final StreamResolver _resolver;
+  StreamResolver get resolver => _resolver;
 
   late AudioPlayer _primary;
   AudioPlayer? _incoming;
@@ -44,6 +49,15 @@ class QueueManager {
 
   /// Fires with a track every time playback of it begins (for play counts).
   final trackStarted = StreamController<Track>.broadcast();
+
+  /// User-facing playback trouble ("Can't play these tracks") — the UI
+  /// shell listens and shows a toast.
+  final errors = StreamController<String>.broadcast();
+
+  /// Consecutive load failures; the skip-on-failure cascade stops when
+  /// it hits the queue length (M20's lesson: don't silently chew the
+  /// whole queue when every source is unplayable).
+  int _loadFailures = 0;
 
   List<Track> _source = [];
   List<int> _order = [];
@@ -107,6 +121,7 @@ class QueueManager {
     if (mode != null) _mode = mode;
     _rebuildOrder(anchor: startIndex);
     _history.clear();
+    _loadFailures = 0;
     await _playCurrent();
   }
 
@@ -124,6 +139,7 @@ class QueueManager {
 
   Future<void> next({bool byUser = true}) async {
     if (_order.isEmpty) return;
+    if (byUser) _loadFailures = 0;
     await _abortCrossfade();
     final current = _currentTrack;
     if (current != null) _history.add(current);
@@ -160,6 +176,7 @@ class QueueManager {
   /// the queue itself — including songs before the one you started
   /// from, which history alone can never reach.
   Future<void> previous() async {
+    _loadFailures = 0;
     await _abortCrossfade();
     if (_primary.position > const Duration(seconds: 3)) {
       await _primary.seek(Duration.zero);
@@ -206,6 +223,7 @@ class QueueManager {
   /// Jump straight to a position in the play order (queue sheet).
   Future<void> jumpToQueueIndex(int index) async {
     if (index < 0 || index >= _order.length) return;
+    _loadFailures = 0;
     await _abortCrossfade();
     final current = _currentTrack;
     if (current != null) _history.add(current);
@@ -242,6 +260,7 @@ class QueueManager {
     await _state.close();
     await _position.close();
     await trackStarted.close();
+    await errors.close();
   }
 
   // --- Crossfade ---
@@ -256,7 +275,8 @@ class QueueManager {
     }
     final duration = _primary.duration;
     if (duration == null || duration == Duration.zero) return;
-    if (duration - pos > crossfadeDuration) return;
+    final remaining = duration - pos;
+    if (remaining > crossfadeDuration + const Duration(seconds: 10)) return;
 
     // Where would we land? Only crossfade when there's a definite next.
     int? nextCursor;
@@ -266,6 +286,13 @@ class QueueManager {
       nextCursor = 0;
     }
     if (nextCursor == null) return;
+
+    if (remaining > crossfadeDuration) {
+      // Streams take ~1–2 s to resolve; warm the URL cache ahead of
+      // the ramp so resolution latency doesn't eat into it. Idempotent.
+      unawaited(_resolver.preResolve(_source[_order[nextCursor]]));
+      return;
+    }
 
     _startCrossfade(nextCursor);
   }
@@ -278,7 +305,7 @@ class QueueManager {
     _pendingTrack = track;
 
     try {
-      await _setSource(incoming, track);
+      await _loadInto(incoming, track);
     } catch (_) {
       await incoming.dispose();
       _incoming = null;
@@ -395,21 +422,36 @@ class QueueManager {
       status: PlaybackStatus.loading,
     ));
     try {
-      await _setSource(_primary, track);
+      await _loadInto(_primary, track);
       await _primary.setVolume(1);
       await _primary.play();
+      _loadFailures = 0;
       trackStarted.add(track);
     } catch (_) {
-      // Unreadable file (deleted, moved) — skip forward.
+      // Unreadable file (deleted, moved) or stream resolution failed
+      // (offline, geo-blocked, extraction broke) — skip forward, but
+      // stop once the whole queue (capped at 5) has failed in a row.
+      _loadFailures++;
+      if (_loadFailures >= min(_order.length, 5)) {
+        _loadFailures = 0;
+        errors.add("Can't play these tracks");
+        _state.add(state.copyWith(status: PlaybackStatus.idle));
+        return;
+      }
       await next(byUser: false);
     }
   }
 
-  /// Tracks opened from other apps carry a content:// uri instead of a
-  /// filesystem path.
-  static Future<Duration?> _setSource(AudioPlayer player, Track track) =>
-      track.filePath.startsWith('content://')
-          ? player.setAudioSource(
-              AudioSource.uri(Uri.parse(track.filePath)))
-          : player.setFilePath(track.filePath);
+  /// Resolves the track to an audio source and loads it. A cached
+  /// stream URL can expire between resolution and load (HTTP 403) —
+  /// invalidate and re-resolve once before giving up.
+  Future<void> _loadInto(AudioPlayer player, Track track) async {
+    try {
+      await player.setAudioSource(await _resolver.sourceFor(track));
+    } catch (_) {
+      if (track.source == TrackSource.local) rethrow;
+      _resolver.invalidate(track);
+      await player.setAudioSource(await _resolver.sourceFor(track));
+    }
+  }
 }

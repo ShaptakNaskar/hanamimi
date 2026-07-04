@@ -14,33 +14,20 @@ class LibraryRepository {
   static Future<LibraryRepository> open() async {
     final db = await openDatabase(
       'hanamimi.db',
-      version: 2,
+      version: 3,
       // v2 adds lyric quality (word/line/plain). Old rows predate the
       // word-synced provider, so wipe them and refetch on demand.
+      // v3 adds online sources (ARCHITECTURE-ONLINE.md §7).
       onUpgrade: (db, oldVersion, _) async {
         if (oldVersion < 2) {
           await db.execute('DROP TABLE IF EXISTS lyric_cache');
           await _createLyricCache(db);
         }
+        if (oldVersion < 3) await _migrateTracksV3(db);
       },
       onCreate: (db, _) async {
-        await db.execute('''
-          CREATE TABLE tracks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            media_id INTEGER NOT NULL UNIQUE,
-            title TEXT NOT NULL,
-            artist TEXT NOT NULL,
-            album TEXT NOT NULL,
-            album_id INTEGER NOT NULL,
-            album_art_path TEXT,
-            file_path TEXT NOT NULL,
-            duration_ms INTEGER NOT NULL,
-            track_number INTEGER,
-            play_count INTEGER NOT NULL DEFAULT 0,
-            last_played INTEGER,
-            liked INTEGER NOT NULL DEFAULT 0
-          )
-        ''');
+        await db.execute(_tracksSchema('tracks'));
+        await db.execute(_onlineIndex);
         await db.execute('''
           CREATE TABLE playlists (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,6 +48,53 @@ class LibraryRepository {
       },
     );
     return LibraryRepository._(db);
+  }
+
+  /// v3: media_id and file_path are nullable (online tracks have
+  /// neither until downloaded), plus source identity columns.
+  static String _tracksSchema(String name) => '''
+      CREATE TABLE $name (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        media_id INTEGER UNIQUE,
+        title TEXT NOT NULL,
+        artist TEXT NOT NULL,
+        album TEXT NOT NULL,
+        album_id INTEGER NOT NULL DEFAULT 0,
+        album_art_path TEXT,
+        file_path TEXT,
+        duration_ms INTEGER NOT NULL,
+        track_number INTEGER,
+        play_count INTEGER NOT NULL DEFAULT 0,
+        last_played INTEGER,
+        liked INTEGER NOT NULL DEFAULT 0,
+        source TEXT NOT NULL DEFAULT 'local',
+        source_id TEXT,
+        art_url TEXT
+      )
+    ''';
+
+  /// One row per online identity; local rows (source_id NULL) exempt.
+  static const _onlineIndex = '''
+      CREATE UNIQUE INDEX idx_tracks_online ON tracks(source, source_id)
+        WHERE source_id IS NOT NULL
+    ''';
+
+  /// SQLite can't relax NOT NULL/UNIQUE in place — rebuild the table.
+  /// Row ids are copied verbatim so playlist_tracks references survive.
+  /// (openDatabase already wraps version callbacks in a transaction.)
+  static Future<void> _migrateTracksV3(Database db) async {
+    await db.execute(_tracksSchema('tracks_v3'));
+    await db.execute('''
+      INSERT INTO tracks_v3
+        (id, media_id, title, artist, album, album_id, album_art_path,
+         file_path, duration_ms, track_number, play_count, last_played, liked)
+      SELECT id, media_id, title, artist, album, album_id, album_art_path,
+         file_path, duration_ms, track_number, play_count, last_played, liked
+      FROM tracks
+    ''');
+    await db.execute('DROP TABLE tracks');
+    await db.execute('ALTER TABLE tracks_v3 RENAME TO tracks');
+    await db.execute(_onlineIndex);
   }
 
   static Future<void> _createLyricCache(DatabaseExecutor db) async {
@@ -91,7 +125,10 @@ class LibraryRepository {
   Future<int> syncScannedTracks(List<Map<String, Object?>> scanned) async {
     var changes = 0;
     await _db.transaction((txn) async {
-      final existing = await txn.query('tracks', columns: ['media_id']);
+      // Local rows only — a rescan must never touch online tracks
+      // (their media_id is NULL anyway).
+      final existing = await txn.query('tracks',
+          columns: ['media_id'], where: "source = 'local'");
       final existingIds = existing.map((r) => r['media_id'] as int).toSet();
       final scannedIds = <int>{};
 
@@ -122,8 +159,8 @@ class LibraryRepository {
 
       final removed = existingIds.difference(scannedIds);
       for (final mediaId in removed) {
-        await txn
-            .delete('tracks', where: 'media_id = ?', whereArgs: [mediaId]);
+        await txn.delete('tracks',
+            where: "media_id = ? AND source = 'local'", whereArgs: [mediaId]);
         changes++;
       }
     });

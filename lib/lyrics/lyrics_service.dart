@@ -38,7 +38,10 @@ class LyricsService {
     Lyrics? result;
     switch (source) {
       case LyricsSource.embedded:
-        final text = await EmbeddedLyricsReader.read(track.filePath);
+        // Streams have no file to read tags from.
+        final text = track.filePath == null
+            ? null
+            : await EmbeddedLyricsReader.read(track.filePath!);
         result = text == null
             ? null
             : LrcParser.parseAuto(text, source: LyricsSource.embedded);
@@ -108,7 +111,11 @@ class LyricsService {
 
   /// Returns null when no lyrics exist for the track.
   Future<Lyrics?> fetchFor(Track track) async {
-    final embeddedText = await EmbeddedLyricsReader.read(track.filePath);
+    // Streams skip the embedded source; the network providers key on
+    // title+artist, which online tracks carry accurate values for.
+    final embeddedText = track.filePath == null
+        ? null
+        : await EmbeddedLyricsReader.read(track.filePath!);
     final embedded = embeddedText == null
         ? null
         : LrcParser.parseAuto(embeddedText, source: LyricsSource.embedded);
