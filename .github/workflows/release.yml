@@ -24,6 +24,11 @@ name: release
 on:
   push:
     branches: [main, plus]
+    # Don't spend a full signed build on doc/ignore-only pushes.
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - 'LICENSE'
 
 concurrency:
   group: release-${{ github.ref_name }}
