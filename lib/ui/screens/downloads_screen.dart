@@ -12,6 +12,7 @@ import '../../providers/theme_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
+import '../../utils/format_bytes.dart';
 import '../components/library/art_thumb.dart';
 import '../components/mascot/buddies.dart';
 
@@ -361,13 +362,3 @@ class _DownloadedRow extends ConsumerWidget {
   }
 }
 
-/// "84 MB", "1.2 GB" — shared by the storage line and transfer cards.
-String formatBytes(int bytes) {
-  if (bytes >= 1024 * 1024 * 1024) {
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
-  }
-  if (bytes >= 1024 * 1024) {
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-  return '${(bytes / 1024).toStringAsFixed(0)} KB';
-}

@@ -7,10 +7,14 @@ import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// Which release channel this build follows. The plus build only ever
-/// offers plus releases (tags `plus-v…`).
-const _tagPrefix = 'plus-v';
 const _repo = 'ShaptakNaskar/hanamimi';
+
+/// The release channel THIS build follows, derived from its own package
+/// id so main and plus never cross-update: `com.hanamimi.app.plus` →
+/// `plus-v…` tags, `com.hanamimi.app` → `main-v…`. Same source on both
+/// branches; the installed edition decides.
+String _tagPrefixFor(String packageName) =>
+    packageName.endsWith('.plus') ? 'plus-v' : 'main-v';
 
 /// A newer build published by the CI pipeline (GitHub Releases).
 class AppUpdate {
@@ -31,14 +35,18 @@ class AppUpdate {
   final int sizeBytes;
 }
 
-/// Checks GitHub Releases for a newer plus build. Null = up to date (or
-/// check failed — never nag on network errors). The CI tags releases
-/// `plus-v<version>-<run>` with versionCode = run number, so "newer"
-/// is a plain integer comparison against this build's versionCode.
+/// Checks GitHub Releases for a newer build of THIS edition. Null = up to
+/// date (or the check failed — never nag on network errors). The CI tags
+/// releases `<branch>-v<version>-<run>` with versionCode = run number, so
+/// "newer" is a plain integer comparison against this build's versionCode.
 final updateCheckProvider = FutureProvider<AppUpdate?>((ref) async {
   try {
     final info = await PackageInfo.fromPlatform();
     final currentCode = int.tryParse(info.buildNumber) ?? 0;
+    final tagPrefix = _tagPrefixFor(info.packageName);
+    // The device's preferred ABI, so we download the matching split APK
+    // (smallest) and only fall back to the universal one.
+    final abi = await UpdaterChannel.deviceAbi();
 
     final res = await http.get(
       Uri.parse('https://api.github.com/repos/$_repo/releases?per_page=15'),
@@ -50,12 +58,13 @@ final updateCheckProvider = FutureProvider<AppUpdate?>((ref) async {
     AppUpdate? best;
     for (final r in releases) {
       final tag = r['tag_name'] as String? ?? '';
-      if (!tag.startsWith(_tagPrefix)) continue;
-      // plus-v1.0.0-42 → run number after the final dash.
+      if (!tag.startsWith(tagPrefix)) continue;
+      // <branch>-v1.0.1-42 → run number after the final dash.
       final run = int.tryParse(tag.split('-').last) ?? 0;
       if (run <= currentCode || run <= (best?.runNumber ?? 0)) continue;
 
-      // Prefer the arm64 asset (every current device); universal fallback.
+      // Match the device ABI (e.g. hanamimi-plus-arm64-v8a.apk); fall back
+      // to the universal APK, then any split as a last resort.
       final assets = (r['assets'] as List? ?? []).cast<Map<String, dynamic>>();
       Map<String, dynamic>? pick(String needle) {
         for (final a in assets) {
@@ -64,7 +73,9 @@ final updateCheckProvider = FutureProvider<AppUpdate?>((ref) async {
         return null;
       }
 
-      final asset = pick('arm64-v8a') ?? pick('universal');
+      final asset = (abi != null ? pick(abi) : null) ??
+          pick('universal') ??
+          pick('arm64-v8a');
       if (asset == null) continue;
 
       best = AppUpdate(
@@ -97,6 +108,16 @@ class UpdaterChannel {
     try {
       await _ch.invokeMethod('openInstallPerm');
     } catch (_) {}
+  }
+
+  /// The device's preferred ABI (e.g. "arm64-v8a", "x86_64"), for picking
+  /// the matching split APK. Null if unavailable.
+  static Future<String?> deviceAbi() async {
+    try {
+      return await _ch.invokeMethod<String>('abi');
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<bool> install(String path) async {

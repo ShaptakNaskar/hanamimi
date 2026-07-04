@@ -5,7 +5,7 @@ import '../../providers/theme_provider.dart';
 import '../../providers/update_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/theme_tokens.dart';
-import '../screens/downloads_screen.dart' show formatBytes;
+import '../../utils/format_bytes.dart';
 
 /// "Update available" dialog: changelog + in-app download with a live
 /// progress bar, then hands the APK to the system installer (the app

@@ -25,6 +25,7 @@ import java.io.File
 class UpdaterChannel(private val context: Context) {
     fun handle(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
+            "abi" -> result.success(Build.SUPPORTED_ABIS.firstOrNull())
             "canInstall" -> result.success(
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                     context.packageManager.canRequestPackageInstalls()
