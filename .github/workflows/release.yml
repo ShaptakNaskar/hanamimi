@@ -145,7 +145,11 @@ jobs:
           CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
           NOTES: ${{ steps.notes.outputs.notes }}
         run: |
-          CAPTION="Hanamimi ${{ github.ref_name }} ${{ steps.ver.outputs.name }}
+          # Groq emits '* ' / '- ' markdown bullets, which Telegram shows
+          # as literal asterisks in a plain-text caption. Turn them into
+          # real bullet dots so the changelog reads cleanly.
+          NOTES=$(printf '%s' "$NOTES" | sed -E 's/^[[:space:]]*[*-][[:space:]]+/• /')
+          CAPTION="🌸 Hanamimi ${{ github.ref_name }} ${{ steps.ver.outputs.name }}
 
           ${NOTES}"
           # Telegram caps captions at 1024 chars.
