@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'providers/audio_provider.dart';
 import 'providers/companion_provider.dart';
+import 'providers/online_settings_provider.dart';
 import 'providers/open_with_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/theme_provider.dart';
@@ -19,6 +20,7 @@ class HanamimiApp extends ConsumerWidget {
     final theme = ref.watch(currentThemeProvider);
     ref.watch(playCountRecorderProvider);
     ref.watch(crossfadeProvider); // pushes the setting into the engine
+    ref.watch(resolverConfigProvider); // pushes online quality/cache/enabled
     ref.watch(listenTimeProvider); // accumulates while playing
     ref.watch(openWithProvider); // handles "open with Hanamimi" intents
 

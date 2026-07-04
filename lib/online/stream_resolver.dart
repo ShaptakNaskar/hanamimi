@@ -1,8 +1,13 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
 
 import '../library/models/track.dart';
 import 'models/resolved_stream.dart';
 import 'music_provider.dart';
+import 'stream_cache.dart';
 
 /// Thrown when a track can't be turned into a playable source
 /// (offline, extraction broke, provider missing). The engine treats it
@@ -24,13 +29,16 @@ class StreamResolver {
       : _providers = providers ?? musicProviderRegistry;
 
   final Map<TrackSource, MusicProvider> _providers;
+  final _streamCache = StreamCache();
 
   /// Keyed source:sourceId. In-memory only — stream URLs expire.
   final _cache = <String, ResolvedStream>{};
   final _inflight = <String, Future<ResolvedStream?>>{};
 
-  /// Pushed from settings (M27); High until then.
+  /// Pushed from settings (M27); sensible defaults until then.
   StreamQuality quality = StreamQuality.high;
+  bool enabled = true;
+  int cacheCapBytes = 512 * 1024 * 1024;
 
   Future<AudioSource> sourceFor(Track track) async {
     final path = track.filePath;
@@ -43,11 +51,47 @@ class StreamResolver {
     }
     final resolved = await _resolve(track);
     if (resolved == null) throw StreamResolutionException(track);
-    return AudioSource.uri(
+
+    // Cache-as-you-play: LockCachingAudioSource writes the stream to
+    // disk while playing, so a replay within the cache window costs no
+    // data. It also serves through just_audio's proxy (Dart HTTP),
+    // which is what lets YouTube URLs past ExoPlayer's 403.
+    final cacheFile = await _streamCache.fileFor(track);
+    unawaited(_streamCache.trim(cacheCapBytes));
+    return LockCachingAudioSource(
       resolved.url,
-      headers: resolved.headers.isEmpty ? null : resolved.headers,
+      headers: resolved.headers.isEmpty
+          // A non-empty header map is what forces the proxy path;
+          // Saavn needs no headers but still benefits from caching.
+          ? const {'User-Agent': 'Dart/3.7 (dart:io)'}
+          : resolved.headers,
+      cacheFile: cacheFile,
     );
   }
+
+  /// Resolves and fully downloads a track's stream to [destination]
+  /// (the explicit "Download" action). Returns true on success. Fetches
+  /// with the Dart HTTP stack — the same one [sourceFor]'s proxy uses,
+  /// so a URL that plays also downloads.
+  Future<bool> download(Track track, String destination) async {
+    final resolved = await _resolve(track);
+    if (resolved == null) return false;
+    try {
+      final res = await http.get(resolved.url,
+          headers: resolved.headers.isEmpty ? null : resolved.headers);
+      if (res.statusCode != 200 || res.bodyBytes.isEmpty) return false;
+      final tmp = File('$destination.part');
+      await tmp.writeAsBytes(res.bodyBytes);
+      // Atomic-ish: only expose the final path once fully written.
+      await tmp.rename(destination);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<int> cacheSizeBytes() => _streamCache.sizeBytes();
+  Future<void> clearCache() => _streamCache.clear();
 
   /// Warms the cache without side effects — called ahead of crossfades
   /// so resolution latency doesn't eat into the ramp.
@@ -75,7 +119,7 @@ class StreamResolver {
     return _inflight.putIfAbsent(key, () async {
       try {
         final sourceId = track.sourceId;
-        if (sourceId == null) return null;
+        if (sourceId == null || !enabled) return null;
         final resolved =
             await _providers[track.source]?.resolveStream(sourceId, quality);
         if (resolved != null) _cache[key] = resolved;

@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../library/library_repository.dart';
 import '../library/library_scanner.dart';
@@ -8,6 +10,7 @@ import '../library/models/playlist.dart';
 import '../library/models/track.dart';
 import '../online/models/online_search_result.dart';
 import '../online/online_art_cache.dart';
+import 'audio_provider.dart';
 import 'theme_provider.dart';
 
 final libraryRepositoryProvider = FutureProvider<LibraryRepository>(
@@ -92,6 +95,30 @@ class LibraryNotifier extends AsyncNotifier<List<Track>> {
       }));
     }
     return track;
+  }
+
+  /// Downloads an online track for offline playback: copies its stream
+  /// into app-private storage and stamps file_path so the resolver
+  /// short-circuits to the file thereafter. Returns false on failure
+  /// (offline, extraction broke). No-op for already-offline tracks.
+  Future<bool> downloadTrack(Track track) async {
+    if (track.isPlayableOffline || track.sourceId == null) return false;
+    final resolver = ref.read(audioHandlerProvider).engine.resolver;
+    final dir = Directory(
+        '${(await getApplicationSupportDirectory()).path}/downloads');
+    await dir.create(recursive: true);
+    final dest = '${dir.path}/${track.source.name}_${track.sourceId}.audio';
+
+    final ok = await resolver.download(track, dest);
+    if (!ok) return false;
+
+    final repo = await ref.read(libraryRepositoryProvider.future);
+    await repo.setFilePath(track.id, dest);
+    state = AsyncData([
+      for (final t in state.value ?? <Track>[])
+        t.id == track.id ? t.copyWith(filePath: dest) : t,
+    ]);
+    return true;
   }
 
   Future<void> toggleLiked(Track track) async {

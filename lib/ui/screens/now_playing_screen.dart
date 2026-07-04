@@ -102,6 +102,8 @@ class NowPlayingScreen extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(width: Space.s3),
+                      if (!libraryTrack.isLocal)
+                        _DownloadButton(track: libraryTrack, theme: theme),
                       _HeartButton(track: libraryTrack, theme: theme),
                     ],
                   ),
@@ -214,6 +216,70 @@ class _SeekBarSection extends ConsumerWidget {
       duration: duration,
       theme: theme,
       onSeek: (d) => ref.read(audioHandlerProvider).seek(d),
+    );
+  }
+}
+
+/// Download-for-offline button, shown only for online tracks. Spins
+/// while fetching, becomes a filled check once the file is saved.
+class _DownloadButton extends ConsumerStatefulWidget {
+  const _DownloadButton({required this.track, required this.theme});
+
+  final Track track;
+  final HanamimiTheme theme;
+
+  @override
+  ConsumerState<_DownloadButton> createState() => _DownloadButtonState();
+}
+
+class _DownloadButtonState extends ConsumerState<_DownloadButton> {
+  bool _busy = false;
+
+  Future<void> _download() async {
+    if (_busy || widget.track.isPlayableOffline) return;
+    setState(() => _busy = true);
+    final ok =
+        await ref.read(libraryProvider.notifier).downloadTrack(widget.track);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 2),
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.md)),
+      content: Text(ok ? 'Saved for offline' : "Couldn't download",
+          style: const TextStyle(fontFamily: 'Nunito')),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final downloaded = widget.track.isPlayableOffline;
+    return InkResponse(
+      radius: Sizes.minTouchTarget / 2,
+      onTap: downloaded ? null : _download,
+      child: SizedBox(
+        width: Sizes.minTouchTarget,
+        height: Sizes.minTouchTarget,
+        child: Center(
+          child: _busy
+              ? SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: widget.theme.primary),
+                )
+              : Icon(
+                  downloaded
+                      ? Icons.download_done
+                      : Icons.download_for_offline_outlined,
+                  size: 24,
+                  color: downloaded
+                      ? widget.theme.primary
+                      : widget.theme.textMuted,
+                ),
+        ),
+      ),
     );
   }
 }

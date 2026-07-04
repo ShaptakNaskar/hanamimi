@@ -9,6 +9,7 @@ import '../../online/models/online_search_result.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/online_provider.dart';
+import '../../providers/online_settings_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
@@ -68,7 +69,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = ref.watch(currentThemeProvider);
-    final onlineSources = registeredOnlineSources;
+    // Online off ⇒ no provider scopes; search stays library-only.
+    final onlineSources = ref.watch(onlineEnabledProvider)
+        ? registeredOnlineSources
+        : const <TrackSource>[];
     final onlineScope = _searching && _searchScope > 0
         ? onlineSources[_searchScope - 1]
         : null;

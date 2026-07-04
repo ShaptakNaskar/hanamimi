@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../library/media_store_channel.dart';
+import '../../online/models/resolved_stream.dart';
 import '../../providers/cat_mode_provider.dart';
 import '../../providers/companion_provider.dart';
 import '../../providers/dev_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
+import '../../providers/online_settings_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/visualizer_provider.dart';
@@ -60,6 +62,10 @@ class YouScreen extends ConsumerWidget {
           Text('SOUND', style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
           const _SoundSettings(),
+          const SizedBox(height: Space.s8),
+          Text('ONLINE', style: AppText.sectionLabel(theme)),
+          const SizedBox(height: Space.s3),
+          const _OnlineSettings(),
           const SizedBox(height: Space.s8),
           Text('MORE', style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
@@ -497,6 +503,171 @@ class _DevOptions extends ConsumerWidget {
           },
         ),
       ],
+    );
+  }
+}
+
+class _OnlineSettings extends ConsumerWidget {
+  const _OnlineSettings();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    final enabled = ref.watch(onlineEnabledProvider);
+    final quality = ref.watch(streamQualityProvider);
+    final meteredQuality = ref.watch(meteredQualityProvider);
+    final cacheMb = ref.watch(streamCacheSizeProvider);
+
+    return Container(
+      padding: const EdgeInsets.all(Space.s4),
+      decoration: BoxDecoration(
+        color: theme.surface,
+        borderRadius: BorderRadius.circular(Radii.md),
+        border: Border.all(color: theme.divider, width: 0.5),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Online features',
+                        style: AppText.rowSongTitle(theme)),
+                    Text('Search & stream from YouTube and JioSaavn',
+                        style: AppText.caption(theme)),
+                  ],
+                ),
+              ),
+              Switch(
+                value: enabled,
+                onChanged: (on) =>
+                    ref.read(onlineEnabledProvider.notifier).set(on),
+              ),
+            ],
+          ),
+          AnimatedSize(
+            duration: Anim.minTransition,
+            child: !enabled
+                ? const SizedBox(width: double.infinity)
+                : Column(
+                    children: [
+                      Divider(height: Space.s6, color: theme.divider),
+                      _QualityRow(
+                        label: 'Streaming quality',
+                        subtitle: 'Higher uses more data',
+                        value: quality == StreamQuality.high ? 'High' : 'Low',
+                        onTap: () => ref
+                            .read(streamQualityProvider.notifier)
+                            .set(quality == StreamQuality.high
+                                ? StreamQuality.low
+                                : StreamQuality.high),
+                        theme: theme,
+                      ),
+                      Divider(height: Space.s6, color: theme.divider),
+                      _QualityRow(
+                        label: 'On mobile data',
+                        subtitle: 'Quality when off Wi-Fi',
+                        value: switch (meteredQuality) {
+                          MeteredQuality.low => 'Low',
+                          MeteredQuality.high => 'High',
+                          MeteredQuality.matchWifi => 'Use Wi-Fi setting',
+                        },
+                        onTap: () {
+                          const order = MeteredQuality.values;
+                          final next = order[
+                              (meteredQuality.index + 1) % order.length];
+                          ref
+                              .read(meteredQualityProvider.notifier)
+                              .set(next);
+                        },
+                        theme: theme,
+                      ),
+                      Divider(height: Space.s6, color: theme.divider),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Stream cache',
+                              style: AppText.rowSongTitle(theme)),
+                          Text('Recently streamed songs replay data-free',
+                              style: AppText.caption(theme)),
+                          Row(
+                            children: [
+                              Icon(Icons.sd_storage_outlined,
+                                  size: 16, color: theme.primary),
+                              Expanded(
+                                child: Slider(
+                                  value: cacheMb
+                                      .toDouble()
+                                      .clamp(128, 2048),
+                                  min: 128,
+                                  max: 2048,
+                                  divisions: 15,
+                                  onChanged: (v) => ref
+                                      .read(streamCacheSizeProvider.notifier)
+                                      .set(v.round()),
+                                ),
+                              ),
+                              SizedBox(
+                                width: 56,
+                                child: Text(
+                                  cacheMb >= 1024
+                                      ? '${(cacheMb / 1024).toStringAsFixed(1)} GB'
+                                      : '$cacheMb MB',
+                                  style: AppText.caption(theme),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QualityRow extends StatelessWidget {
+  const _QualityRow({
+    required this.label,
+    required this.subtitle,
+    required this.value,
+    required this.onTap,
+    required this.theme,
+  });
+
+  final String label;
+  final String subtitle;
+  final String value;
+  final VoidCallback onTap;
+  final HanamimiTheme theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(Radii.sm),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: AppText.rowSongTitle(theme)),
+                Text(subtitle, style: AppText.caption(theme)),
+              ],
+            ),
+          ),
+          Text(value,
+              style: AppText.rowSongTitle(theme)
+                  .copyWith(color: theme.primary)),
+          Icon(Icons.chevron_right, size: 18, color: theme.textMuted),
+        ],
+      ),
     );
   }
 }
