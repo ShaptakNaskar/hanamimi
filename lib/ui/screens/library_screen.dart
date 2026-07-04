@@ -125,17 +125,48 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                       ),
                     ],
                   )
-                : Row(
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('Hanamimi',
                           style: AppText.screenTitle(theme)
                               .copyWith(fontSize: 22)),
-                      const Spacer(),
-                      InkResponse(
+                      const SizedBox(height: Space.s3),
+                      // A visible search bar that NAMES the online
+                      // sources — the icon-only entry point hid that
+                      // this app searches & streams YouTube/JioSaavn.
+                      GestureDetector(
                         onTap: () => setState(() => _searching = true),
-                        radius: 20,
-                        child: Icon(Icons.search,
-                            size: 24, color: theme.textMuted),
+                        child: Container(
+                          height: Sizes.inputHeight,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: Space.s3),
+                          decoration: BoxDecoration(
+                            color: theme.surface,
+                            borderRadius:
+                                BorderRadius.circular(Radii.pill),
+                            border: Border.all(
+                                color: theme.divider, width: 0.5),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.search,
+                                  size: 20, color: theme.textMuted),
+                              const SizedBox(width: Space.s2),
+                              Expanded(
+                                child: Text(
+                                  ref.watch(onlineEnabledProvider)
+                                      ? 'Search your music, YouTube & JioSaavn'
+                                      : 'Search your music…',
+                                  style: AppText.body(theme).copyWith(
+                                      color: theme.textMuted),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                   ),
