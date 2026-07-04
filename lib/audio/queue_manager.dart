@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:rxdart/rxdart.dart';
 
 import '../library/models/track.dart';
 import 'models/audio_state.dart';
+import 'models/playback_session.dart';
 import 'models/queue_mode.dart';
 
 /// Owns the players and the queue. Crossfade uses the two-player model
@@ -13,8 +15,77 @@ import 'models/queue_mode.dart';
 /// only while a crossfade is running, then becomes the new primary.
 class QueueManager {
   QueueManager() {
-    _primary = AudioPlayer();
+    // handleInterruptions:false — with the default (true), every player
+    // manages the shared audio_session singleton itself, and disposing a
+    // crossfade player deactivates the session, ABANDONING the app's
+    // audio focus while music still plays. From then on calls never
+    // paused us (the bug). The session must have exactly one owner: the
+    // engine.
+    _primary = AudioPlayer(handleInterruptions: false);
     _wirePlayer(_primary);
+    unawaited(_initAudioSession());
+  }
+
+  AudioSession? _session;
+
+  /// Whether playback was ongoing when an interruption (call) began, so
+  /// we only auto-resume something we actually paused.
+  bool _interrupted = false;
+
+  /// One central audio-focus owner. audio_service activates the session
+  /// when playback starts; we listen on the same singleton for the
+  /// interruption events the OS sends the focus holder.
+  Future<void> _initAudioSession() async {
+    try {
+      final session = await AudioSession.instance;
+      _session = session;
+      await session.configure(const AudioSessionConfiguration.music());
+      session.interruptionEventStream.listen(_onInterruption);
+      // Headphones unplugged / BT disconnect → pause (don't blast the
+      // speaker), the standard "becoming noisy" behaviour.
+      session.becomingNoisyEventStream.listen((_) {
+        if (_primary.playing) pause();
+      });
+    } catch (_) {
+      // Focus config failed — playback still works, calls just won't
+      // auto-pause. Nothing sensible to do about it here.
+    }
+  }
+
+  /// Ensures the session (and with it the app's audio focus request) is
+  /// active before playback starts. Same singleton audio_service uses,
+  /// so this never fights it. Idempotent.
+  Future<void> _activateFocus() async {
+    try {
+      await _session?.setActive(true);
+    } catch (_) {}
+  }
+
+  void _onInterruption(AudioInterruptionEvent event) {
+    if (event.begin) {
+      switch (event.type) {
+        case AudioInterruptionType.duck:
+          // Nav prompt / notification — duck rather than silence.
+          if (!_crossfading) _primary.setVolume(0.3);
+        case AudioInterruptionType.pause:
+        case AudioInterruptionType.unknown:
+          // A call or another media app took focus — pause, remember.
+          _interrupted = _primary.playing;
+          if (_interrupted) pause();
+      }
+    } else {
+      switch (event.type) {
+        case AudioInterruptionType.duck:
+          if (!_crossfading) _primary.setVolume(1);
+        case AudioInterruptionType.pause:
+          // Transient loss ended (call over) — resume what we paused.
+          if (_interrupted) play();
+          _interrupted = false;
+        case AudioInterruptionType.unknown:
+          // Permanent loss — stay paused.
+          _interrupted = false;
+      }
+    }
   }
 
   late AudioPlayer _primary;
@@ -110,11 +181,67 @@ class QueueManager {
     await _playCurrent();
   }
 
-  Future<void> play() => _primary.play();
+  Future<void> play() async {
+    await _activateFocus();
+    await _primary.play();
+  }
 
   Future<void> pause() async {
     await _abortCrossfade();
     await _primary.pause();
+  }
+
+  /// Snapshot of the current queue + position for resume-on-launch.
+  /// Null when nothing is loaded (so persistence never clobbers a saved
+  /// session with an empty startup state).
+  PlaybackSession? snapshotSession() {
+    if (_order.isEmpty || _crossfading) return null;
+    return PlaybackSession(
+      queue: [for (final i in _order) _source[i]],
+      index: _cursor,
+      position: position,
+      mode: _mode,
+    );
+  }
+
+  /// Reloads a saved session at [position]. The queue is restored in the
+  /// exact order it was saved (identity order over the persisted list),
+  /// so a shuffled queue comes back as-heard. [autoPlay] starts playback
+  /// (the ticker's PLAY action); otherwise it's held paused.
+  Future<void> restoreSession(PlaybackSession session,
+      {bool autoPlay = false}) async {
+    await _abortCrossfade();
+    _source = List.of(session.queue);
+    _order = List.generate(_source.length, (i) => i);
+    _mode = session.mode;
+    _cursor = session.index.clamp(0, _order.length - 1);
+    _history.clear();
+
+    final track = _currentTrack;
+    if (track == null) return;
+    _state.add(state.copyWith(
+      currentTrack: track,
+      queue: [for (final i in _order) _source[i]],
+      queueMode: _mode,
+      status: PlaybackStatus.loading,
+    ));
+    try {
+      await _setSource(_primary, track);
+      await _primary.setVolume(1);
+      if (session.position > Duration.zero) {
+        await _primary.seek(session.position);
+      }
+      _position.add(session.position);
+      if (autoPlay) {
+        await _activateFocus();
+        await _primary.play();
+      }
+      // Without autoPlay, _emitStatus (from the ready event) settles on
+      // paused since we never call play().
+    } catch (_) {
+      // File gone/moved — leave it idle; the user can retry.
+      _state.add(state.copyWith(status: PlaybackStatus.idle));
+    }
   }
 
   Future<void> seek(Duration position) async {
@@ -226,6 +353,9 @@ class QueueManager {
   Future<void> stop() async {
     await _abortCrossfade();
     await _primary.stop();
+    try {
+      await _session?.setActive(false); // release focus — we're done
+    } catch (_) {}
     _state.add(state.copyWith(status: PlaybackStatus.idle));
   }
 
@@ -272,7 +402,7 @@ class QueueManager {
 
   Future<void> _startCrossfade(int nextCursor) async {
     final track = _source[_order[nextCursor]];
-    final incoming = AudioPlayer();
+    final incoming = AudioPlayer(handleInterruptions: false);
     _incoming = incoming; // claims the crossfade slot immediately
     _pendingCursor = nextCursor;
     _pendingTrack = track;
@@ -397,6 +527,7 @@ class QueueManager {
     try {
       await _setSource(_primary, track);
       await _primary.setVolume(1);
+      await _activateFocus();
       await _primary.play();
       trackStarted.add(track);
     } catch (_) {

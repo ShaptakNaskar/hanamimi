@@ -11,6 +11,7 @@ import '../../providers/cat_mode_provider.dart';
 import '../../providers/companion_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
+import '../../providers/nerd_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/visualizer_provider.dart';
 import '../../theme/app_theme.dart';
@@ -105,6 +106,7 @@ class NowPlayingScreen extends ConsumerWidget {
                       _HeartButton(track: libraryTrack, theme: theme),
                     ],
                   ),
+                  const _NerdBar(),
                   const SizedBox(height: Space.s4),
                   _SeekBarSection(theme: theme),
                   const SizedBox(height: Space.s6),
@@ -132,30 +134,42 @@ class NowPlayingScreen extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: Space.s2),
-                  HanamimiMascot(
-                    state: ref.watch(mascotStateProvider),
-                    amplitude: ref.watch(amplitudeProvider),
-                    accessory: ref.watch(catModeProvider).enabled
-                        ? Accessory.catEars
-                        : ref.watch(activeAccessoryProvider),
-                    size: 90,
-                    onTap: () {
-                      final unlocked = ref
-                          .read(catModeProvider.notifier)
-                          .registerMascotTap();
-                      if (unlocked) {
-                        ScaffoldMessenger.of(context)
-                            .showSnackBar(SnackBar(
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(
-                              borderRadius:
-                                  BorderRadius.circular(Radii.md)),
-                          content: const Text(
-                              'Meow?! Cat Mode unlocked 🐱',
-                              style: TextStyle(fontFamily: 'Nunito')),
-                        ));
-                      }
-                    },
+                  // Flexible + scaleDown: on screens shorter than the
+                  // design height the mascot gives up the missing pixels
+                  // instead of overflowing the column. flex 6 beats the
+                  // Spacers (2+2+1) so with any reasonable free space the
+                  // slot exceeds 90px and the mascot renders full size —
+                  // FittedBox.scaleDown never enlarges.
+                  Flexible(
+                    flex: 6,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: HanamimiMascot(
+                        state: ref.watch(mascotStateProvider),
+                        amplitude: ref.watch(amplitudeProvider),
+                        accessory: ref.watch(catModeProvider).enabled
+                            ? Accessory.catEars
+                            : ref.watch(activeAccessoryProvider),
+                        size: 90,
+                        onTap: () {
+                          final unlocked = ref
+                              .read(catModeProvider.notifier)
+                              .registerMascotTap();
+                          if (unlocked) {
+                            ScaffoldMessenger.of(context)
+                                .showSnackBar(SnackBar(
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius:
+                                      BorderRadius.circular(Radii.md)),
+                              content: const Text(
+                                  'Meow?! Cat Mode unlocked 🐱',
+                                  style: TextStyle(fontFamily: 'Nunito')),
+                            ));
+                          }
+                        },
+                      ),
+                    ),
                   ),
                   const SizedBox(height: Space.s2),
                 ],
@@ -194,6 +208,95 @@ class _BlurredArtBackground extends StatelessWidget {
           ColoredBox(color: theme.primary.withValues(alpha: 0.4)),
         ColoredBox(color: theme.background.withValues(alpha: 0.85)),
       ],
+    );
+  }
+}
+
+/// Nerd mode: a subtle line of codec / bitrate / sample-rate chips plus
+/// the live output route. Renders nothing when the toggle is off or the
+/// info hasn't resolved yet.
+class _NerdBar extends ConsumerWidget {
+  const _NerdBar();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    final info = ref.watch(nerdInfoProvider).value;
+    if (info == null) return const SizedBox.shrink();
+
+    final chips = <String>[
+      if (info.codec != null) info.codec!,
+      if (info.bitrateKbps != null) '${info.bitrateKbps} kbps',
+      if (info.sampleRateHz != null)
+        '${(info.sampleRateHz! / 1000).toStringAsFixed(1)} kHz',
+    ];
+    final output = info.output;
+    final outLabel = output == null
+        ? null
+        : '${_routeGlyph(output.route)} ${output.name ?? output.route}';
+
+    return Padding(
+      padding: const EdgeInsets.only(top: Space.s2),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Wrap(
+          spacing: Space.s2,
+          runSpacing: Space.s1,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            _NerdChip(text: info.sourceLabel, theme: theme, accent: true),
+            for (final c in chips) _NerdChip(text: c, theme: theme),
+            if (outLabel != null)
+              Text(
+                outLabel,
+                style: AppText.caption(theme).copyWith(
+                    fontSize: 11,
+                    color: theme.textMuted,
+                    letterSpacing: 0.2),
+                maxLines: 1,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _routeGlyph(String route) => switch (route) {
+        'Bluetooth' => '🎧',
+        'Wired' => '🎙️',
+        'USB' => '🔌',
+        _ => '🔊',
+      };
+}
+
+class _NerdChip extends StatelessWidget {
+  const _NerdChip(
+      {required this.text, required this.theme, this.accent = false});
+
+  final String text;
+  final HanamimiTheme theme;
+  final bool accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = accent ? theme.primary : theme.textMuted;
+    return Container(
+      padding:
+          const EdgeInsets.symmetric(horizontal: Space.s2, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(Radii.sm),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontFamily: 'Nunito',
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: color,
+          letterSpacing: 0.2,
+        ),
+      ),
     );
   }
 }

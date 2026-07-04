@@ -32,6 +32,13 @@ class MainActivity : AudioServiceActivity() {
             "hanamimi/fft/frames",
         ).setStreamHandler(fft)
 
+        // Live audio-output info for Nerd mode (output route, codecs).
+        val audioInfo = AudioInfoChannel(applicationContext)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "hanamimi/audio_info",
+        ).setMethodCallHandler { call, result -> audioInfo.handle(call, result) }
+
         openWith = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "hanamimi/open_with",

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'providers/audio_provider.dart';
 import 'providers/companion_provider.dart';
 import 'providers/open_with_provider.dart';
+import 'providers/session_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/theme_provider.dart';
 import 'theme/app_theme.dart';
@@ -21,6 +22,7 @@ class HanamimiApp extends ConsumerWidget {
     ref.watch(crossfadeProvider); // pushes the setting into the engine
     ref.watch(listenTimeProvider); // accumulates while playing
     ref.watch(openWithProvider); // handles "open with Hanamimi" intents
+    ref.watch(sessionPersistenceProvider); // saves what's playing for resume
 
     SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,

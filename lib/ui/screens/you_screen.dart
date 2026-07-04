@@ -8,6 +8,7 @@ import '../../providers/companion_provider.dart';
 import '../../providers/dev_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
+import '../../providers/nerd_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/visualizer_provider.dart';
@@ -604,6 +605,26 @@ class _SoundSettings extends ConsumerWidget {
                     ),
                   ),
                 ],
+              ),
+            ],
+          ),
+          Divider(height: Space.s6, color: theme.divider),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Nerd mode', style: AppText.rowSongTitle(theme)),
+                    Text('Show codec, bitrate & audio output on Now Playing',
+                        style: AppText.caption(theme)),
+                  ],
+                ),
+              ),
+              Switch(
+                value: ref.watch(nerdModeProvider),
+                onChanged: (on) =>
+                    ref.read(nerdModeProvider.notifier).set(on),
               ),
             ],
           ),

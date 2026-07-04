@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../audio/models/audio_state.dart';
 import '../../../audio/models/queue_mode.dart';
 import '../../../providers/audio_provider.dart';
 import '../../../providers/sleep_timer_provider.dart';
@@ -48,6 +49,7 @@ class _PlaybackControlsState extends ConsumerState<PlaybackControls>
     final audio = ref.watch(audioStateProvider).value;
     final handler = ref.read(audioHandlerProvider);
     final isPlaying = audio?.isPlaying ?? false;
+    final isLoading = audio?.status == PlaybackStatus.loading;
     final mode = audio?.queueMode ?? QueueMode.sequential;
 
     return Column(
@@ -80,10 +82,15 @@ class _PlaybackControlsState extends ConsumerState<PlaybackControls>
               child: _CircleButton(
                 size: Sizes.playButton,
                 background: theme.primary,
-                onTap: () {
-                  _pulse.forward(from: 0);
-                  isPlaying ? handler.pause() : handler.play();
-                },
+                // While a track resolves/buffers, tapping play does
+                // nothing useful — show a spinner so the art/title swap
+                // doesn't read as "stuck, not playing".
+                onTap: isLoading
+                    ? () {} // spinner showing; tap is a no-op
+                    : () {
+                        _pulse.forward(from: 0);
+                        isPlaying ? handler.pause() : handler.play();
+                      },
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 180),
                   transitionBuilder: (child, anim) => FadeTransition(
@@ -93,12 +100,20 @@ class _PlaybackControlsState extends ConsumerState<PlaybackControls>
                       child: child,
                     ),
                   ),
-                  child: Icon(
-                    isPlaying ? Icons.pause : Icons.play_arrow,
-                    key: ValueKey(isPlaying),
-                    size: 28,
-                    color: Colors.white,
-                  ),
+                  child: isLoading
+                      ? const SizedBox(
+                          key: ValueKey('loading'),
+                          width: 26,
+                          height: 26,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2.6, color: Colors.white),
+                        )
+                      : Icon(
+                          isPlaying ? Icons.pause : Icons.play_arrow,
+                          key: ValueKey(isPlaying),
+                          size: 28,
+                          color: Colors.white,
+                        ),
                 ),
               ),
             ),
