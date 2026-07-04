@@ -40,6 +40,7 @@ dependencies:
   shared_preferences: ^2.5.3
   just_audio: ^0.10.6
   audio_service: ^0.18.19
+  audio_session: ^0.2.2 # single focus owner; engine reacts to call interruptions
   rxdart: ^0.28.0
   http: ^1.6.0
   screen_brightness: ^2.1.11

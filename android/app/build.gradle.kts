@@ -41,7 +41,7 @@ android {
         // x86/x86_64 so the universal APK doesn't carry emulator-only
         // Python blobs. (M28, plus-only.)
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
     }
 

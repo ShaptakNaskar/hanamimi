@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../audio/models/audio_state.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../theme/hanamimi_theme.dart';
@@ -87,6 +88,8 @@ class MiniPlayer extends ConsumerWidget {
                             const SizedBox(width: Space.s3),
                             _PlayPauseButton(
                               isPlaying: audio?.isPlaying ?? false,
+                              isLoading:
+                                  audio?.status == PlaybackStatus.loading,
                               color: theme.primary,
                               onTap: () {
                                 final handler =
@@ -138,18 +141,20 @@ class _ProgressLine extends ConsumerWidget {
 class _PlayPauseButton extends StatelessWidget {
   const _PlayPauseButton({
     required this.isPlaying,
+    required this.isLoading,
     required this.color,
     required this.onTap,
   });
 
   final bool isPlaying;
+  final bool isLoading;
   final Color color;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: isLoading ? null : onTap,
       child: Container(
         width: 32,
         height: 32,
@@ -160,12 +165,19 @@ class _PlayPauseButton extends StatelessWidget {
             scale: Tween(begin: 0.8, end: 1.0).animate(anim),
             child: FadeTransition(opacity: anim, child: child),
           ),
-          child: Icon(
-            isPlaying ? Icons.pause : Icons.play_arrow,
-            key: ValueKey(isPlaying),
-            color: Colors.white,
-            size: 20,
-          ),
+          child: isLoading
+              ? const Padding(
+                  key: ValueKey('loading'),
+                  padding: EdgeInsets.all(7),
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white),
+                )
+              : Icon(
+                  isPlaying ? Icons.pause : Icons.play_arrow,
+                  key: ValueKey(isPlaying),
+                  color: Colors.white,
+                  size: 20,
+                ),
         ),
       ),
     );
