@@ -48,6 +48,15 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   var frames = <double>[]; // flattened frames × 12
   var extractionDone = false;
 
+  // Watchdog state: extraction can die without producing a frame —
+  // e.g. MediaCodec is exhausted while ANOTHER app still holds the
+  // hardware decoders during a cross-app playback handoff. One-shot
+  // extraction then leaves the synth pulse on screen for the whole
+  // track. Retried (bounded) from the render timer below.
+  String? retryKey;
+  var retries = 0;
+  var noFramesSince = 0; // ms epoch; 0 = clock not running
+
   // Position extrapolation between player reports (same pattern as the
   // lyrics sheet) so sampling doesn't step at the stream's rate.
   var lastPosition = Duration.zero;
@@ -73,6 +82,12 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     currentKey = key;
     frames = <double>[];
     extractionDone = false;
+    if (key != retryKey) {
+      // Genuinely new track — fresh retry budget.
+      retryKey = key;
+      retries = 0;
+    }
+    noFramesSince = 0;
     if (path != null) {
       FftChannel.start(path, key);
     } else {
@@ -147,6 +162,22 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     final playing = ref.read(audioStateProvider).value?.isPlaying ?? false;
     final position =
         playing ? lastPosition + sinceReport.elapsed : lastPosition;
+
+    // Watchdog: playing but no real frame has landed → the extraction
+    // died (codec busy, stream hiccup). Re-kick it, up to 3 times.
+    if (playing && frames.isEmpty && currentKey != null && retries < 3) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (noFramesSince == 0) {
+        noFramesSince = now;
+      } else if (now - noFramesSince > 4000) {
+        retries++;
+        currentKey = null; // defeat the same-key guard
+        final track = ref.read(audioStateProvider).value?.currentTrack;
+        if (track != null) startFor(track);
+      }
+    } else if (frames.isNotEmpty) {
+      noFramesSince = 0;
+    }
     final raw = playing ? (sample(position) ?? synth(true)) : synth(false);
     final sensitivity = ref.read(visualizerSensitivityProvider);
     final bands = shaper.shape(raw, sensitivity);
