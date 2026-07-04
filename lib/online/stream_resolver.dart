@@ -108,6 +108,22 @@ class StreamResolver {
   /// next [sourceFor] resolves fresh.
   void invalidate(Track track) => _cache.remove(_key(track));
 
+  /// A remote URL the visualizer's FFT extractor can decode ahead of
+  /// playback — only for sources that serve at full speed. YouTube's
+  /// stream is `n`-throttled to ~1× (a separate decode can't outrun
+  /// playback), so it returns null and the synth pulse covers it until
+  /// the yt-dlp backend (M28). Saavn's CDN is unthrottled → real bands.
+  /// Reuses the play-time resolution (coalesced/cached), so no extra
+  /// extraction call.
+  Future<String?> decodableStreamUrl(Track track) async {
+    if (track.source != TrackSource.saavn) return null;
+    try {
+      return (await _resolve(track))?.url.toString();
+    } catch (_) {
+      return null;
+    }
+  }
+
   String _key(Track t) => '${t.source.name}:${t.sourceId}';
 
   Future<ResolvedStream?> _resolve(Track track) {

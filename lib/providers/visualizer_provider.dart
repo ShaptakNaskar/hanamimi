@@ -64,9 +64,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
 
   void startFor(Track track) {
     // v2: fractional-hop frame timing (old caches drift on rates not
-    // divisible by 60). Streams have no file to decode — leave frames
-    // empty so the synthetic pulse covers them (real bands arrive once
-    // the track is downloaded).
+    // divisible by 60).
     final path = track.filePath;
     final key = path == null
         ? 'stream_${track.source.name}_${track.sourceId}'
@@ -75,7 +73,19 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     currentKey = key;
     frames = <double>[];
     extractionDone = false;
-    if (path != null) FftChannel.start(path, key);
+    if (path != null) {
+      FftChannel.start(path, key);
+    } else {
+      // Online stream: decode the remote URL where the provider serves
+      // full-speed (Saavn — MediaExtractor reads https directly and
+      // outruns playback). resolver returns null for throttled sources
+      // (YouTube) so the synth pulse covers them. Resolution is async
+      // and coalesced with play-time; guard against a track change.
+      final resolver = ref.read(audioHandlerProvider).engine.resolver;
+      resolver.decodableStreamUrl(track).then((url) {
+        if (url != null && key == currentKey) FftChannel.start(url, key);
+      });
+    }
   }
 
   final frameSub = FftChannel.frames.listen((event) {
