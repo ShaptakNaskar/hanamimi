@@ -448,6 +448,79 @@ class _FolderRow extends StatelessWidget {
   }
 }
 
+/// The pinned "Liked songs" collection card — same notebook style as
+/// PlaylistCard, with a heart cover on the theme accent.
+class _LikedSongsCard extends StatelessWidget {
+  const _LikedSongsCard({
+    required this.count,
+    required this.theme,
+    required this.onTap,
+  });
+
+  final int count;
+  final HanamimiTheme theme;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: theme.surface,
+      borderRadius: BorderRadius.circular(Radii.md),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(Radii.md),
+        child: Container(
+          height: 80,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(Radii.md),
+            border: Border.all(color: theme.divider, width: 0.5),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 80,
+                decoration: BoxDecoration(
+                  color: theme.accent,
+                  borderRadius: const BorderRadius.horizontal(
+                      left: Radius.circular(Radii.md)),
+                ),
+                alignment: Alignment.center,
+                child: const Icon(Icons.favorite,
+                    size: 30, color: Colors.white),
+              ),
+              const SizedBox(width: Space.s4),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Liked songs',
+                      style: TextStyle(
+                        fontFamily: 'Nunito',
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: theme.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$count track${count == 1 ? '' : 's'}',
+                      style: AppText.caption(theme),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: theme.textMuted),
+              const SizedBox(width: Space.s3),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _PlaylistsTab extends ConsumerStatefulWidget {
   const _PlaylistsTab({super.key, this.query = ''});
 
@@ -459,6 +532,7 @@ class _PlaylistsTab extends ConsumerStatefulWidget {
 
 class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
   int? _openId;
+  bool _likedOpen = false;
 
   @override
   Widget build(BuildContext context) {
@@ -466,6 +540,7 @@ class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
     final q = widget.query.trim().toLowerCase();
     final all = ref.watch(playlistsProvider).value ?? [];
 
+    if (_likedOpen) return _buildLikedDetail(theme, q);
     final open =
         _openId == null ? null : all.where((p) => p.id == _openId).firstOrNull;
     if (open != null) return _buildDetail(open, theme, q);
@@ -473,26 +548,34 @@ class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
     final playlists = all
         .where((p) => q.isEmpty || p.name.toLowerCase().contains(q))
         .toList();
+    final likedCount = (ref.watch(libraryProvider).value ?? [])
+        .where((t) => t.liked)
+        .length;
 
     return Stack(
       children: [
-        if (playlists.isEmpty)
-          _Message(
-              q.isEmpty
-                  ? 'No playlists yet — make one!'
-                  : 'Nothing matches "${widget.query}"',
-              theme: theme)
-        else
-          ListView.separated(
-            padding: const EdgeInsets.all(Space.s4),
-            itemCount: playlists.length,
-            separatorBuilder: (_, __) => const SizedBox(height: Space.s3),
-            itemBuilder: (context, i) => PlaylistCard(
-              playlist: playlists[i],
+        ListView.separated(
+          padding: const EdgeInsets.all(Space.s4),
+          // Slot 0 is the pinned Liked-songs collection; likes had no
+          // home before — hearts were stored but nowhere to see them.
+          itemCount: playlists.length + 1,
+          separatorBuilder: (_, __) => const SizedBox(height: Space.s3),
+          itemBuilder: (context, i) {
+            if (i == 0) {
+              return _LikedSongsCard(
+                count: likedCount,
+                theme: theme,
+                onTap: () => setState(() => _likedOpen = true),
+              );
+            }
+            final playlist = playlists[i - 1];
+            return PlaylistCard(
+              playlist: playlist,
               theme: theme,
-              onTap: () => setState(() => _openId = playlists[i].id),
-            ),
-          ),
+              onTap: () => setState(() => _openId = playlist.id),
+            );
+          },
+        ),
         Positioned(
           right: Space.s4,
           bottom: Space.s4,
@@ -508,6 +591,92 @@ class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
                     fontFamily: 'Nunito', fontWeight: FontWeight.w600)),
             onPressed: () => _showCreatePlaylistSheet(context, ref, theme),
           ),
+        ),
+      ],
+    );
+  }
+
+  /// Liked-songs detail: every liked track, newest hearts included the
+  /// moment they're tapped (the list watches the library). Unlike is
+  /// done from the heart itself, so no swipe actions here.
+  Widget _buildLikedDetail(HanamimiTheme theme, String q) {
+    final liked = (ref.watch(libraryProvider).value ?? [])
+        .where((t) => t.liked)
+        .toList();
+    final visible = liked
+        .where((t) =>
+            q.isEmpty ||
+            t.title.toLowerCase().contains(q) ||
+            t.artist.toLowerCase().contains(q))
+        .toList();
+    final playingId = ref.watch(audioStateProvider).value?.currentTrack?.id;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(Space.s2, Space.s1, Space.s4, 0),
+          child: Row(
+            children: [
+              InkResponse(
+                onTap: () => setState(() => _likedOpen = false),
+                radius: 20,
+                child: SizedBox(
+                  width: Sizes.minTouchTarget,
+                  height: Sizes.minTouchTarget,
+                  child: Icon(Icons.chevron_left,
+                      size: 26, color: theme.textPrimary),
+                ),
+              ),
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: theme.accent,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.favorite,
+                    size: 18, color: Colors.white),
+              ),
+              const SizedBox(width: Space.s3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Liked songs',
+                        style: AppText.rowSongTitle(theme)),
+                    Text(
+                      '${liked.length} song${liked.length == 1 ? '' : 's'}',
+                      style: AppText.caption(theme),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: Space.s2),
+        Expanded(
+          child: visible.isEmpty
+              ? _Message(
+                  q.isEmpty
+                      ? 'Tap the heart on a song to keep it here'
+                      : 'Nothing matches "${widget.query}"',
+                  theme: theme)
+              : ListView.builder(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: Space.s4),
+                  itemCount: visible.length,
+                  itemExtent: Sizes.trackRowHeight,
+                  itemBuilder: (context, i) => TrackRow(
+                    track: visible[i],
+                    theme: theme,
+                    isPlaying: visible[i].id == playingId,
+                    onTap: () => ref
+                        .read(audioHandlerProvider)
+                        .playTracks(visible, startIndex: i),
+                  ),
+                ),
         ),
       ],
     );
