@@ -11,6 +11,7 @@ import '../../providers/cat_mode_provider.dart';
 import '../../providers/companion_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
+import '../../providers/nerd_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/visualizer_provider.dart';
 import '../../theme/app_theme.dart';
@@ -107,6 +108,7 @@ class NowPlayingScreen extends ConsumerWidget {
                       _HeartButton(track: libraryTrack, theme: theme),
                     ],
                   ),
+                  const _NerdBar(),
                   const SizedBox(height: Space.s4),
                   _SeekBarSection(theme: theme),
                   const SizedBox(height: Space.s6),
@@ -166,6 +168,94 @@ class NowPlayingScreen extends ConsumerWidget {
           }),
         ),
       ],
+    );
+  }
+}
+
+/// Nerd mode (M28+): a subtle line of codec / bitrate / sample-rate /
+/// container chips plus the live output route. Renders nothing when the
+/// toggle is off or the info hasn't resolved yet.
+class _NerdBar extends ConsumerWidget {
+  const _NerdBar();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    final info = ref.watch(nerdInfoProvider).value;
+    if (info == null) return const SizedBox.shrink();
+
+    final chips = <String>[
+      if (info.codec != null) info.codec!,
+      if (info.bitrateKbps != null) '${info.bitrateKbps} kbps',
+      if (info.sampleRateHz != null)
+        '${(info.sampleRateHz! / 1000).toStringAsFixed(1)} kHz',
+      if (info.container != null) info.container!,
+    ];
+    final output = info.output;
+    final outLabel = output == null
+        ? null
+        : '${_routeGlyph(output.route)} ${output.name ?? output.route}';
+
+    final style = AppText.caption(theme).copyWith(
+      fontSize: 11,
+      color: theme.textMuted,
+      letterSpacing: 0.2,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(top: Space.s2),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Wrap(
+          spacing: Space.s2,
+          runSpacing: Space.s1,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            _NerdChip(text: info.sourceLabel, theme: theme, accent: true),
+            for (final c in chips) _NerdChip(text: c, theme: theme),
+            if (outLabel != null)
+              Text(outLabel, style: style, maxLines: 1),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _routeGlyph(String route) => switch (route) {
+        'Bluetooth' => '🎧',
+        'Wired' => '🎙️',
+        'USB' => '🔌',
+        _ => '🔊',
+      };
+}
+
+class _NerdChip extends StatelessWidget {
+  const _NerdChip({required this.text, required this.theme, this.accent = false});
+
+  final String text;
+  final HanamimiTheme theme;
+  final bool accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = accent ? theme.primary : theme.textMuted;
+    return Container(
+      padding:
+          const EdgeInsets.symmetric(horizontal: Space.s2, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(Radii.sm),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontFamily: 'Nunito',
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: color,
+          letterSpacing: 0.2,
+        ),
+      ),
     );
   }
 }

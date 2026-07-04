@@ -7,6 +7,7 @@ import 'package:rxdart/rxdart.dart';
 import '../library/models/track.dart';
 import '../online/stream_resolver.dart';
 import 'models/audio_state.dart';
+import 'models/playback_session.dart';
 import 'models/queue_mode.dart';
 
 /// Owns the players and the queue. Crossfade uses the two-player model
@@ -123,6 +124,55 @@ class QueueManager {
     _history.clear();
     _loadFailures = 0;
     await _playCurrent();
+  }
+
+  /// Snapshot of the current queue + position for resume-on-launch.
+  /// Null when nothing is loaded (so persistence never clobbers a saved
+  /// session with an empty startup state).
+  PlaybackSession? snapshotSession() {
+    if (_order.isEmpty || _crossfading) return null;
+    return PlaybackSession(
+      queue: [for (final i in _order) _source[i]],
+      index: _cursor,
+      position: position,
+      mode: _mode,
+    );
+  }
+
+  /// Reloads a saved session and holds it **paused** at [position] — the
+  /// user asked to resume, they didn't ask to start playing. The queue
+  /// is restored in the exact order it was saved (identity order over
+  /// the persisted list), so a shuffled queue comes back as-heard.
+  Future<void> restoreSession(PlaybackSession session) async {
+    await _abortCrossfade();
+    _source = List.of(session.queue);
+    _order = List.generate(_source.length, (i) => i);
+    _mode = session.mode;
+    _cursor = session.index.clamp(0, _order.length - 1);
+    _history.clear();
+    _loadFailures = 0;
+
+    final track = _currentTrack;
+    if (track == null) return;
+    _state.add(state.copyWith(
+      currentTrack: track,
+      queue: [for (final i in _order) _source[i]],
+      queueMode: _mode,
+      status: PlaybackStatus.loading,
+    ));
+    try {
+      await _loadInto(_primary, track);
+      await _primary.setVolume(1);
+      if (session.position > Duration.zero) {
+        await _primary.seek(session.position);
+      }
+      _position.add(session.position);
+      // Deliberately paused: _emitStatus (from the ready event) settles
+      // on paused since we never call play().
+    } catch (_) {
+      // Stream expired / file gone — leave it idle; the user can retry.
+      _state.add(state.copyWith(status: PlaybackStatus.idle));
+    }
   }
 
   Future<void> play() => _primary.play();

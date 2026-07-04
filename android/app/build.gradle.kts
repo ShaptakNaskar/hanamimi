@@ -35,6 +35,23 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // yt-dlp ships a Python 3 payload per ABI (~25 MB each). This
+        // device and the vast majority of Android phones are arm; drop
+        // x86/x86_64 so the universal APK doesn't carry emulator-only
+        // Python blobs. (M28, plus-only.)
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+    }
+
+    // youtubedl-android loads its bundled Python .so from the extracted
+    // native-lib directory, so the libs must NOT stay compressed inside
+    // the APK. (Default is false on modern AGP.)
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 
     signingConfigs {
@@ -66,4 +83,13 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // M28 — embedded, self-updating yt-dlp (Python 3 + yt-dlp) for
+    // YouTube stream resolution. GPLv3: linking makes this build GPLv3,
+    // which is fine for the plus (sideload, unofficial-API) branch and
+    // MUST never be merged to the Play-Store `main` branch. No :ffmpeg
+    // and no :aria2c — we only need a deciphered bestaudio URL.
+    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
 }

@@ -106,6 +106,9 @@ class SaavnProvider implements MusicProvider {
         url: Uri.parse(base.replaceFirst('_96', suffix)),
         codec: 'aac',
         bitrateKbps: kbps,
+        sampleRateHz: 44100,
+        container: 'm4a',
+        fullSpeed: true,
         // Saavn CDN URLs are unsigned and long-lived (§4.3) — a
         // generous TTL just keeps the cache honest.
         expiresAt: DateTime.now().add(const Duration(hours: 12)),

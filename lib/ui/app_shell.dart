@@ -3,9 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../audio/models/playback_session.dart';
+import '../library/models/track.dart';
 import '../providers/audio_provider.dart';
+import '../providers/session_provider.dart';
 import '../providers/theme_provider.dart';
+import '../theme/app_theme.dart';
 import '../theme/theme_tokens.dart';
+import '../utils/duration_ext.dart';
 import 'components/mini_player.dart';
 import 'components/shared/bottom_nav.dart';
 import 'screens/library_screen.dart';
@@ -33,6 +38,9 @@ class _AppShellState extends ConsumerState<AppShell> {
   @override
   void initState() {
     super.initState();
+    // VLC-style: offer to resume the previous session once, after the
+    // first frame so a dialog can be shown.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeOfferResume());
     _errorSub = ref
         .read(audioHandlerProvider)
         .engine
@@ -78,6 +86,72 @@ class _AppShellState extends ConsumerState<AppShell> {
       _previousIndex = _index;
       _index = _navHistory.removeLast();
     });
+  }
+
+  /// Prompt to pick up where the last session left off. Only offered
+  /// when the track was more than a few seconds in — resuming a song
+  /// that had barely started isn't worth a dialog.
+  Future<void> _maybeOfferResume() async {
+    final session = ref.read(savedSessionProvider);
+    final track = session?.current;
+    if (session == null ||
+        track == null ||
+        session.position < const Duration(seconds: 5)) {
+      return;
+    }
+    if (!mounted) return;
+    final resume = await _showResumeDialog(session, track);
+    if (resume == true) {
+      await ref.read(audioHandlerProvider).engine.restoreSession(session);
+      if (mounted) _onNavChanged(1); // jump to Now Playing, paused at position
+    } else {
+      // Forget it so the same stale session doesn't nag next launch.
+      clearSavedSession(ref);
+    }
+  }
+
+  Future<bool?> _showResumeDialog(PlaybackSession session, Track track) {
+    final theme = ref.read(currentThemeProvider);
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: theme.surface,
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.lg)),
+        title: Text('Pick up where you left off?',
+            style: AppText.rowSongTitle(theme)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(track.title,
+                style: AppText.rowSongTitle(theme)
+                    .copyWith(color: theme.primary),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+            const SizedBox(height: Space.s1),
+            Text('${track.artist} · ${session.position.mmss}',
+                style: AppText.caption(theme),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text('Not now',
+                style: AppText.rowSongTitle(theme)
+                    .copyWith(color: theme.textMuted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text('Resume',
+                style: AppText.rowSongTitle(theme)
+                    .copyWith(color: theme.primary)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

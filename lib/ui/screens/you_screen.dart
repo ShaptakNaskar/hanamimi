@@ -4,11 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../library/media_store_channel.dart';
 import '../../online/models/resolved_stream.dart';
+import '../../online/ytdlp_channel.dart';
 import '../../providers/cat_mode_provider.dart';
 import '../../providers/companion_provider.dart';
 import '../../providers/dev_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
+import '../../providers/nerd_provider.dart';
 import '../../providers/online_settings_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
@@ -299,6 +301,15 @@ class _MoreCard extends ConsumerWidget {
               }
             },
           ),
+          Divider(height: 0.5, color: theme.divider),
+          ListTile(
+            leading: Icon(Icons.description_outlined,
+                size: 20, color: theme.textMuted),
+            title: Text('Open-source licenses',
+                style: AppText.rowSongTitle(theme)),
+            subtitle: Text('yt-dlp · GPLv3', style: AppText.caption(theme)),
+            onTap: () => _showLicenseDialog(context, theme),
+          ),
           if (ref.watch(devModeProvider).enabled) ...[
             Divider(height: 0.5, color: theme.divider),
             const _DevOptions(),
@@ -307,6 +318,39 @@ class _MoreCard extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// GPLv3 notice for the plus build. Hanamimi+ links yt-dlp (via
+/// youtubedl-android) for YouTube resolution, so this build is licensed
+/// under GPLv3 — surfacing the notice here honors that at distribution.
+void _showLicenseDialog(BuildContext context, HanamimiTheme theme) {
+  showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      backgroundColor: theme.surface,
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.lg)),
+      title: Text('Open-source licenses', style: AppText.rowSongTitle(theme)),
+      content: Text(
+        'Hanamimi+ bundles yt-dlp through youtubedl-android '
+        '(io.github.junkfood02.youtubedl-android), which is licensed under '
+        'the GNU General Public License v3.\n\n'
+        'Because this build links that library, Hanamimi+ as a whole is '
+        'distributed under GPLv3. The corresponding source is available at '
+        'github.com/ShaptakNaskar/hanamimi (plus branch).\n\n'
+        'yt-dlp and youtubedl-android are © their respective authors.',
+        style: AppText.caption(theme),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text('Close',
+              style: AppText.rowSongTitle(theme)
+                  .copyWith(color: theme.primary)),
+        ),
+      ],
+    ),
+  );
 }
 
 /// Opens the excluded-folders manager; rescans on close if the
@@ -622,9 +666,79 @@ class _OnlineSettings extends ConsumerWidget {
                           ),
                         ],
                       ),
+                      Divider(height: Space.s6, color: theme.divider),
+                      const _UpdateExtractorTile(),
                     ],
                   ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Pulls a fresh yt-dlp at runtime (M28). This is the escape hatch when
+/// YouTube changes something and extraction breaks — no app update
+/// needed. Spins while updating; toasts the new version.
+class _UpdateExtractorTile extends ConsumerStatefulWidget {
+  const _UpdateExtractorTile();
+
+  @override
+  ConsumerState<_UpdateExtractorTile> createState() =>
+      _UpdateExtractorTileState();
+}
+
+class _UpdateExtractorTileState extends ConsumerState<_UpdateExtractorTile> {
+  bool _busy = false;
+
+  Future<void> _update() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final version = await YtDlpChannel.update();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 3),
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.md)),
+      content: Text(
+        version != null
+            ? 'YouTube extractor updated · yt-dlp $version'
+            : "Couldn't update the extractor",
+        style: const TextStyle(fontFamily: 'Nunito'),
+      ),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ref.watch(currentThemeProvider);
+    return InkWell(
+      onTap: _busy ? null : _update,
+      borderRadius: BorderRadius.circular(Radii.sm),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Update YouTube extractor',
+                    style: AppText.rowSongTitle(theme)),
+                Text('Fixes playback if YouTube changes — no app update',
+                    style: AppText.caption(theme)),
+              ],
+            ),
+          ),
+          _busy
+              ? SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: theme.primary),
+                )
+              : Icon(Icons.system_update_alt,
+                  size: 20, color: theme.primary),
         ],
       ),
     );
@@ -775,6 +889,26 @@ class _SoundSettings extends ConsumerWidget {
                     ),
                   ),
                 ],
+              ),
+            ],
+          ),
+          Divider(height: Space.s6, color: theme.divider),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Nerd mode', style: AppText.rowSongTitle(theme)),
+                    Text('Show codec, bitrate & audio output on Now Playing',
+                        style: AppText.caption(theme)),
+                  ],
+                ),
+              ),
+              Switch(
+                value: ref.watch(nerdModeProvider),
+                onChanged: (on) =>
+                    ref.read(nerdModeProvider.notifier).set(on),
               ),
             ],
           ),

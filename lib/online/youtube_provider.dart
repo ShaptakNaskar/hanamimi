@@ -7,6 +7,7 @@ import '../library/models/track.dart';
 import 'models/online_search_result.dart';
 import 'models/resolved_stream.dart';
 import 'music_provider.dart';
+import 'ytdlp_channel.dart';
 
 /// YouTube provider. Stream extraction rides youtube_explode_dart
 /// (Innertube player API; no key). Search calls Innertube's search
@@ -116,6 +117,20 @@ class YouTubeProvider implements MusicProvider {
 
   @override
   Future<ResolvedStream?> resolveStream(
+      String sourceId, StreamQuality quality) async {
+    // M28: embedded yt-dlp first. It deciphers the `n` parameter itself,
+    // so its URL downloads at full speed (the throttle that made bulk
+    // downloads crawl is gone). If it's unavailable — init failed, low
+    // storage, YouTube change, native crash — it returns null and we
+    // drop to the pure-Dart youtube_explode client-rotation below, so
+    // YouTube still plays (degraded, real-time-throttled) either way.
+    final viaYtDlp = await YtDlpChannel.resolve(sourceId, quality);
+    if (viaYtDlp != null && await _urlServes(viaYtDlp.url)) return viaYtDlp;
+
+    return _resolveViaExplode(sourceId, quality);
+  }
+
+  Future<ResolvedStream?> _resolveViaExplode(
       String sourceId, StreamQuality quality) async {
     for (final clients in _clientChain) {
       try {
