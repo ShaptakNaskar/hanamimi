@@ -13,6 +13,7 @@ import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
 import '../components/library/art_thumb.dart';
+import '../components/mascot/buddies.dart';
 
 /// Downloads tab: live transfers (progress / speed / size) on top,
 /// the offline collection below, with total storage in the header.
@@ -181,6 +182,9 @@ class _ActiveDownloadCard extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: Space.s2),
+          // A little rabbit hops along the bar while the transfer runs
+          // (the ARCHITECTURE-ANIMATIONS.md worked example).
+          if (downloading) DownloadRabbit(progress: task.progress),
           ClipRRect(
             borderRadius: BorderRadius.circular(Radii.pill),
             child: LinearProgressIndicator(
