@@ -283,7 +283,7 @@ class _MoreCard extends ConsumerWidget {
                 size: 20, color: theme.textMuted),
             title: Text('About', style: AppText.rowSongTitle(theme)),
             subtitle: Text(
-                'Hanamimi 花耳 · Internal Build - 030726',
+                'Hanamimi 花耳 · Internal Build - July 2026 · v1.0.0',
                 style: AppText.caption(theme)),
             onTap: () {
               final unlocked =
