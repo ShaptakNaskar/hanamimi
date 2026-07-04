@@ -93,8 +93,6 @@ lib/
 android/…/app/    MainActivity + MediaStoreChannel.kt + FftExtractorChannel.kt
 ```
 
-Design and technical specs live in [`DESIGN.md`](DESIGN.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md); the build log with every milestone and deviation is in [`PROGRESS.md`](PROGRESS.md).
-
 ## Notes
 
 - **Android only** (v1). The visualizer decodes each track itself (`MediaExtractor`/`MediaCodec` → FFT at 60 fps, disk-cached per track) — **no microphone / RECORD_AUDIO permission**, and it stays accurate regardless of the output mix.
