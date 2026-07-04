@@ -93,7 +93,7 @@ jobs:
           echo "semver=${SEMVER}" >> "$GITHUB_OUTPUT"
           echo "code=${RUN}" >> "$GITHUB_OUTPUT"
           echo "tag=${BRANCH}-v${SEMVER}-${RUN}" >> "$GITHUB_OUTPUT"
-          echo "display=${EDITION} ${SEMVER}+${RUN}" >> "$GITHUB_OUTPUT"
+          echo "display=${EDITION} ${SEMVER}" >> "$GITHUB_OUTPUT"
 
       - name: Build APKs (per-ABI + universal)
         run: |

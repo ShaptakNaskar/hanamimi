@@ -11,13 +11,14 @@ const _repo = 'ShaptakNaskar/hanamimi';
 
 /// The version string to show in About — read live from the built
 /// package, so it always reflects what CI stamped and never needs a
-/// hand-edit: e.g. "Hanamimi+ 花耳 · 1.0.3+42" (semver + build/run).
+/// hand-edit: e.g. "Hanamimi+ 花耳 · 1.0.3". (The internal versionCode
+/// stays the CI run number for Android + the updater's newer-check.)
 final appVersionLabelProvider = FutureProvider<String>((ref) async {
   try {
     final info = await PackageInfo.fromPlatform();
     final edition =
         info.packageName.endsWith('.plus') ? 'Hanamimi+' : 'Hanamimi';
-    return '$edition 花耳 · ${info.version}+${info.buildNumber}';
+    return '$edition 花耳 · ${info.version}';
   } catch (_) {
     return 'Hanamimi 花耳';
   }
