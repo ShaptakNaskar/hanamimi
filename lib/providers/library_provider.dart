@@ -216,6 +216,22 @@ class PlaylistsNotifier extends AsyncNotifier<List<Playlist>> {
     await repo.deletePlaylist(playlistId);
     state = AsyncData(await repo.allPlaylists());
   }
+
+  /// Creates a playlist from imported online results (M30). Each result
+  /// is materialized into a real library row (ensureOnlineTrack) then
+  /// linked, in order. Returns the new playlist id.
+  Future<int> importPlaylist(
+      String name, int coverColor, List<OnlineSearchResult> results) async {
+    final repo = await ref.read(libraryRepositoryProvider.future);
+    final id = await repo.createPlaylist(name, coverColor);
+    final library = ref.read(libraryProvider.notifier);
+    for (final r in results) {
+      final track = await library.ensureOnlineTrack(r);
+      await repo.addToPlaylist(id, track.id);
+    }
+    state = AsyncData(await repo.allPlaylists());
+    return id;
+  }
 }
 
 final playlistsProvider =

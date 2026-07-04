@@ -18,6 +18,7 @@ import '../components/library/album_card.dart';
 import '../components/library/playlist_card.dart';
 import '../components/library/track_row.dart';
 import '../components/shared/pill_tab_bar.dart';
+import '../modals/import_playlist_sheet.dart';
 
 class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});
@@ -758,17 +759,34 @@ class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
         Positioned(
           right: Space.s4,
           bottom: Space.s4,
-          child: FloatingActionButton.extended(
-            heroTag: 'new_playlist',
-            backgroundColor: theme.primary,
-            foregroundColor: Colors.white,
-            elevation: 2,
-            shape: const StadiumBorder(),
-            icon: const Icon(Icons.add),
-            label: const Text('New playlist',
-                style: TextStyle(
-                    fontFamily: 'Nunito', fontWeight: FontWeight.w600)),
-            onPressed: () => _showCreatePlaylistSheet(context, ref, theme),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              // Import a YouTube / Spotify playlist by link (M30, plus).
+              FloatingActionButton.small(
+                heroTag: 'import_playlist',
+                backgroundColor: theme.surface,
+                foregroundColor: theme.primary,
+                elevation: 2,
+                shape: const StadiumBorder(),
+                onPressed: () => showImportPlaylistSheet(context),
+                child: const Icon(Icons.link),
+              ),
+              const SizedBox(height: Space.s2),
+              FloatingActionButton.extended(
+                heroTag: 'new_playlist',
+                backgroundColor: theme.primary,
+                foregroundColor: Colors.white,
+                elevation: 2,
+                shape: const StadiumBorder(),
+                icon: const Icon(Icons.add),
+                label: const Text('New playlist',
+                    style: TextStyle(
+                        fontFamily: 'Nunito', fontWeight: FontWeight.w600)),
+                onPressed: () => _showCreatePlaylistSheet(context, ref, theme),
+              ),
+            ],
           ),
         ),
       ],
