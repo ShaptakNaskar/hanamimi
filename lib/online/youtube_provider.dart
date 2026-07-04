@@ -102,42 +102,80 @@ class YouTubeProvider implements MusicProvider {
     return Duration(seconds: seconds);
   }
 
+  /// Clients to try in order. YouTube 403s stream URLs from clients it
+  /// decides need a proof-of-origin token — which client that hits
+  /// varies over time and per network, so each resolved URL is
+  /// validated with a 1-byte fetch and the next client tried on
+  /// failure (the ViMusic/InnerTune playbook).
+  static final _clientChain = <List<YoutubeApiClient>?>[
+    [YoutubeApiClient.androidVr], // no PoToken/nsig gate on its URLs
+    [YoutubeApiClient.ios],
+    [YoutubeApiClient.android],
+    null, // package default (androidSdkless) last resort
+  ];
+
   @override
   Future<ResolvedStream?> resolveStream(
       String sourceId, StreamQuality quality) async {
+    for (final clients in _clientChain) {
+      try {
+        final manifest =
+            await _yt.videos.streams.getManifest(sourceId, ytClients: clients);
+        final audio = manifest.audioOnly.toList();
+        if (audio.isEmpty) continue;
+
+        // High: best available (opus/webm tops out ~160k). Low: closest
+        // to ~96k so mobile data isn't burned on the premium stream.
+        audio.sort((a, b) => a.bitrate.compareTo(b.bitrate));
+        final chosen = switch (quality) {
+          StreamQuality.high => audio.last,
+          StreamQuality.low => audio.reduce((a, b) =>
+              (a.bitrate.bitsPerSecond - 96000).abs() <=
+                      (b.bitrate.bitsPerSecond - 96000).abs()
+                  ? a
+                  : b),
+        };
+
+        if (!await _urlServes(chosen.url)) continue;
+
+        // Stream URLs carry their own death date (?expire=<unix
+        // seconds>, ~6 h out); conservative fallback if absent.
+        final expireParam =
+            int.tryParse(chosen.url.queryParameters['expire'] ?? '');
+        final expiresAt = expireParam != null
+            ? DateTime.fromMillisecondsSinceEpoch(expireParam * 1000)
+            : DateTime.now().add(const Duration(hours: 1));
+
+        return ResolvedStream(
+          url: chosen.url,
+          // Non-empty headers make just_audio serve the stream through
+          // its in-process proxy, i.e. fetch with Dart's HTTP stack.
+          // googlevideo 403s ExoPlayer's Java stack for these URLs
+          // (client fingerprinting) while the Dart stack — the one
+          // _urlServes just validated — is served fine.
+          headers: const {'User-Agent': 'Dart/3.7 (dart:io)'},
+          codec: chosen.audioCodec,
+          bitrateKbps: chosen.bitrate.kiloBitsPerSecond.round(),
+          expiresAt: expiresAt,
+        );
+      } catch (_) {
+        // Try the next client.
+      }
+    }
+    return null;
+  }
+
+  /// One ranged byte proves googlevideo will actually serve this URL
+  /// from this device — a URL that resolves but 403s otherwise
+  /// surfaces as an opaque ExoPlayer source error.
+  static Future<bool> _urlServes(Uri url) async {
     try {
-      final manifest = await _yt.videos.streams.getManifest(sourceId);
-      final audio = manifest.audioOnly.toList();
-      if (audio.isEmpty) return null;
-
-      // High: best available (opus/webm tops out ~160k). Low: closest
-      // to ~96k so mobile data isn't burned on the premium stream.
-      audio.sort((a, b) => a.bitrate.compareTo(b.bitrate));
-      final chosen = switch (quality) {
-        StreamQuality.high => audio.last,
-        StreamQuality.low => audio.reduce((a, b) =>
-            (a.bitrate.bitsPerSecond - 96000).abs() <=
-                    (b.bitrate.bitsPerSecond - 96000).abs()
-                ? a
-                : b),
-      };
-
-      // Stream URLs carry their own death date (?expire=<unix seconds>,
-      // ~6 h out); fall back to a conservative TTL if absent.
-      final expireParam =
-          int.tryParse(chosen.url.queryParameters['expire'] ?? '');
-      final expiresAt = expireParam != null
-          ? DateTime.fromMillisecondsSinceEpoch(expireParam * 1000)
-          : DateTime.now().add(const Duration(hours: 1));
-
-      return ResolvedStream(
-        url: chosen.url,
-        codec: chosen.audioCodec,
-        bitrateKbps: chosen.bitrate.kiloBitsPerSecond.round(),
-        expiresAt: expiresAt,
-      );
+      final res = await http.get(url, headers: {
+        'Range': 'bytes=0-0',
+      }).timeout(const Duration(seconds: 8));
+      return res.statusCode == 200 || res.statusCode == 206;
     } catch (_) {
-      return null;
+      return false;
     }
   }
 }

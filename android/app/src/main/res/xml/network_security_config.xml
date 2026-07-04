@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Online streaming (plus build) routes audio through just_audio's
+  in-process proxy at http://127.0.0.1:<port>/ — needed both to pass
+  provider headers (some googlevideo URLs 403 ExoPlayer's HTTP stack
+  but serve the Dart stack) and for LockCachingAudioSource (M27).
+  Remote traffic stays HTTPS-only; cleartext is allowed to localhost
+  alone.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>
