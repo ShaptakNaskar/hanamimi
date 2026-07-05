@@ -12,6 +12,7 @@ import '../../providers/mascot_provider.dart';
 import '../../providers/nerd_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../providers/power_provider.dart';
 import '../../providers/update_provider.dart';
 import '../../providers/visualizer_provider.dart';
 import '../../theme/app_theme.dart';
@@ -322,6 +323,8 @@ class _MoreCard extends ConsumerWidget {
             },
           ),
           Divider(height: 0.5, color: theme.divider),
+          const _KeepPlayingRow(),
+          Divider(height: 0.5, color: theme.divider),
           ListTile(
             leading: const Text('🐙', style: TextStyle(fontSize: 16)),
             title: Text('GitHub', style: AppText.rowSongTitle(theme)),
@@ -347,6 +350,40 @@ class _MoreCard extends ConsumerWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// "Keep playing in background" — offers the battery-optimization
+/// exemption so OEM battery killers don't pause playback (and leave the
+/// seek bar stuck) when the app is backgrounded.
+class _KeepPlayingRow extends ConsumerWidget {
+  const _KeepPlayingRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    final ignored = ref.watch(batteryOptIgnoredProvider).value ?? true;
+    return ListTile(
+      leading: Icon(Icons.battery_saver_outlined,
+          size: 20, color: theme.textMuted),
+      title: Text('Keep playing in background',
+          style: AppText.rowSongTitle(theme)),
+      subtitle: Text(
+        ignored
+            ? "Allowed — the system won't pause your music"
+            : 'Tap to stop the system killing playback',
+        style: AppText.caption(theme),
+      ),
+      trailing: ignored
+          ? Icon(Icons.check_circle_outline, size: 18, color: theme.primary)
+          : Icon(Icons.chevron_right, size: 18, color: theme.textMuted),
+      onTap: ignored
+          ? null
+          : () async {
+              await PowerChannel.requestIgnoreBatteryOptimizations();
+              ref.invalidate(batteryOptIgnoredProvider);
+            },
     );
   }
 }

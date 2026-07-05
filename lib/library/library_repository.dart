@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:sqflite/sqflite.dart';
 
 import 'models/playlist.dart';
@@ -128,6 +130,23 @@ class LibraryRepository {
       }
     });
     return changes;
+  }
+
+  /// Drops tracks whose file is gone from disk. Android's MediaStore keeps
+  /// stale rows after a file is deleted (until its own media scan catches
+  /// up), so those ghosts survive [syncScannedTracks] and show up as
+  /// unplayable songs — verifying the path on disk removes them for good.
+  Future<int> pruneMissingLocalFiles() async {
+    final rows = await _db.query('tracks',
+        columns: ['file_path'], where: 'file_path IS NOT NULL');
+    var removed = 0;
+    for (final r in rows) {
+      final path = r['file_path'] as String?;
+      if (path == null || File(path).existsSync()) continue;
+      await _db.delete('tracks', where: 'file_path = ?', whereArgs: [path]);
+      removed++;
+    }
+    return removed;
   }
 
   Future<void> setAlbumArt(int albumId, String path) => _db.update(
