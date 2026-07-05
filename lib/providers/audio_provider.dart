@@ -17,6 +17,18 @@ final positionProvider = StreamProvider<Duration>(
   (ref) => ref.watch(audioHandlerProvider).engine.positionStream,
 );
 
+/// Bumped every time the app returns to the foreground. Widgets that must
+/// self-heal after a background freeze (the visualizer re-kicks its FFT
+/// extraction, etc.) watch this. See AppShell's lifecycle observer.
+class AppResumeTick extends Notifier<int> {
+  @override
+  int build() => 0;
+  void bump() => state++;
+}
+
+final appResumeTickProvider =
+    NotifierProvider<AppResumeTick, int>(AppResumeTick.new);
+
 /// Records play counts as tracks start.
 final playCountRecorderProvider = Provider<void>((ref) {
   final handler = ref.watch(audioHandlerProvider);
