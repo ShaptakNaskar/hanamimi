@@ -99,7 +99,7 @@ class AudioInfoChannel(private val context: Context) {
             val f = format ?: return null
             val mime = f.getString(MediaFormat.KEY_MIME)
             mapOf(
-                "codec" to codecLabel(mime),
+                "codec" to codecLabel(mime, path),
                 "sampleRate" to f.optInt(MediaFormat.KEY_SAMPLE_RATE),
                 "channels" to f.optInt(MediaFormat.KEY_CHANNEL_COUNT),
                 "bitrate" to f.optInt(MediaFormat.KEY_BIT_RATE),
@@ -111,19 +111,48 @@ class AudioInfoChannel(private val context: Context) {
         }
     }
 
-    private fun codecLabel(mime: String?): String? = when (mime) {
+    private fun codecLabel(mime: String?, path: String): String? = when (mime) {
         null -> null
         "audio/mpeg" -> "MP3"
         "audio/mp4a-latm" -> "AAC"
         "audio/opus" -> "Opus"
         "audio/vorbis" -> "Vorbis"
         "audio/flac" -> "FLAC"
-        "audio/raw" -> "PCM"
+        // Android's FLAC extractor decodes to PCM and reports the track as
+        // audio/raw, so a real FLAC would show as "PCM". Sniff the file's
+        // container signature to recover the true lossless codec.
+        "audio/raw" -> sniffContainer(path) ?: "PCM"
         "audio/ac3" -> "AC-3"
         "audio/eac3" -> "E-AC-3"
         "audio/amr-wb" -> "AMR-WB"
         "audio/amr" -> "AMR"
         else -> mime.removePrefix("audio/").uppercase()
+    }
+
+    /** Reads the first bytes to tell FLAC / WAV / etc. apart when the
+     *  extractor collapses a lossless track to audio/raw. */
+    private fun sniffContainer(path: String): String? {
+        return try {
+            val head = ByteArray(12)
+            val stream = if (path.startsWith("content://")) {
+                context.contentResolver.openInputStream(Uri.parse(path))
+            } else {
+                java.io.FileInputStream(path)
+            } ?: return null
+            val n = stream.use { it.read(head) }
+            if (n < 4) return null
+            val tag = String(head, 0, 4, Charsets.US_ASCII)
+            when {
+                tag == "fLaC" -> "FLAC"
+                tag == "RIFF" -> "WAV"                       // PCM in a WAV
+                tag == "MAC " -> "APE"                        // Monkey's Audio
+                tag.startsWith("wvpk") -> "WavPack"
+                tag == "RIFX" -> "WAV"
+                else -> null
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun MediaFormat.optInt(key: String): Int? =
