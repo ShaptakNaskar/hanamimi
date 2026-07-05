@@ -11,6 +11,7 @@ import 'providers/theme_provider.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_tokens.dart';
 import 'ui/app_shell.dart';
+import 'ui/theme_animator.dart';
 
 class HanamimiApp extends ConsumerWidget {
   const HanamimiApp({super.key});
@@ -40,7 +41,7 @@ class HanamimiApp extends ConsumerWidget {
       home: AnimatedTheme(
         data: AppTheme.from(theme),
         duration: Anim.themeCrossfade,
-        child: const AppShell(),
+        child: const ThemeAnimator(child: AppShell()),
       ),
     );
   }

@@ -1,4 +1,4 @@
-import 'dart:ui';
+import 'package:flutter/material.dart';
 
 import 'hanamimi_theme.dart';
 
@@ -49,7 +49,9 @@ const starryNight = HanamimiTheme(
   textPrimary: Color(0xFFE8E8FF),
   textMuted: Color(0xFF8888BB),
   divider: Color(0xFF2E2E50),
-  visualizerStyle: VisualizerStyle.radial,
+  // Uses the Cherry Blossom bars, recoloured night (its own lavender→cyan
+  // on the dark background) instead of the radial burst.
+  visualizerStyle: VisualizerStyle.bars,
   brightness: HanamimiBrightness.dark,
 );
 
@@ -70,7 +72,57 @@ const matcha = HanamimiTheme(
   brightness: HanamimiBrightness.light,
 );
 
-const allThemes = [cherryBlossom, rainyDay, starryNight, matcha];
+/// Theme 5 — Adaptive (Monet). Its palette is pulled from the current
+/// track's album art at runtime (see adaptive_theme_provider). These are
+/// only the placeholder/neutral values shown before any art resolves;
+/// [fromArtScheme] overrides them per track.
+const adaptive = neutralAdaptive;
 
-HanamimiTheme themeById(String id) =>
-    allThemes.firstWhere((t) => t.id == id, orElse: () => cherryBlossom);
+/// Soft grey-pink fallback for the Adaptive theme when there's no art (or
+/// extraction hasn't finished / failed) — never a jarring default.
+const neutralAdaptive = HanamimiTheme(
+  id: 'adaptive',
+  name: 'Adaptive',
+  emoji: '🎨',
+  background: Color(0xFFF6F2F4),
+  surface: Color(0xFFFFFFFF),
+  primary: Color(0xFFB79AAE),
+  secondary: Color(0xFFC9A9C4),
+  accent: Color(0xFF9E7C96),
+  textPrimary: Color(0xFF3A303A),
+  textMuted: Color(0xFF8A7A88),
+  divider: Color(0xFFE6DCE2),
+  visualizerStyle: VisualizerStyle.bars,
+  brightness: HanamimiBrightness.light,
+);
+
+/// Builds an Adaptive theme from a Material You [ColorScheme] extracted
+/// from album art. Follows the scheme's own brightness, so a dark cover
+/// yields a dark, readable UI.
+HanamimiTheme fromArtScheme(ColorScheme s) => HanamimiTheme(
+      id: 'adaptive',
+      name: 'Adaptive',
+      emoji: '🎨',
+      background: s.surface,
+      surface: s.surfaceContainerHigh,
+      primary: s.primary,
+      secondary: s.tertiary, // second bar colour / lerp target
+      accent: s.secondary,
+      textPrimary: s.onSurface,
+      textMuted: s.onSurfaceVariant,
+      divider: s.outlineVariant,
+      visualizerStyle: VisualizerStyle.bars,
+      brightness: s.brightness == Brightness.dark
+          ? HanamimiBrightness.dark
+          : HanamimiBrightness.light,
+    );
+
+/// Adaptive replaces Rainy Day in the picker (it took the "ocean" slot).
+const allThemes = [cherryBlossom, adaptive, starryNight, matcha];
+
+HanamimiTheme themeById(String id) {
+  // Rainy Day was retired for Adaptive — anyone still on it lands on the
+  // default rather than a missing theme.
+  if (id == 'rainy_day') return cherryBlossom;
+  return allThemes.firstWhere((t) => t.id == id, orElse: () => cherryBlossom);
+}

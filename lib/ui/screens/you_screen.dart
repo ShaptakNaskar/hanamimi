@@ -52,8 +52,9 @@ class YouScreen extends ConsumerWidget {
                 _ThemeTile(
                   tile: t,
                   active: t.id == theme.id,
-                  onTap: () =>
-                      ref.read(currentThemeProvider.notifier).setTheme(t.id),
+                  onTap: () => ref
+                      .read(selectedThemeIdProvider.notifier)
+                      .setTheme(t.id),
                 ),
             ],
           ),
