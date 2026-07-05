@@ -143,8 +143,12 @@ double matchScore(ImportedTrack want, OnlineSearchResult candidate) {
       : tokenSimilarity(want.artist, candidate.artist);
   var dur = 0.5;
   final wantMs = want.durationMs;
-  if (wantMs != null && wantMs > 0) {
-    final deltaS = ((wantMs - candidate.duration.inMilliseconds).abs()) / 1000;
+  final candMs = candidate.duration.inMilliseconds;
+  // Only score duration when BOTH are known — YT Music song entries often
+  // omit it, and treating unknown as a mismatch would rank a live cut
+  // (which lists a duration) above the real studio track.
+  if (wantMs != null && wantMs > 0 && candMs > 0) {
+    final deltaS = ((wantMs - candMs).abs()) / 1000;
     dur = deltaS <= 3
         ? 1.0
         : deltaS <= 8

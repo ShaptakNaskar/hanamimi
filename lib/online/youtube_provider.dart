@@ -67,6 +67,155 @@ class YouTubeProvider implements MusicProvider {
     }
   }
 
+  /// Searches **YouTube Music** (the `WEB_REMIX` Innertube client against
+  /// music.youtube.com) instead of general YouTube. Results are curated
+  /// *songs* with clean artist metadata and no random videos/live cuts,
+  /// so they match imported playlist entries far better. Same videoId
+  /// space — they resolve through the exact same stream path. Best-effort:
+  /// empty on any failure (the importer falls back to general search).
+  Future<List<OnlineSearchResult>> searchMusic(String query) async {
+    try {
+      final res = await http
+          .post(
+            Uri.parse(
+                'https://music.youtube.com/youtubei/v1/search?prettyPrint=false'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Origin': 'https://music.youtube.com',
+            },
+            body: jsonEncode({
+              'context': {
+                'client': {
+                  'clientName': 'WEB_REMIX',
+                  'clientVersion': '1.20250101.01.00',
+                  'hl': 'en',
+                },
+              },
+              'query': query,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) return const [];
+
+      // YT Music lists items as musicResponsiveListItemRenderer, scattered
+      // across shelves — collect them wherever they sit.
+      final items = <Map<String, dynamic>>[];
+      void walk(Object? node) {
+        if (node is Map<String, dynamic>) {
+          final it = node['musicResponsiveListItemRenderer'];
+          if (it is Map<String, dynamic>) items.add(it);
+          node.values.forEach(walk);
+        } else if (node is List) {
+          node.forEach(walk);
+        }
+      }
+
+      walk(jsonDecode(res.body));
+
+      final seen = <String>{};
+      final out = <OnlineSearchResult>[];
+      for (final it in items) {
+        final r = _toMusicResult(it);
+        if (r != null && seen.add(r.sourceId)) out.add(r);
+      }
+      return out;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  OnlineSearchResult? _toMusicResult(Map<String, dynamic> it) {
+    try {
+      // videoId lives on a watchEndpoint somewhere inside the item.
+      final videoId = _findVideoId(it);
+      if (videoId == null) return null;
+
+      final flex = (it['flexColumns'] as List?) ?? const [];
+      List<dynamic> runsOf(int i) {
+        if (flex.length <= i) return const [];
+        final col = flex[i]['musicResponsiveListItemFlexColumnRenderer'];
+        final runs = col?['text']?['runs'];
+        return runs is List ? runs : const [];
+      }
+
+      final title = runsOf(0).isEmpty ? null : runsOf(0).first['text'] as String?;
+      if (title == null || title.isEmpty) return null;
+
+      // Column 1 varies: a pure song is "Song • Artist [• Album • 3:45]",
+      // a video is "Artist • 12M views • 3:19". Pull a duration if present
+      // (song shelf entries often omit it — that's fine, title+artist
+      // carry the match), and take the first run that's a real name (not a
+      // type label or a view count) as the artist.
+      const typeLabels = {
+        'song', 'video', 'album', 'artist', 'playlist', 'ep', 'single'
+      };
+      Duration? duration;
+      String? artist;
+      for (final run in runsOf(1)) {
+        final text = (run['text'] as String?)?.trim() ?? '';
+        if (text.isEmpty || text == '•') continue;
+        final d = _parseLength(text);
+        if (d != null) {
+          duration ??= d;
+          continue;
+        }
+        final low = text.toLowerCase();
+        if (typeLabels.contains(low)) continue;
+        if (low.contains('view') || low.contains('plays')) continue;
+        artist ??= text;
+      }
+
+      return OnlineSearchResult(
+        source: TrackSource.youtube,
+        sourceId: videoId,
+        title: title,
+        artist: artist ?? 'Unknown artist',
+        duration: duration ?? Duration.zero,
+        artUrl: _findThumbs(it),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// First `watchEndpoint.videoId` anywhere under [node].
+  static String? _findVideoId(Object? node) {
+    if (node is Map<String, dynamic>) {
+      final we = node['watchEndpoint'];
+      if (we is Map<String, dynamic> && we['videoId'] is String) {
+        return we['videoId'] as String;
+      }
+      for (final v in node.values) {
+        final r = _findVideoId(v);
+        if (r != null) return r;
+      }
+    } else if (node is List) {
+      for (final v in node) {
+        final r = _findVideoId(v);
+        if (r != null) return r;
+      }
+    }
+    return null;
+  }
+
+  /// Last thumbnail url anywhere under [node] (biggest).
+  static String? _findThumbs(Object? node) {
+    if (node is Map<String, dynamic>) {
+      final t = node['thumbnails'];
+      if (t is List && t.isNotEmpty) return t.last['url'] as String?;
+      for (final v in node.values) {
+        final r = _findThumbs(v);
+        if (r != null) return r;
+      }
+    } else if (node is List) {
+      for (final v in node) {
+        final r = _findThumbs(v);
+        if (r != null) return r;
+      }
+    }
+    return null;
+  }
+
   OnlineSearchResult? _toResult(Map<String, dynamic> r) {
     try {
       final videoId = r['videoId'] as String?;

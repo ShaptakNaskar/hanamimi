@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../audio/models/playback_session.dart';
 import '../library/models/track.dart';
 import '../providers/audio_provider.dart';
+import '../providers/import_job_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/update_provider.dart';
@@ -15,6 +16,7 @@ import '../theme/theme_tokens.dart';
 import '../utils/duration_ext.dart';
 import 'components/mini_player.dart';
 import 'components/shared/bottom_nav.dart';
+import 'modals/import_playlist_sheet.dart';
 import 'modals/update_dialog.dart';
 import 'screens/downloads_screen.dart';
 import 'screens/library_screen.dart';
@@ -55,6 +57,22 @@ class _AppShellState extends ConsumerState<AppShell> {
       final update = next.value;
       if (update != null && mounted) {
         showUpdateDialog(context, update);
+      }
+    });
+    // A background playlist import finished — let the user jump to review
+    // (they may have left the import sheet while it ran).
+    ref.listenManual(importJobProvider, (prev, next) {
+      if (next.hasResult && !(prev?.hasResult ?? false) && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(Radii.md)),
+          content: const Text('Playlist ready to review 🐰',
+              style: TextStyle(fontFamily: 'Nunito')),
+          action: SnackBarAction(
+              label: 'Review',
+              onPressed: () => showImportPlaylistSheet(context)),
+        ));
       }
     });
     // If the user starts playing something else, the offer is moot —

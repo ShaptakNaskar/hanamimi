@@ -7,6 +7,7 @@ import '../../library/models/playlist.dart';
 import '../../library/models/track.dart';
 import '../../online/models/online_search_result.dart';
 import '../../providers/audio_provider.dart';
+import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/online_provider.dart';
 import '../../providers/online_settings_provider.dart';
@@ -18,6 +19,7 @@ import '../components/library/album_card.dart';
 import '../components/library/playlist_card.dart';
 import '../components/library/track_row.dart';
 import '../components/shared/pill_tab_bar.dart';
+import '../modals/download_quality_sheet.dart';
 import '../modals/import_playlist_sheet.dart';
 
 class LibraryScreen extends ConsumerStatefulWidget {
@@ -879,6 +881,30 @@ class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
     );
   }
 
+  /// Queue every online track in the playlist that isn't saved offline
+  /// yet, at the chosen quality — no more downloading songs one by one.
+  Future<void> _downloadAll(List<Track> tracks, HanamimiTheme theme) async {
+    final pending = [
+      for (final t in tracks)
+        if (!t.isLocal && !t.isPlayableOffline) t,
+    ];
+    if (pending.isEmpty) return;
+    final quality = await resolveDownloadQuality(context, ref);
+    if (quality == null || !mounted) return; // cancelled
+    for (final t in pending) {
+      ref.read(downloadManagerProvider.notifier).enqueue(t, quality);
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Radii.md)),
+      content: Text(
+        'Downloading ${pending.length} song${pending.length == 1 ? '' : 's'} — see the Downloads tab 🐰',
+        style: const TextStyle(fontFamily: 'Nunito'),
+      ),
+    ));
+  }
+
   /// Playlist detail: header (play all, delete), tracks in playlist
   /// order. Swipe a row left to remove it from the playlist.
   Widget _buildDetail(Playlist playlist, HanamimiTheme theme, String q) {
@@ -959,6 +985,18 @@ class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
                       size: 20, color: theme.textMuted),
                 ),
               ),
+              // Online tracks not yet saved offline → offer "download all".
+              if (tracks.any((t) => !t.isLocal && !t.isPlayableOffline))
+                InkResponse(
+                  onTap: () => _downloadAll(tracks, theme),
+                  radius: 20,
+                  child: SizedBox(
+                    width: Sizes.minTouchTarget,
+                    height: Sizes.minTouchTarget,
+                    child: Icon(Icons.download_for_offline_outlined,
+                        size: 22, color: theme.textMuted),
+                  ),
+                ),
               InkResponse(
                 onTap: tracks.isEmpty
                     ? null

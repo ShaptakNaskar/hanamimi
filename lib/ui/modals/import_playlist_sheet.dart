@@ -4,8 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../library/models/playlist.dart';
 import '../../online/import/import_models.dart';
-import '../../online/import/playlist_importer.dart';
 import '../../online/models/online_search_result.dart';
+import '../../providers/import_job_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../theme/app_theme.dart';
@@ -37,8 +37,6 @@ class _ImportSheet extends ConsumerStatefulWidget {
 
 class _ImportSheetState extends ConsumerState<_ImportSheet> {
   final _controller = TextEditingController();
-  ImportProgress _progress = const ImportProgress(phase: ImportPhase.idle);
-  ImportResult? _result;
 
   /// Manual picks for review misses: source-track index → chosen result.
   final _picked = <int, OnlineSearchResult>{};
@@ -47,7 +45,10 @@ class _ImportSheetState extends ConsumerState<_ImportSheet> {
   @override
   void initState() {
     super.initState();
-    if (widget.initialUrl != null) _controller.text = widget.initialUrl!;
+    // Reopen onto a job already running/finished in the background;
+    // otherwise seed from the share-sheet URL.
+    final job = ref.read(importJobProvider);
+    _controller.text = job.url ?? widget.initialUrl ?? '';
   }
 
   @override
@@ -64,36 +65,14 @@ class _ImportSheetState extends ConsumerState<_ImportSheet> {
       return;
     }
     FocusScope.of(context).unfocus();
-    setState(() {
-      _result = null;
-      _picked.clear();
-      _progress = const ImportProgress(phase: ImportPhase.fetching);
-    });
-    final importer = PlaylistImporter();
-    final sub = importer.progress(url).listen((p) {
-      if (mounted) setState(() => _progress = p);
-    });
-    final result = await importer.run(url);
-    await sub.cancel();
-    if (!mounted) return;
-    if (result == null || result.matches.isEmpty) {
-      setState(() =>
-          _progress = const ImportProgress(phase: ImportPhase.failed));
-      return;
-    }
-    setState(() {
-      _result = result;
-      _progress = ImportProgress(
-        phase: ImportPhase.done,
-        total: result.matches.length,
-        matched: result.confident.length,
-      );
-    });
+    setState(_picked.clear);
+    // Fire-and-forget: the job lives in the provider, so it keeps running
+    // even if this sheet is dismissed.
+    ref.read(importJobProvider.notifier).start(url);
   }
 
-  Future<void> _commit() async {
-    final result = _result;
-    if (result == null || _committing) return;
+  Future<void> _commit(ImportResult result) async {
+    if (_committing) return;
     setState(() => _committing = true);
 
     // Auto-accepted matches + any manual picks from the review list.
@@ -117,6 +96,7 @@ class _ImportSheetState extends ConsumerState<_ImportSheet> {
     await ref
         .read(playlistsProvider.notifier)
         .importPlaylist(result.playlistName, color.toARGB32(), chosen);
+    ref.read(importJobProvider.notifier).clear(); // job consumed
     if (!mounted) return;
     Navigator.of(context).pop();
     _snack('Imported "${result.playlistName}" · ${chosen.length} songs');
@@ -134,6 +114,7 @@ class _ImportSheetState extends ConsumerState<_ImportSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = ref.watch(currentThemeProvider);
+    final job = ref.watch(importJobProvider);
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
@@ -155,16 +136,16 @@ class _ImportSheetState extends ConsumerState<_ImportSheet> {
             Text('Paste a YouTube or Spotify playlist link',
                 style: AppText.caption(theme)),
             const SizedBox(height: Space.s3),
-            _urlField(theme),
+            _urlField(theme, job),
             const SizedBox(height: Space.s3),
-            Expanded(child: _body(theme)),
+            Expanded(child: _body(theme, job)),
           ],
         ),
       ),
     );
   }
 
-  Widget _urlField(HanamimiTheme theme) => Row(
+  Widget _urlField(HanamimiTheme theme, ImportJob job) => Row(
         children: [
           Expanded(
             child: TextField(
@@ -197,32 +178,27 @@ class _ImportSheetState extends ConsumerState<_ImportSheet> {
           const SizedBox(width: Space.s2),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: theme.primary),
-            onPressed: _busy ? null : _start,
+            onPressed: (job.running || _committing) ? null : _start,
             child: const Text('Import',
                 style: TextStyle(fontFamily: 'Nunito')),
           ),
         ],
       );
 
-  bool get _busy =>
-      _progress.phase == ImportPhase.fetching ||
-      _progress.phase == ImportPhase.matching ||
-      _committing;
-
-  Widget _body(HanamimiTheme theme) {
-    switch (_progress.phase) {
+  Widget _body(HanamimiTheme theme, ImportJob job) {
+    switch (job.progress.phase) {
       case ImportPhase.idle:
         return _hint(theme);
       case ImportPhase.fetching:
       case ImportPhase.matching:
-        return _progressView(theme);
+        return _progressView(theme, job.progress);
       case ImportPhase.failed:
         return Center(
           child: Text("Couldn't read that playlist — is it public?",
               style: AppText.body(theme), textAlign: TextAlign.center),
         );
       case ImportPhase.done:
-        return _review(theme);
+        return job.result == null ? _hint(theme) : _review(theme, job.result!);
     }
   }
 
@@ -240,8 +216,7 @@ class _ImportSheetState extends ConsumerState<_ImportSheet> {
         ),
       );
 
-  Widget _progressView(HanamimiTheme theme) {
-    final p = _progress;
+  Widget _progressView(HanamimiTheme theme, ImportProgress p) {
     final label = p.phase == ImportPhase.fetching
         ? (p.fetched > 0 ? 'Reading playlist… ${p.fetched}' : 'Reading playlist…')
         : 'Matching ${p.fetched}/${p.total} · ${p.matched} found';
@@ -265,13 +240,16 @@ class _ImportSheetState extends ConsumerState<_ImportSheet> {
           ),
           const SizedBox(height: Space.s3),
           Text(label, style: AppText.caption(theme)),
+          const SizedBox(height: Space.s2),
+          Text('You can leave this screen — importing keeps going 🐰',
+              style: AppText.caption(theme).copyWith(fontSize: 11),
+              textAlign: TextAlign.center),
         ],
       ),
     );
   }
 
-  Widget _review(HanamimiTheme theme) {
-    final result = _result!;
+  Widget _review(HanamimiTheme theme, ImportResult result) {
     final misses = <int>[
       for (var i = 0; i < result.matches.length; i++)
         if (!result.matches[i].matched) i,
@@ -323,7 +301,8 @@ class _ImportSheetState extends ConsumerState<_ImportSheet> {
           width: double.infinity,
           child: FilledButton(
             style: FilledButton.styleFrom(backgroundColor: theme.primary),
-            onPressed: _committing || willImport == 0 ? null : _commit,
+            onPressed:
+                _committing || willImport == 0 ? null : () => _commit(result),
             child: _committing
                 ? const SizedBox(
                     width: 18,

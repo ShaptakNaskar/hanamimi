@@ -3,6 +3,7 @@ import 'dart:async';
 import '../../library/models/track.dart';
 import '../models/online_search_result.dart';
 import '../music_provider.dart';
+import '../youtube_provider.dart';
 import 'import_models.dart';
 import 'spotify_playlist_source.dart';
 import 'yt_playlist_source.dart';
@@ -105,8 +106,10 @@ class PlaylistImporter {
         playlistName: name, matches: matches, fromSource: 'Spotify');
   }
 
-  /// Searches JioSaavn then YouTube, scores candidates, returns the best
-  /// match (auto-accepted) or an unmatched result carrying candidates.
+  /// Searches JioSaavn, then **YouTube Music**, then general YouTube,
+  /// scores candidates, and returns the best match (auto-accepted) or an
+  /// unmatched result carrying candidates. YT Music gives cleaner song
+  /// hits than general search, so it lifts the auto-match rate.
   Future<ImportMatch> _match(ImportedTrack want) async {
     final query = '${want.title} ${want.artist}'.trim();
     final candidates = <OnlineSearchResult>[];
@@ -116,6 +119,11 @@ class PlaylistImporter {
       final provider = _providers[src];
       if (provider == null) continue;
       try {
+        // Prefer YT Music's curated song results over general YouTube.
+        if (provider is YouTubeProvider) {
+          final music = await provider.searchMusic(query);
+          candidates.addAll(music.take(5));
+        }
         final hits = await provider.search(query);
         candidates.addAll(hits.take(5));
       } catch (_) {
