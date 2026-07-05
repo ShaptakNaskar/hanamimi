@@ -67,11 +67,22 @@ class SpotifyPlaylistSource {
     if (node is Map<String, dynamic>) {
       final title = node['title'];
       final subtitle = node['subtitle'];
-      final hasUri = node['uri']?.toString().contains('track') ?? false;
+      final uri = node['uri']?.toString() ?? '';
+      final isTrack = uri.contains(':track:');
+      // The playlist's OWN entity node also carries title + subtitle +
+      // duration (playlist name / owner / total length), so it used to be
+      // scooped up and "searched" as a bogus song. Skip anything that's a
+      // non-track entity (playlist/album/artist/show/episode).
+      final isEntity = uri.contains(':playlist:') ||
+          uri.contains(':album:') ||
+          uri.contains(':artist:') ||
+          uri.contains(':show:') ||
+          uri.contains(':episode:');
       if (title is String &&
           title.isNotEmpty &&
           subtitle is String &&
-          (hasUri || node.containsKey('duration'))) {
+          !isEntity &&
+          (isTrack || node.containsKey('duration'))) {
         final durMs = _durationMs(node['duration']);
         out.add(ImportedTrack(
           title: title,

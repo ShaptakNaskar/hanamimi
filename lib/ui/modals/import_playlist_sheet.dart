@@ -369,19 +369,13 @@ class _MissRow extends StatelessWidget {
           if (match.candidates.isEmpty)
             Text('No candidates found', style: AppText.caption(theme))
           else
-            Wrap(
-              spacing: Space.s2,
-              runSpacing: Space.s1,
-              children: [
-                for (final c in match.candidates)
-                  _CandidateChip(
-                    result: c,
-                    selected: picked?.sourceId == c.sourceId,
-                    theme: theme,
-                    onTap: () => onPick(c),
-                  ),
-              ],
-            ),
+            for (final c in match.candidates)
+              _CandidateRow(
+                result: c,
+                selected: picked?.sourceId == c.sourceId,
+                theme: theme,
+                onTap: () => onPick(c),
+              ),
           Divider(height: Space.s4, color: theme.divider),
         ],
       ),
@@ -389,8 +383,11 @@ class _MissRow extends StatelessWidget {
   }
 }
 
-class _CandidateChip extends StatelessWidget {
-  const _CandidateChip({
+/// A candidate match as a full-width row (title + artist + source + a
+/// duration), like the search list — so long titles don't truncate to
+/// nothing the way the old pills did. Tap to pick / unpick.
+class _CandidateRow extends StatelessWidget {
+  const _CandidateRow({
     required this.result,
     required this.selected,
     required this.theme,
@@ -404,37 +401,49 @@ class _CandidateChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = '${result.source.name == 'saavn' ? 'Saavn' : 'YT'} · '
-        '${result.title}';
-    return GestureDetector(
+    final source = result.source.name == 'saavn' ? 'JioSaavn' : 'YouTube';
+    final dur = result.duration;
+    final durLabel = dur.inSeconds <= 0
+        ? ''
+        : ' · ${dur.inMinutes}:${(dur.inSeconds % 60).toString().padLeft(2, '0')}';
+    return InkWell(
       onTap: onTap,
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 260),
-        padding:
-            const EdgeInsets.symmetric(horizontal: Space.s3, vertical: Space.s1),
-        decoration: BoxDecoration(
-          color: selected
-              ? theme.primary.withValues(alpha: 0.18)
-              : theme.surface,
-          borderRadius: BorderRadius.circular(Radii.pill),
-          border: Border.all(
-              color: selected ? theme.primary : theme.divider,
-              width: selected ? 1.4 : 0.5),
-        ),
+      borderRadius: BorderRadius.circular(Radii.md),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+            horizontal: Space.s2, vertical: Space.s2),
         child: Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            if (selected)
-              Padding(
-                padding: const EdgeInsets.only(right: Space.s1),
-                child: Icon(Icons.check, size: 14, color: theme.primary),
+            Container(
+              width: 24,
+              height: 24,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: selected ? theme.primary : Colors.transparent,
+                border: Border.all(
+                    color: selected ? theme.primary : theme.divider,
+                    width: 1.4),
               ),
-            Flexible(
-              child: Text(label,
-                  style: AppText.caption(theme).copyWith(
-                      color: selected ? theme.primary : theme.textPrimary),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
+              child: selected
+                  ? const Icon(Icons.check, size: 15, color: Colors.white)
+                  : null,
+            ),
+            const SizedBox(width: Space.s3),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(result.title,
+                      style: AppText.rowSongTitle(theme).copyWith(
+                          color: selected ? theme.primary : null),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                  Text('${result.artist} · $source$durLabel',
+                      style: AppText.caption(theme),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                ],
+              ),
             ),
           ],
         ),
