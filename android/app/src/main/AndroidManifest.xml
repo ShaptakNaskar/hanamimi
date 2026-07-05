@@ -11,6 +11,9 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- In-app updater: hand downloaded release APKs to the installer -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <!-- Keep background playback alive against aggressive battery killers.
+         (A Play-Store build should switch to the settings-list intent.) -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <!-- No RECORD_AUDIO: the visualizer decodes the audio file itself
          (FftExtractorChannel) instead of tapping the output mix. -->
 

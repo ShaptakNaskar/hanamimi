@@ -35,6 +35,9 @@ class LibraryScanner {
         .where((s) => !_isExcluded(s['filePath'] as String? ?? ''))
         .toList();
     await _repo.syncScannedTracks(kept);
+    // MediaStore can still list files the user deleted; drop any local
+    // track whose file is actually gone from disk.
+    await _repo.pruneMissingLocalFiles();
 
     // Fetch art once per album that has tracks without an art path.
     final tracks = await _repo.allTracks();

@@ -53,6 +53,13 @@ class MainActivity : AudioServiceActivity() {
             "hanamimi/updater",
         ).setMethodCallHandler { call, result -> updater.handle(call, result) }
 
+        // Battery-optimization exemption (keeps background playback alive).
+        val power = PowerChannel(applicationContext)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "hanamimi/power",
+        ).setMethodCallHandler { call, result -> power.handle(call, result) }
+
         openWith = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "hanamimi/open_with",
