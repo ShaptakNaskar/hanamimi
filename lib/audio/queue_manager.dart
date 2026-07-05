@@ -26,6 +26,33 @@ class QueueManager {
     _primary = AudioPlayer(handleInterruptions: false);
     _wirePlayer(_primary);
     unawaited(_initAudioSession());
+    _startPositionHeartbeat();
+  }
+
+  /// Self-healing seek bar. just_audio's positionStream can go stale after
+  /// the process is frozen/backgrounded (OEM battery managers) and then
+  /// resumed — audio keeps playing but the stream stops ticking, so the
+  /// bar freezes (sometimes stuck at the end). This independent 250 ms
+  /// heartbeat republishes the player's own computed position while
+  /// playing, so the bar stays live regardless of the plugin stream's
+  /// health. `player.position` self-advances from the last update, so this
+  /// is cheap and accurate.
+  Timer? _posHeartbeat;
+  void _startPositionHeartbeat() {
+    _posHeartbeat = Timer.periodic(const Duration(milliseconds: 250), (_) {
+      if (_primary.playing && !_crossfading) {
+        _position.add(_primary.position);
+      }
+    });
+  }
+
+  /// Called when the app returns to the foreground. Snaps the seek bar to
+  /// the player's true position immediately (it may have drifted or stalled
+  /// while backgrounded) so the UI reflects reality without waiting for the
+  /// next heartbeat.
+  void onAppResumed() {
+    _position.add(_primary.position);
+    _emitStatus(_primary);
   }
 
   AudioSession? _session;
@@ -383,6 +410,7 @@ class QueueManager {
 
   Future<void> dispose() async {
     _crossfadeTimer?.cancel();
+    _posHeartbeat?.cancel();
     for (final s in _subs) {
       s.cancel();
     }

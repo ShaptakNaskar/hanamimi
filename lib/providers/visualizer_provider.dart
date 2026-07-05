@@ -56,6 +56,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   String? retryKey;
   var retries = 0;
   var noFramesSince = 0; // ms epoch; 0 = clock not running
+  var lastResumeTick = 0; // detects app-resume to re-arm the watchdog
 
   // Position extrapolation between player reports (same pattern as the
   // lyrics sheet) so sampling doesn't step at the stream's rate.
@@ -162,6 +163,19 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     final playing = ref.read(audioStateProvider).value?.isPlaying ?? false;
     final position =
         playing ? lastPosition + sinceReport.elapsed : lastPosition;
+
+    // Coming back from the background can leave a dead FFT extraction
+    // (MediaCodec was reclaimed while frozen) with the retry budget spent,
+    // stranding the synth pulse. Re-arm the watchdog on each resume so it
+    // re-kicks the same track's extraction.
+    final resumeTick = ref.read(appResumeTickProvider);
+    if (resumeTick != lastResumeTick) {
+      lastResumeTick = resumeTick;
+      if (frames.isEmpty) {
+        retries = 0;
+        noFramesSince = 0;
+      }
+    }
 
     // Watchdog: playing but no real frame has landed → the extraction
     // died (codec busy, stream hiccup). Re-kick it, up to 3 times.
