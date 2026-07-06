@@ -363,18 +363,32 @@ class _FoldersTabState extends ConsumerState<_FoldersTab> {
             q.isEmpty ? 'No folders yet' : 'Nothing matches "${widget.query}"',
             theme: theme);
       }
-      return ListView.builder(
+      return Column(
         key: const ValueKey('folder_list'),
-        padding: const EdgeInsets.symmetric(
-            horizontal: Space.s4, vertical: Space.s2),
-        itemCount: visible.length,
-        itemExtent: Sizes.trackRowHeight,
-        itemBuilder: (context, i) => _FolderRow(
-          folder: visible[i],
-          theme: theme,
-          onTap: () => setState(() => _openPath = visible[i].path),
-          onCreatePlaylist: () => _createPlaylistFromFolder(visible[i]),
-        ),
+        children: [
+          // The long-press affordance was invisible — say it out loud.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+                Space.s4, Space.s1, Space.s4, Space.s1),
+            child: Text('long-press a folder to turn it into a playlist',
+                style: AppText.caption(theme).copyWith(fontSize: 10)),
+          ),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: Space.s4, vertical: Space.s2),
+              itemCount: visible.length,
+              itemExtent: Sizes.trackRowHeight,
+              itemBuilder: (context, i) => _FolderRow(
+                folder: visible[i],
+                theme: theme,
+                onTap: () => setState(() => _openPath = visible[i].path),
+                onCreatePlaylist: () =>
+                    _createPlaylistFromFolder(visible[i]),
+              ),
+            ),
+          ),
+        ],
       );
     }
 
