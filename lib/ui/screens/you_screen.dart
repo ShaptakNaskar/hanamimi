@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../library/media_store_channel.dart';
 import '../../online/models/resolved_stream.dart';
 import '../../online/ytdlp_channel.dart';
+import '../../providers/buddy_provider.dart';
 import '../../providers/cat_mode_provider.dart';
 import '../../providers/companion_provider.dart';
 import '../../providers/dev_provider.dart';
@@ -23,6 +24,7 @@ import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
 import '../../theme/themes.dart';
+import '../components/mascot/buddies.dart';
 import '../components/mascot/hanamimi_widget.dart';
 import '../modals/update_dialog.dart';
 import '../components/mascot/mascot_painter.dart';
@@ -65,7 +67,21 @@ class YouScreen extends ConsumerWidget {
           const SizedBox(height: Space.s8),
           Text('YOUR COMPANION', style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
-          const _CompanionCard(),
+          // The hamster scampers along the roof of the companion card,
+          // keeping the beagle company — anchored, not floating.
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              const _CompanionCard(),
+              if (ref.watch(buddyEnabledProvider('hamster')))
+                const Positioned(
+                    left: 14, right: 14, top: -14, child: YouHamster()),
+            ],
+          ),
+          const SizedBox(height: Space.s8),
+          Text('BUDDIES', style: AppText.sectionLabel(theme)),
+          const SizedBox(height: Space.s3),
+          const _BuddiesCard(),
           const SizedBox(height: Space.s8),
           Text('SOUND', style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
@@ -135,6 +151,68 @@ class _CompanionCard extends ConsumerWidget {
         ],
       ),
     );
+  }
+}
+
+/// Per-buddy switches (Requests.txt #20 follow-up): every code-drawn
+/// pet — the beagle included — can be tucked away individually. The
+/// beagle keeps her spots in this tab, on share cards and in the
+/// sleep-timer modal; her toggle covers the header and Now Playing.
+class _BuddiesCard extends ConsumerWidget {
+  const _BuddiesCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    final disabled = ref.watch(buddyTogglesProvider);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.surface,
+        borderRadius: BorderRadius.circular(Radii.lg),
+        border: Border.all(color: theme.divider, width: 0.5),
+      ),
+      child: Column(
+        children: [
+          for (final info in buddyCatalog)
+            SwitchListTile(
+              secondary: SizedBox(
+                width: 34,
+                height: 30,
+                child: _buddyPreview(info.id),
+              ),
+              title: Text(info.name, style: AppText.rowSongTitle(theme)),
+              subtitle: Text(info.home, style: AppText.caption(theme)),
+              value: !disabled.contains(info.id),
+              onChanged: (on) => ref
+                  .read(buddyTogglesProvider.notifier)
+                  .setEnabled(info.id, on),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// A still of each buddy so the row shows who it's about.
+  Widget _buddyPreview(String id) {
+    switch (id) {
+      case 'beagle':
+        return const HanamimiMascot(state: MascotState.idle, size: 30);
+      case 'parrot':
+        return CustomPaint(painter: ParrotPainter(0.75));
+      case 'cat':
+        return CustomPaint(painter: CatPainter(0.25));
+      case 'hamster':
+        return CustomPaint(painter: HamsterPainter(0.1));
+      case 'duck':
+        return CustomPaint(painter: DuckPainter(0));
+      case 'koi':
+        return CustomPaint(painter: KoiPainter(0.25));
+      case 'rabbit':
+        return CustomPaint(painter: RabbitPainter(0));
+      default:
+        return const SizedBox.shrink();
+    }
   }
 }
 

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../library/models/track.dart';
 import '../../online/models/resolved_stream.dart';
 import '../../providers/audio_provider.dart';
+import '../../providers/buddy_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/theme_provider.dart';
@@ -185,7 +186,8 @@ class _ActiveDownloadCard extends ConsumerWidget {
           const SizedBox(height: Space.s2),
           // A little rabbit hops along the bar while the transfer runs
           // (the ARCHITECTURE-ANIMATIONS.md worked example).
-          if (downloading) DownloadRabbit(progress: task.progress),
+          if (downloading && ref.watch(buddyEnabledProvider('rabbit')))
+            DownloadRabbit(progress: task.progress),
           ClipRRect(
             borderRadius: BorderRadius.circular(Radii.pill),
             child: LinearProgressIndicator(

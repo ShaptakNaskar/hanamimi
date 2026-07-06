@@ -12,10 +12,12 @@ import '../../../theme/theme_tokens.dart';
 /// Main control row + secondary row (shuffle / repeat / sleep / queue)
 /// per DESIGN.md §9.6.
 class PlaybackControls extends ConsumerStatefulWidget {
-  const PlaybackControls({super.key, this.onSleepTimer, this.onQueue});
+  const PlaybackControls(
+      {super.key, this.onSleepTimer, this.onQueue, this.onAddToPlaylist});
 
   final VoidCallback? onSleepTimer;
   final VoidCallback? onQueue;
+  final VoidCallback? onAddToPlaylist;
 
   @override
   ConsumerState<PlaybackControls> createState() => _PlaybackControlsState();
@@ -166,6 +168,13 @@ class _PlaybackControlsState extends ConsumerState<PlaybackControls>
                 QueueMode.repeatAll => QueueMode.repeatOne,
                 QueueMode.repeatOne => QueueMode.sequential,
               }),
+            ),
+            // Straight into a playlist from the player (community ask).
+            _IconOnly(
+              icon: Icons.playlist_add,
+              size: 20,
+              color: theme.textMuted,
+              onTap: widget.onAddToPlaylist ?? () {},
             ),
             // Caffeine: keep the screen on while enjoying the visualizer.
             _IconOnly(

@@ -136,6 +136,51 @@ class LibraryNotifier extends AsyncNotifier<List<Track>> {
 final libraryProvider =
     AsyncNotifierProvider<LibraryNotifier, List<Track>>(LibraryNotifier.new);
 
+/// Two files are "the same song" when title, artist, album and duration
+/// (to the second) all match — the filenames may differ but the music
+/// is 1:1 (same track ripped/downloaded twice). Artists are compared
+/// as a SORTED set: two rips of a collab often list the same artists
+/// in a different order ("Laura Brehm, Summer Was Fun" vs
+/// "Summer Was Fun, Laura Brehm") and are still the same song.
+String _songKey(Track t) {
+  final artists = t.artist
+      .toLowerCase()
+      .split(RegExp(r'[;,&/]|\bfeat\.?\b|\bft\.?\b'))
+      .map((s) => s.trim())
+      .where((s) => s.isNotEmpty)
+      .toList()
+    ..sort();
+  return '${t.title.toLowerCase().trim()}|${artists.join(',')}|'
+      '${t.album.toLowerCase().trim()}|${t.duration.inSeconds}';
+}
+
+/// Collapses duplicate songs to one entry, keeping list order. Among
+/// copies the lexicographically-first file path wins so the survivor
+/// is stable across rescans. Online tracks pass through untouched.
+/// Used library-wide (Songs tab, search, albums); folder browsing
+/// applies it per-directory instead, so a song living in two folders
+/// still shows in both.
+List<Track> dedupeTracks(List<Track> tracks) {
+  final best = <String, Track>{};
+  for (final t in tracks) {
+    if (!t.isLocal) continue;
+    final k = _songKey(t);
+    final cur = best[k];
+    if (cur == null ||
+        (t.filePath ?? '').compareTo(cur.filePath ?? '') < 0) {
+      best[k] = t;
+    }
+  }
+  final seen = <String>{};
+  return [
+    for (final t in tracks)
+      if (!t.isLocal)
+        t
+      else if (seen.add(_songKey(t)))
+        best[_songKey(t)]!,
+  ];
+}
+
 /// Albums derived from the track list, sorted by title. MediaStore-only
 /// by definition — online tracks never group into albums here.
 final albumsProvider = Provider<List<Album>>((ref) {
@@ -146,7 +191,8 @@ final albumsProvider = Provider<List<Album>>((ref) {
     byAlbum.putIfAbsent(t.albumId, () => []).add(t);
   }
   final albums = byAlbum.entries.map((e) {
-    final ts = [...e.value]..sort(
+    final ts = dedupeTracks(e.value)
+      ..sort(
         (a, b) => (a.trackNumber ?? 0).compareTo(b.trackNumber ?? 0));
     return Album(
       albumId: e.key,
@@ -179,7 +225,9 @@ final foldersProvider = Provider<List<MusicFolder>>((ref) {
     return MusicFolder(
       path: e.key,
       name: name.isEmpty ? '/' : name,
-      tracks: e.value,
+      // Per-directory dedupe only — the same song in TWO folders is
+      // intentional; two identical files in ONE folder is clutter.
+      tracks: dedupeTracks(e.value),
     );
   }).toList()
     ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));

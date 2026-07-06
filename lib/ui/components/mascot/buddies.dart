@@ -8,8 +8,10 @@ import 'mascot_painter.dart' show HanaColors;
 /// Code-drawn animal "buddies" that share the mascot's no-asset ethos
 /// (CustomPainter geometry, no images/Rive). A buddy is just a painter
 /// that takes a 0–1 animation phase; a host widget drives that phase
-/// with a Ticker. See ARCHITECTURE-ANIMATIONS.md for how to add a dog,
-/// cat, etc. — the rabbit below is the worked example.
+/// with a Ticker. See ARCHITECTURE-ANIMATIONS.md — the rabbit below is
+/// the worked example; the flock added for 1.2.0 (parrot, cat, hamster,
+/// duck, koi) shares one [RoamingBuddy] host and is gated per-buddy by
+/// buddy_provider.dart.
 ///
 /// Contract: paint the buddy inside [size], baseline at the bottom edge,
 /// facing right. Keep it within ~[size] so hosts can place it freely.
@@ -255,4 +257,969 @@ class _DownloadRabbitState extends State<DownloadRabbit> {
       );
     });
   }
+}
+
+// ─── The flock (1.2.0) ────────────────────────────────────────────────
+// Every ground buddy below shares this host: it travels to a random
+// spot, rests, and repeats. While moving the phase advances with
+// DISTANCE (one gait cycle per [stride] px, so legs match ground
+// speed); while resting it advances with TIME (one idle cycle per
+// [idlePeriod] s — a head-bob, a nibble, a tail wiggle). [swayAmp]
+// floats the buddy on a vertical sine the whole time (the koi's water).
+
+class RoamingBuddy extends StatefulWidget {
+  const RoamingBuddy({
+    super.key,
+    required this.size,
+    required this.painterBuilder,
+    this.speed = 40,
+    this.stride = 14,
+    this.idlePeriod = 2.2,
+    this.pauseMin = 1.5,
+    this.pauseMax = 4.5,
+    this.swayAmp = 0,
+    this.swayPeriod = 3.0,
+  });
+
+  final double size;
+  final BuddyPainter Function(double phase, bool moving) painterBuilder;
+  final double speed; // px/s while traveling
+  final double stride; // px per gait cycle
+  final double idlePeriod; // s per idle-animation cycle
+  final double pauseMin, pauseMax; // rest between trips
+  final double swayAmp, swayPeriod;
+
+  @override
+  State<RoamingBuddy> createState() => _RoamingBuddyState();
+}
+
+class _RoamingBuddyState extends State<RoamingBuddy> {
+  late final Ticker _ticker;
+  final _rng = math.Random();
+  Duration _last = Duration.zero;
+
+  double _w = 0;
+  double _x = 0, _goal = 0;
+  bool _moving = false, _faceLeft = false, _started = false;
+  double _pause = 1.0;
+  double _gait = 0; // accumulated gait cycles
+  double _time = 0; // total seconds, drives idle anim + sway
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Ticker(_tick)..start();
+  }
+
+  double get _maxX => math.max(0, _w - widget.size);
+
+  void _tick(Duration elapsed) {
+    final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 0.05);
+    _last = elapsed;
+    if (!_started) return;
+    _time += dt;
+
+    if (_moving) {
+      final step = widget.speed * dt;
+      final dir = _goal >= _x ? 1.0 : -1.0;
+      _x += dir * step;
+      _gait += step / widget.stride;
+      if ((_goal - _x).abs() <= step) {
+        _x = _goal;
+        _moving = false;
+        _pause = widget.pauseMin +
+            _rng.nextDouble() * (widget.pauseMax - widget.pauseMin);
+      }
+    } else {
+      _pause -= dt;
+      if (_pause <= 0 && _maxX > 8) {
+        // Head somewhere meaningfully far so trips read as trips.
+        var goal = _rng.nextDouble() * _maxX;
+        if ((goal - _x).abs() < _maxX * 0.2) {
+          goal = _x > _maxX / 2 ? _x - _maxX * 0.4 : _x + _maxX * 0.4;
+        }
+        _goal = goal.clamp(0.0, _maxX);
+        _faceLeft = _goal < _x;
+        _moving = true;
+      }
+    }
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, c) {
+      _w = c.maxWidth;
+      if (!_started && _w > 0) {
+        _x = _rng.nextDouble() * _maxX;
+        _goal = _x;
+        _pause = 0.3 + _rng.nextDouble() * 1.5;
+        _started = true;
+      }
+      final phase = _moving
+          ? _gait % 1.0
+          : (_time / widget.idlePeriod) % 1.0;
+      final sway = widget.swayAmp *
+          math.sin(_time * 2 * math.pi / widget.swayPeriod);
+      return SizedBox(
+        height: widget.size + widget.swayAmp * 2,
+        width: double.infinity,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned(
+              left: _x.clamp(0.0, _maxX),
+              bottom: widget.swayAmp + sway,
+              child: Transform(
+                alignment: Alignment.center,
+                transform: Matrix4.identity()
+                  ..scale(_faceLeft ? -1.0 : 1.0, 1.0),
+                child: SizedBox(
+                  width: widget.size,
+                  height: widget.size,
+                  child: CustomPaint(
+                      painter: widget.painterBuilder(phase, _moving)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+}
+
+/// Shared outline style — same soft brown line the rabbit uses.
+Paint _buddyLine() => Paint()
+  ..color = HanaColors.nose.withValues(alpha: 0.55)
+  ..style = PaintingStyle.stroke
+  ..strokeWidth = 1.1;
+
+/// A pastel parrot that perches on the Library title. Idle it bobs its
+/// head (more of a groove than a bob, honestly); traveling it does
+/// quick two-footed sidestep hops, one per gait cycle.
+class ParrotPainter extends BuddyPainter {
+  ParrotPainter(super.phase, {this.moving = false});
+
+  final bool moving;
+
+  static const _body = Color(0xFF9ED9A4);
+  static const _wing = Color(0xFF63BE8C);
+  static const _belly = Color(0xFFE8F6E6);
+  static const _beak = Color(0xFFF2A65A);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = size.width / 32.0;
+    canvas.save();
+    canvas.translate((size.width - 32 * s) / 2, size.height - 32 * s);
+    canvas.scale(s);
+
+    final lift = moving ? math.sin(phase * math.pi) * 4.5 : 0.0;
+    final bob = moving ? 0.0 : math.sin(phase * 2 * math.pi) * 0.5 + 0.5;
+    final flap = moving ? math.sin(phase * math.pi) * 0.5 : 0.0;
+
+    final line = _buddyLine();
+    final body = Paint()..color = _body;
+    final wing = Paint()..color = _wing;
+
+    canvas.translate(0, -lift);
+
+    // Feet — two little claws on the ground line.
+    final feet = Paint()..color = const Color(0xFFE0A34E);
+    canvas.drawOval(
+        Rect.fromCenter(center: const Offset(13.5, 29.6), width: 3.2, height: 1.7),
+        feet);
+    canvas.drawOval(
+        Rect.fromCenter(center: const Offset(17.5, 29.6), width: 3.2, height: 1.7),
+        feet);
+
+    // Tail — two long feathers trailing down-left.
+    final feather = Paint()
+      ..color = _wing
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round;
+    canvas.drawPath(
+        Path()
+          ..moveTo(11, 22)
+          ..quadraticBezierTo(6, 26, 3.5, 28.5),
+        feather);
+    canvas.drawPath(
+        Path()
+          ..moveTo(11.5, 23.2)
+          ..quadraticBezierTo(7.5, 27.5, 5.5, 30),
+        feather);
+
+    // Body — an egg leaning slightly forward.
+    canvas.save();
+    canvas.translate(15.5, 21.5);
+    canvas.rotate(-0.14);
+    final bodyRect =
+        Rect.fromCenter(center: Offset.zero, width: 13, height: 15);
+    canvas.drawOval(bodyRect, body);
+    canvas.drawOval(bodyRect, line);
+    canvas.restore();
+
+    // Belly patch.
+    canvas.drawOval(
+        Rect.fromCenter(center: const Offset(17, 23.5), width: 7.5, height: 9),
+        Paint()..color = _belly);
+
+    // Wing — folded oval that lifts mid-hop.
+    canvas.save();
+    canvas.translate(12.5, 21);
+    canvas.rotate(-0.25 - flap);
+    final wingRect =
+        Rect.fromCenter(center: Offset.zero, width: 6.5, height: 10);
+    canvas.drawOval(wingRect, wing);
+    canvas.drawOval(wingRect, line);
+    canvas.restore();
+
+    // Head group dips with the bob.
+    canvas.save();
+    canvas.translate(0, bob * 1.6);
+    canvas.drawCircle(const Offset(20, 11.5), 6, body);
+    canvas.drawCircle(const Offset(20, 11.5), 6, line);
+    // Crest curl.
+    final crest = Paint()
+      ..color = _wing
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round;
+    canvas.drawPath(
+        Path()
+          ..moveTo(18.5, 6.2)
+          ..quadraticBezierTo(17.2, 3.6, 15.8, 3.0),
+        crest);
+    canvas.drawPath(
+        Path()
+          ..moveTo(19.8, 5.8)
+          ..quadraticBezierTo(19.4, 3.2, 18.4, 2.0),
+        crest);
+    // Eye patch + pupil.
+    canvas.drawCircle(const Offset(22.3, 10.5), 2.6, Paint()..color = Colors.white);
+    canvas.drawCircle(const Offset(22.6, 10.6), 1.3, Paint()..color = HanaColors.eye);
+    // Hooked beak.
+    final beak = Path()
+      ..moveTo(25.3, 8.8)
+      ..quadraticBezierTo(29.3, 10, 26.6, 13.6)
+      ..quadraticBezierTo(25.6, 11.5, 25.3, 8.8)
+      ..close();
+    canvas.drawPath(beak, Paint()..color = _beak);
+    canvas.drawPath(beak, line);
+    // Blush.
+    canvas.drawCircle(const Offset(24.6, 13.6), 1.3,
+        Paint()..color = HanaColors.blush.withValues(alpha: 0.6));
+    canvas.restore();
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant ParrotPainter old) =>
+      old.phase != phase || old.moving != moving;
+}
+
+/// A loaf-cat. Asleep she breathes slowly, tail wrapped in front,
+/// floating Zz; when the music plays she wakes and her tail sways to
+/// the phase. Stationary — she has claimed the mini player and is not
+/// going anywhere.
+class CatPainter extends BuddyPainter {
+  CatPainter(super.phase, {this.sleeping = true});
+
+  final bool sleeping;
+
+  static const _fur = Color(0xFFC7BAD4);
+  static const _shade = Color(0xFFB0A1C4);
+  static const _cream = Color(0xFFF7F1E9);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = size.width / 32.0;
+    canvas.save();
+    canvas.translate((size.width - 32 * s) / 2, size.height - 32 * s);
+    canvas.scale(s);
+
+    final wave = math.sin(phase * 2 * math.pi);
+    final line = _buddyLine();
+    final fur = Paint()..color = _fur;
+
+    // Tail first so it sits behind the loaf.
+    final tail = Paint()
+      ..color = _shade
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0
+      ..strokeCap = StrokeCap.round;
+    if (sleeping) {
+      canvas.drawPath(
+          Path()
+            ..moveTo(5.5, 27)
+            ..quadraticBezierTo(9, 30.6, 16, 29.6),
+          tail);
+    } else {
+      final sway = wave * 2.4;
+      canvas.drawPath(
+          Path()
+            ..moveTo(6, 25)
+            ..quadraticBezierTo(1.5, 17, 4 + sway, 9.5),
+          tail);
+    }
+
+    // Loaf body, breathing gently while asleep.
+    canvas.save();
+    if (sleeping) {
+      canvas.translate(14.5, 30);
+      canvas.scale(1, 1 + wave * 0.025);
+      canvas.translate(-14.5, -30);
+    }
+    final loaf = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: const Offset(14.5, 24), width: 21, height: 12),
+        const Radius.circular(6.5));
+    canvas.drawRRect(loaf, fur);
+    canvas.drawRRect(loaf, line);
+    // Two little back stripes.
+    final stripe = Paint()
+      ..color = _shade
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round;
+    canvas.drawPath(
+        Path()
+          ..moveTo(7, 19.4)
+          ..quadraticBezierTo(6.2, 21.5, 7, 23.6),
+        stripe);
+    canvas.drawPath(
+        Path()
+          ..moveTo(10.8, 18.6)
+          ..quadraticBezierTo(10, 20.8, 10.8, 23),
+        stripe);
+    canvas.restore();
+
+    // Front paws peeking out under the chin.
+    final cream = Paint()..color = _cream;
+    canvas.drawOval(
+        Rect.fromCenter(center: const Offset(19.5, 29.4), width: 4, height: 2.6),
+        cream);
+    canvas.drawOval(
+        Rect.fromCenter(center: const Offset(24, 29.4), width: 4, height: 2.6),
+        cream);
+
+    // Ears (behind the head circle's top edge).
+    for (final (base, apex, lean) in [
+      (const Offset(19.4, 13.6), const Offset(17.6, 8.4), 0.0),
+      (const Offset(25.4, 13.2), const Offset(27.2, 8.2), 0.0),
+    ]) {
+      final ear = Path()
+        ..moveTo(base.dx - 2 + lean, base.dy)
+        ..lineTo(apex.dx, apex.dy)
+        ..lineTo(base.dx + 2.4, base.dy + 0.6)
+        ..close();
+      canvas.drawPath(ear, fur);
+      canvas.drawPath(ear, line);
+      final inner = Path()
+        ..moveTo(base.dx - 0.6 + lean, base.dy - 0.2)
+        ..lineTo(apex.dx, apex.dy + 1.6)
+        ..lineTo(base.dx + 1.2, base.dy + 0.2)
+        ..close();
+      canvas.drawPath(inner, Paint()..color = HanaColors.blush);
+    }
+
+    // Head resting on the right end of the loaf.
+    canvas.drawCircle(const Offset(22.5, 17.5), 6.2, fur);
+    canvas.drawCircle(const Offset(22.5, 17.5), 6.2, line);
+
+    // Face.
+    final eye = Paint()
+      ..color = HanaColors.eye
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round;
+    if (sleeping) {
+      // Two content closed-eye arcs.
+      canvas.drawPath(
+          Path()
+            ..moveTo(19.2, 17)
+            ..quadraticBezierTo(20.3, 18.2, 21.4, 17),
+          eye);
+      canvas.drawPath(
+          Path()
+            ..moveTo(23.8, 17)
+            ..quadraticBezierTo(24.9, 18.2, 26, 17),
+          eye);
+    } else {
+      canvas.drawCircle(const Offset(20.3, 17), 1.4, Paint()..color = HanaColors.eye);
+      canvas.drawCircle(const Offset(24.9, 17), 1.4, Paint()..color = HanaColors.eye);
+      canvas.drawCircle(const Offset(20.7, 16.6), 0.45, Paint()..color = Colors.white);
+      canvas.drawCircle(const Offset(25.3, 16.6), 0.45, Paint()..color = Colors.white);
+    }
+    // Nose + mouth.
+    canvas.drawPath(
+        Path()
+          ..moveTo(21.8, 19.2)
+          ..lineTo(23.2, 19.2)
+          ..lineTo(22.5, 20.2)
+          ..close(),
+        Paint()..color = HanaColors.blush);
+    canvas.drawPath(
+        Path()
+          ..moveTo(22.5, 20.2)
+          ..quadraticBezierTo(22.5, 21.2, 21.5, 21.4),
+        eye..strokeWidth = 0.9);
+    // Whiskers.
+    final whisker = Paint()
+      ..color = HanaColors.nose.withValues(alpha: 0.4)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.8;
+    canvas.drawLine(const Offset(27.6, 18.4), const Offset(30.6, 17.8), whisker);
+    canvas.drawLine(const Offset(27.6, 19.6), const Offset(30.4, 20), whisker);
+    // Blush.
+    canvas.drawCircle(const Offset(26, 19.8), 1.3,
+        Paint()..color = HanaColors.blush.withValues(alpha: 0.55));
+
+    // Zz drifting up while asleep.
+    if (sleeping) {
+      final t = phase; // one z-cycle per breath
+      final alpha = (math.sin(t * 2 * math.pi - math.pi / 2) * 0.5 + 0.5);
+      final zPaint = Paint()
+        ..color = _shade.withValues(alpha: alpha * 0.85)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2
+        ..strokeCap = StrokeCap.round;
+      void z(Offset c, double zs) {
+        canvas.drawPath(
+            Path()
+              ..moveTo(c.dx - zs, c.dy - zs)
+              ..lineTo(c.dx + zs, c.dy - zs)
+              ..lineTo(c.dx - zs, c.dy + zs)
+              ..lineTo(c.dx + zs, c.dy + zs),
+            zPaint);
+      }
+
+      final rise = t * 2.2;
+      z(Offset(28.2, 8.5 - rise), 1.5);
+      z(Offset(30.6, 4.5 - rise), 1.0);
+    }
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant CatPainter old) =>
+      old.phase != phase || old.sleeping != sleeping;
+}
+
+/// Ticker host for the stationary cat: slow breathing cycle asleep,
+/// quicker tail-sway cycle while the music plays. Phase accumulates
+/// continuously so waking up doesn't jump-cut.
+class CatBuddy extends StatefulWidget {
+  const CatBuddy({super.key, required this.sleeping, this.size = 26});
+
+  final bool sleeping;
+  final double size;
+
+  @override
+  State<CatBuddy> createState() => _CatBuddyState();
+}
+
+class _CatBuddyState extends State<CatBuddy> {
+  late final Ticker _ticker;
+  Duration _last = Duration.zero;
+  double _phase = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Ticker(_tick)..start();
+  }
+
+  void _tick(Duration elapsed) {
+    final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 0.05);
+    _last = elapsed;
+    _phase += dt / (widget.sleeping ? 3.4 : 1.5);
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: widget.size,
+      height: widget.size,
+      child: CustomPaint(
+          painter: CatPainter(_phase % 1.0, sleeping: widget.sleeping)),
+    );
+  }
+}
+
+/// A round golden hamster. Traveling it scrambles (tiny legs, big
+/// hurry, slight forward lean); resting it sits up and nibbles
+/// something with both paws, cheeks pulsing.
+class HamsterPainter extends BuddyPainter {
+  HamsterPainter(super.phase, {this.moving = false});
+
+  final bool moving;
+
+  static const _fur = Color(0xFFF2C57F);
+  static const _fur2 = Color(0xFFE0AC5C);
+  static const _cream = Color(0xFFFBF4EA);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = size.width / 32.0;
+    canvas.save();
+    canvas.translate((size.width - 32 * s) / 2, size.height - 32 * s);
+    canvas.scale(s);
+
+    final line = _buddyLine();
+    final fur = Paint()..color = _fur;
+    final nibble = math.sin(phase * 4 * math.pi);
+
+    if (moving) {
+      // Scramble: bounce + lean into the run.
+      canvas.translate(0, -math.sin(phase * 2 * math.pi).abs() * 1.3);
+      canvas.translate(16, 26);
+      canvas.rotate(0.1);
+      canvas.translate(-16, -26);
+      // Feet blur — alternating pairs.
+      final feet = Paint()..color = _fur2;
+      final kick = math.sin(phase * 2 * math.pi) * 1.6;
+      canvas.drawOval(
+          Rect.fromCenter(
+              center: Offset(11.5 - kick, 30.4), width: 3.4, height: 1.8),
+          feet);
+      canvas.drawOval(
+          Rect.fromCenter(
+              center: Offset(20 + kick, 30.4), width: 3.4, height: 1.8),
+          feet);
+    } else {
+      // Sitting feet.
+      final feet = Paint()..color = _fur2;
+      canvas.drawOval(
+          Rect.fromCenter(center: const Offset(12, 30.4), width: 3.6, height: 1.9),
+          feet);
+      canvas.drawOval(
+          Rect.fromCenter(center: const Offset(19.5, 30.4), width: 3.6, height: 1.9),
+          feet);
+    }
+
+    // Tail nub.
+    canvas.drawCircle(const Offset(6.8, 25), 1.6, fur);
+    canvas.drawCircle(const Offset(6.8, 25), 1.6, line);
+
+    // Ears.
+    for (final c in [const Offset(11.8, 11.6), const Offset(18.4, 10.9)]) {
+      canvas.drawCircle(c, 2.7, fur);
+      canvas.drawCircle(c, 2.7, line);
+      canvas.drawCircle(c.translate(0.2, 0.4), 1.4, Paint()..color = HanaColors.blush);
+    }
+
+    // Body — one big happy ball.
+    canvas.drawCircle(const Offset(16, 21.5), 9.3, fur);
+    canvas.drawCircle(const Offset(16, 21.5), 9.3, line);
+
+    // Belly.
+    canvas.drawOval(
+        Rect.fromCenter(center: const Offset(17.5, 26), width: 9, height: 6.5),
+        Paint()..color = _cream);
+
+    // Muzzle — cheeks puff while nibbling.
+    canvas.save();
+    if (!moving) {
+      canvas.translate(21.8, 22.5);
+      canvas.scale(1 + nibble * 0.05, 1 + nibble * 0.05);
+      canvas.translate(-21.8, -22.5);
+    }
+    canvas.drawOval(
+        Rect.fromCenter(center: const Offset(21.8, 22.5), width: 7.2, height: 6.2),
+        Paint()..color = _cream);
+    canvas.drawOval(
+        Rect.fromCenter(center: const Offset(21.8, 22.5), width: 7.2, height: 6.2),
+        line);
+    canvas.restore();
+
+    // Nose + mouth.
+    canvas.drawCircle(const Offset(24.8, 20.9), 1.0, Paint()..color = HanaColors.blush);
+    // Eye.
+    canvas.drawCircle(const Offset(19.3, 17), 1.5, Paint()..color = HanaColors.eye);
+    canvas.drawCircle(const Offset(19.7, 16.6), 0.5, Paint()..color = Colors.white);
+    // Blush.
+    canvas.drawCircle(const Offset(18.4, 20.8), 1.4,
+        Paint()..color = HanaColors.blush.withValues(alpha: 0.5));
+
+    // Paws up nibbling when resting — a tiny seed between them.
+    if (!moving) {
+      final jitter = nibble * 0.4;
+      canvas.drawCircle(Offset(22.6, 24.6 + jitter), 1.7, fur);
+      canvas.drawCircle(Offset(22.6, 24.6 + jitter), 1.7, line);
+      canvas.drawCircle(Offset(24.6, 24.2 - jitter), 1.7, fur);
+      canvas.drawCircle(Offset(24.6, 24.2 - jitter), 1.7, line);
+      canvas.drawOval(
+          Rect.fromCenter(center: const Offset(23.7, 23.6), width: 2.2, height: 1.4),
+          Paint()..color = HanaColors.cap);
+    }
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant HamsterPainter old) =>
+      old.phase != phase || old.moving != moving;
+}
+
+/// A soft yellow duck. Traveling it waddles — the whole body rocks and
+/// the feet alternate; resting its tail does a happy little wiggle.
+class DuckPainter extends BuddyPainter {
+  DuckPainter(super.phase, {this.moving = false});
+
+  final bool moving;
+
+  static const _body = Color(0xFFF8E49B);
+  static const _wing = Color(0xFFEECB6A);
+  static const _cream = Color(0xFFFDF7E4);
+  static const _bill = Color(0xFFF0A050);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = size.width / 32.0;
+    canvas.save();
+    canvas.translate((size.width - 32 * s) / 2, size.height - 32 * s);
+    canvas.scale(s);
+
+    final wave = math.sin(phase * 2 * math.pi);
+    final line = _buddyLine();
+    final body = Paint()..color = _body;
+
+    // Feet + stubby legs (under the rocking body).
+    final feetPaint = Paint()..color = _bill;
+    final leg = Paint()
+      ..color = _bill
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    final lLift = moving ? math.max(0.0, wave) * 2.2 : 0.0;
+    final rLift = moving ? math.max(0.0, -wave) * 2.2 : 0.0;
+    canvas.drawLine(Offset(12.4, 27.5), Offset(12.4, 29.6 - lLift), leg);
+    canvas.drawLine(Offset(17.8, 27.5), Offset(17.8, 29.6 - rLift), leg);
+    canvas.drawOval(
+        Rect.fromCenter(center: Offset(13.4, 30 - lLift), width: 5, height: 2.2),
+        feetPaint);
+    canvas.drawOval(
+        Rect.fromCenter(center: Offset(18.8, 30 - rLift), width: 5, height: 2.2),
+        feetPaint);
+
+    // Rock the whole bird about its feet while waddling; gentle
+    // breathe-rock at rest.
+    canvas.translate(15, 30);
+    canvas.rotate(moving ? wave * 0.09 : wave * 0.02);
+    canvas.translate(-15, -30);
+
+    // Tail — perky triangle, wiggles when idle.
+    canvas.save();
+    if (!moving) {
+      canvas.translate(8, 21);
+      canvas.rotate(math.sin(phase * 4 * math.pi) * 0.12);
+      canvas.translate(-8, -21);
+    }
+    final tail = Path()
+      ..moveTo(6.5, 22)
+      ..quadraticBezierTo(3.8, 19.5, 4.6, 17.2)
+      ..quadraticBezierTo(7, 19, 8.6, 20.6)
+      ..close();
+    canvas.drawPath(tail, body);
+    canvas.drawPath(tail, line);
+    canvas.restore();
+
+    // Body.
+    final bodyRect =
+        Rect.fromCenter(center: const Offset(14.5, 23.2), width: 17.5, height: 11.5);
+    canvas.drawOval(bodyRect, body);
+    canvas.drawOval(bodyRect, line);
+
+    // Belly.
+    canvas.drawOval(
+        Rect.fromCenter(center: const Offset(16, 26), width: 9.5, height: 6),
+        Paint()..color = _cream);
+
+    // Wing.
+    canvas.save();
+    canvas.translate(12.8, 22.8);
+    canvas.rotate(-0.15);
+    final wingRect =
+        Rect.fromCenter(center: Offset.zero, width: 8.5, height: 6.4);
+    canvas.drawOval(wingRect, Paint()..color = _wing);
+    canvas.drawOval(wingRect, line);
+    canvas.restore();
+
+    // Neck + head.
+    canvas.drawOval(
+        Rect.fromCenter(center: const Offset(20.5, 17.5), width: 7, height: 9),
+        body);
+    canvas.drawCircle(const Offset(23, 12.6), 5.6, body);
+    canvas.drawCircle(const Offset(23, 12.6), 5.6, line);
+
+    // Bill — two flattened ellipses.
+    canvas.save();
+    canvas.translate(28.4, 13.2);
+    canvas.rotate(0.06);
+    final upper = Rect.fromCenter(center: Offset.zero, width: 6, height: 2.8);
+    canvas.drawOval(upper, Paint()..color = _bill);
+    canvas.drawOval(upper, line);
+    canvas.restore();
+    canvas.drawOval(
+        Rect.fromCenter(center: const Offset(27.9, 14.9), width: 4.2, height: 1.9),
+        Paint()..color = _bill);
+
+    // Eye + blush.
+    canvas.drawCircle(const Offset(24.6, 10.9), 1.35, Paint()..color = HanaColors.eye);
+    canvas.drawCircle(const Offset(25, 10.5), 0.45, Paint()..color = Colors.white);
+    canvas.drawCircle(const Offset(25.6, 14), 1.4,
+        Paint()..color = HanaColors.blush.withValues(alpha: 0.55));
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant DuckPainter old) =>
+      old.phase != phase || old.moving != moving;
+}
+
+/// A little koi, white with orange patches, barbels and all. The host
+/// floats it on a vertical sine (its water); the tail sculls with the
+/// gait — brisk while cruising, lazy while drifting.
+class KoiPainter extends BuddyPainter {
+  KoiPainter(super.phase, {this.moving = false});
+
+  final bool moving;
+
+  static const _white = Color(0xFFFCF5EE);
+  static const _patch = Color(0xFFF2A45C);
+  static const _patch2 = Color(0xFFE58A74);
+  static const _fin = Color(0xFFF6C296);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = size.width / 32.0;
+    canvas.save();
+    canvas.translate((size.width - 32 * s) / 2, size.height - 32 * s);
+    canvas.scale(s);
+
+    final wag = math.sin(phase * 2 * math.pi) * (moving ? 1.0 : 0.55);
+    final line = _buddyLine();
+    final finPaint = Paint()..color = _fin.withValues(alpha: 0.9);
+
+    // Tail fin — two lobes sweeping with the scull.
+    final upperLobe = Path()
+      ..moveTo(9.8, 19)
+      ..quadraticBezierTo(5.5 + wag * 1.6, 14.6 + wag * 1.2,
+          3.6 + wag * 2.2, 16.2 + wag * 1.4)
+      ..quadraticBezierTo(6, 19.4, 9.8, 20.4)
+      ..close();
+    final lowerLobe = Path()
+      ..moveTo(9.8, 21)
+      ..quadraticBezierTo(5.5 + wag * 1.6, 25.4 + wag * 1.2,
+          3.8 + wag * 2.2, 24 + wag * 1.4)
+      ..quadraticBezierTo(6, 20.8, 9.8, 19.8)
+      ..close();
+    canvas.drawPath(upperLobe, finPaint);
+    canvas.drawPath(upperLobe, line);
+    canvas.drawPath(lowerLobe, finPaint);
+    canvas.drawPath(lowerLobe, line);
+
+    // Body — a smooth teardrop, nose right.
+    final bodyPath = Path()
+      ..moveTo(28.5, 20)
+      ..quadraticBezierTo(23, 14.8, 16.5, 15.1)
+      ..quadraticBezierTo(11.5, 15.4, 9.5, 18.8)
+      ..lineTo(9.5, 21.2)
+      ..quadraticBezierTo(11.5, 24.6, 16.5, 24.9)
+      ..quadraticBezierTo(23, 25.2, 28.5, 20)
+      ..close();
+    canvas.drawPath(bodyPath, Paint()..color = _white);
+
+    // Orange patches, clipped to the body.
+    canvas.save();
+    canvas.clipPath(bodyPath);
+    canvas.drawCircle(const Offset(22.5, 16.5), 3.8, Paint()..color = _patch);
+    canvas.drawCircle(const Offset(14, 21.5), 3.4, Paint()..color = _patch2);
+    canvas.drawCircle(const Offset(18.5, 23.5), 2.2,
+        Paint()..color = _patch.withValues(alpha: 0.9));
+    canvas.restore();
+    canvas.drawPath(bodyPath, line);
+
+    // Dorsal fin.
+    final dorsal = Path()
+      ..moveTo(19, 15.4)
+      ..quadraticBezierTo(17.5, 11.8, 14.8, 12.6)
+      ..quadraticBezierTo(15.8, 14.8, 16.8, 15.3)
+      ..close();
+    canvas.drawPath(dorsal, finPaint);
+    canvas.drawPath(dorsal, line);
+
+    // Pectoral fin, paddling slightly with the scull.
+    final pect = Path()
+      ..moveTo(21, 23.8)
+      ..quadraticBezierTo(19.6, 27 + wag * 0.7, 17.8, 26.6 + wag * 0.7)
+      ..quadraticBezierTo(19.4, 24.2, 21, 23.4)
+      ..close();
+    canvas.drawPath(pect, finPaint);
+    canvas.drawPath(pect, line);
+
+    // Face: eye, glint, barbels, mouth, blush.
+    canvas.drawCircle(const Offset(25.7, 18.3), 1.25, Paint()..color = HanaColors.eye);
+    canvas.drawCircle(const Offset(26, 18), 0.4, Paint()..color = Colors.white);
+    final barbel = Paint()
+      ..color = HanaColors.nose.withValues(alpha: 0.45)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.9
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(const Offset(28.2, 20.8), const Offset(29.6, 21.8), barbel);
+    canvas.drawLine(const Offset(27.4, 21.4), const Offset(28.2, 22.6), barbel);
+    canvas.drawPath(
+        Path()
+          ..moveTo(28.6, 20.4)
+          ..quadraticBezierTo(28.2, 20.9, 27.6, 20.9),
+        barbel);
+    canvas.drawCircle(const Offset(25.4, 21), 1.1,
+        Paint()..color = HanaColors.blush.withValues(alpha: 0.45));
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant KoiPainter old) =>
+      old.phase != phase || old.moving != moving;
+}
+
+// ─── Ready-made homes ────────────────────────────────────────────────
+
+/// Parrot for the Library header — perches on the title, grooving.
+class HeaderParrot extends StatelessWidget {
+  const HeaderParrot({super.key, this.size = 20});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return RoamingBuddy(
+      size: size,
+      speed: 55,
+      stride: 12,
+      idlePeriod: 1.9,
+      pauseMin: 2.5,
+      pauseMax: 7,
+      painterBuilder: (p, m) => ParrotPainter(p, moving: m),
+    );
+  }
+}
+
+/// Hamster for the You tab header strip.
+class YouHamster extends StatelessWidget {
+  const YouHamster({super.key, this.size = 19});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return RoamingBuddy(
+      size: size,
+      speed: 135,
+      stride: 9,
+      idlePeriod: 0.9,
+      pauseMin: 1.2,
+      pauseMax: 3.6,
+      painterBuilder: (p, m) => HamsterPainter(p, moving: m),
+    );
+  }
+}
+
+/// Duck for the Playlists tab.
+class PlaylistsDuck extends StatelessWidget {
+  const PlaylistsDuck({super.key, this.size = 23});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return RoamingBuddy(
+      size: size,
+      speed: 24,
+      stride: 15,
+      idlePeriod: 2.4,
+      pauseMin: 1.8,
+      pauseMax: 5,
+      painterBuilder: (p, m) => DuckPainter(p, moving: m),
+    );
+  }
+}
+
+/// Koi for the Now Playing pond — never really stops, just drifts.
+/// The koi gets actual water: a soft translucent pool behind it, so
+/// the fish reads as "in its pond" instead of floating in the layout.
+class PondKoi extends StatelessWidget {
+  const PondKoi({super.key, this.size = 26});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Positioned.fill(child: CustomPaint(painter: _PondWater())),
+        RoamingBuddy(
+          size: size,
+          speed: 32,
+          stride: 38,
+          idlePeriod: 3.2,
+          pauseMin: 0.4,
+          pauseMax: 1.6,
+          swayAmp: 2.5,
+          swayPeriod: 3.1,
+          painterBuilder: (p, m) => KoiPainter(p, moving: m),
+        ),
+      ],
+    );
+  }
+}
+
+/// The koi's pool: a soft aqua capsule with a few ripple arcs and
+/// bubbles. Static — the moving fish supplies the life.
+class _PondWater extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final pool = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, size.height * 0.22, size.width, size.height * 0.78),
+      Radius.circular(size.height * 0.39),
+    );
+    canvas.drawRRect(pool, Paint()..color = const Color(0x2E8FC7DD));
+
+    final ripple = Paint()
+      ..color = const Color(0x4D7FB8D0)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round;
+    void arc(double cx, double cy, double r) => canvas.drawArc(
+        Rect.fromCircle(center: Offset(cx, cy), radius: r),
+        math.pi * 0.15, math.pi * 0.7, false, ripple);
+    arc(size.width * 0.18, size.height * 0.52, 5);
+    arc(size.width * 0.55, size.height * 0.7, 4);
+    arc(size.width * 0.84, size.height * 0.48, 5.5);
+    canvas.drawCircle(Offset(size.width * 0.36, size.height * 0.55), 1.1,
+        Paint()..color = const Color(0x4D7FB8D0));
+    canvas.drawCircle(Offset(size.width * 0.7, size.height * 0.42), 0.9,
+        Paint()..color = const Color(0x4D7FB8D0));
+  }
+
+  @override
+  bool shouldRepaint(covariant _PondWater old) => false;
 }

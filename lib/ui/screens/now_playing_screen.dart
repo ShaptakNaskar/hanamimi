@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../library/models/track.dart';
 import '../../providers/audio_provider.dart';
+import '../../providers/buddy_provider.dart';
 import '../../providers/cat_mode_provider.dart';
 import '../../providers/companion_provider.dart';
 import '../../providers/download_provider.dart';
@@ -18,6 +19,7 @@ import '../../providers/visualizer_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
+import '../components/mascot/buddies.dart';
 import '../components/mascot/hanamimi_widget.dart';
 import '../components/mascot/mascot_painter.dart';
 import '../components/now_playing/album_art_widget.dart';
@@ -27,6 +29,7 @@ import '../components/now_playing/visualizer_widget.dart';
 import '../components/shared/particle_overlay.dart';
 import '../modals/download_quality_sheet.dart';
 import '../modals/lyrics_sheet.dart';
+import '../modals/playlist_picker_sheet.dart';
 import '../modals/queue_sheet.dart';
 import '../modals/sleep_timer_modal.dart';
 
@@ -124,6 +127,8 @@ class NowPlayingScreen extends ConsumerWidget {
                     PlaybackControls(
                       onSleepTimer: () => showSleepTimerModal(context),
                       onQueue: () => showQueueSheet(context),
+                      onAddToPlaylist: () => showPlaylistPicker(
+                          context, ref, theme, libraryTrack.id),
                     ),
                     const SizedBox(height: Space.s4),
                     const VisualizerWidget(height: 56),
@@ -157,38 +162,61 @@ class NowPlayingScreen extends ConsumerWidget {
                     // full size — FittedBox.scaleDown never enlarges.
                     Flexible(
                       flex: 6,
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: HanamimiMascot(
-                          state: ref.watch(mascotStateProvider),
-                          amplitude: ref.watch(amplitudeProvider),
-                          accessory:
-                              ref.watch(catModeProvider).enabled
-                                  ? Accessory.catEars
-                                  : ref.watch(activeAccessoryProvider),
-                          size: 90,
-                          onTap: () {
-                            final unlocked =
-                                ref
-                                    .read(catModeProvider.notifier)
-                                    .registerMascotTap();
-                            if (unlocked) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  behavior: SnackBarBehavior.floating,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      Radii.md,
-                                    ),
-                                  ),
-                                  content: const Text(
-                                    'Meow?! Cat Mode unlocked 🐱',
-                                    style: TextStyle(fontFamily: 'Nunito'),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: Stack(
+                          children: [
+                            // The koi drifts along the bottom of the
+                            // mascot's slot — a little pond at her feet.
+                            if (ref.watch(buddyEnabledProvider('koi')))
+                              const Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 0,
+                                  child: PondKoi()),
+                            if (ref.watch(buddyEnabledProvider('beagle')))
+                              Align(
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: HanamimiMascot(
+                                    state: ref.watch(mascotStateProvider),
+                                    amplitude: ref.watch(amplitudeProvider),
+                                    accessory:
+                                        ref.watch(catModeProvider).enabled
+                                            ? Accessory.catEars
+                                            : ref.watch(
+                                                activeAccessoryProvider),
+                                    size: 90,
+                                    onTap: () {
+                                      final unlocked =
+                                          ref
+                                              .read(catModeProvider.notifier)
+                                              .registerMascotTap();
+                                      if (unlocked) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            behavior:
+                                                SnackBarBehavior.floating,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(
+                                                Radii.md,
+                                              ),
+                                            ),
+                                            content: const Text(
+                                              'Meow?! Cat Mode unlocked 🐱',
+                                              style: TextStyle(
+                                                  fontFamily: 'Nunito'),
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    },
                                   ),
                                 ),
-                              );
-                            }
-                          },
+                              ),
+                          ],
                         ),
                       ),
                     ),

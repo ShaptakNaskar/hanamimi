@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../audio/models/audio_state.dart';
 import '../../providers/audio_provider.dart';
+import '../../providers/buddy_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
 import 'library/art_thumb.dart';
+import 'mascot/buddies.dart';
 
 /// Persistent bar above the bottom nav when a track is loaded
 /// (DESIGN.md §9.7). 2px progress line along the top edge; tapping the
@@ -25,11 +27,15 @@ class MiniPlayer extends ConsumerWidget {
     return AnimatedSize(
       duration: const Duration(milliseconds: 350),
       curve: Curves.easeOutBack,
+      clipBehavior: Clip.none,
       child: track == null
           ? const SizedBox(width: double.infinity)
           : GestureDetector(
               onTap: onOpen,
-              child: Container(
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
                 height: Sizes.miniPlayerHeight,
                 decoration: BoxDecoration(
                   color: theme.surface.withValues(alpha: 0.97),
@@ -105,6 +111,17 @@ class MiniPlayer extends ConsumerWidget {
                     ),
                   ],
                 ),
+              ),
+                  // The cat has claimed the top edge of the bar: asleep
+                  // while paused, tail swaying once the music plays.
+                  if (ref.watch(buddyEnabledProvider('cat')))
+                    Positioned(
+                      top: -21,
+                      right: 58,
+                      child: CatBuddy(
+                          sleeping: !(audio?.isPlaying ?? false)),
+                    ),
+                ],
               ),
             ),
     );
