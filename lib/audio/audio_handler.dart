@@ -91,4 +91,7 @@ class HanamimiAudioHandler extends BaseAudioHandler {
 
   @override
   Future<void> stop() => engine.stop();
+
+  /// Stop and forget the current track (clears the mini player).
+  Future<void> clear() => engine.clear();
 }

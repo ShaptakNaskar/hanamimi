@@ -33,6 +33,7 @@ class AudioState {
 
   AudioState copyWith({
     Track? currentTrack,
+    bool clearCurrentTrack = false,
     List<Track>? queue,
     PlaybackStatus? status,
     Duration? duration,
@@ -42,7 +43,8 @@ class AudioState {
     int? audioSessionId,
   }) =>
       AudioState(
-        currentTrack: currentTrack ?? this.currentTrack,
+        currentTrack:
+            clearCurrentTrack ? null : currentTrack ?? this.currentTrack,
         queue: queue ?? this.queue,
         status: status ?? this.status,
         duration: duration ?? this.duration,

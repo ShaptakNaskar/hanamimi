@@ -254,29 +254,44 @@ class MascotPainter extends CustomPainter {
       ..close();
     canvas.drawPath(cap, Paint()..color = HanaColors.cap);
 
+    // The face plate (muzzle, blush, eyes, nose, mouth) is lifted
+    // toward the cap: without eyebrows the forehead read too tall, so
+    // the whole face is nudged up to rebalance. Kept in sync with the
+    // matching lift in _drawFace.
+    const faceLift = 5.0;
+
     canvas.drawOval(
-        Rect.fromCenter(center: const Offset(60, 76), width: 50, height: 42),
+        Rect.fromCenter(
+            center: const Offset(60, 76 - faceLift), width: 50, height: 42),
         Paint()..color = HanaColors.muzzle);
     canvas.drawOval(
-        Rect.fromCenter(center: const Offset(60, 80), width: 50, height: 34),
+        Rect.fromCenter(
+            center: const Offset(60, 80 - faceLift), width: 50, height: 34),
         Paint()
           ..color = HanaColors.muzzleShade.withValues(alpha: 0.45));
 
     // Blush.
     final blush = Paint()..color = HanaColors.blush.withValues(alpha: 0.5);
     canvas.drawOval(
-        Rect.fromCenter(center: const Offset(36, 72), width: 14, height: 9),
+        Rect.fromCenter(
+            center: const Offset(36, 72 - faceLift), width: 14, height: 9),
         blush);
     canvas.drawOval(
-        Rect.fromCenter(center: const Offset(84, 72), width: 14, height: 9),
+        Rect.fromCenter(
+            center: const Offset(84, 72 - faceLift), width: 14, height: 9),
         blush);
   }
 
   void _drawFace(Canvas canvas) {
+    // Kept in sync with _drawHead's faceLift (see note there).
+    const faceLift = 5.0;
+    canvas.save();
+    canvas.translate(0, -faceLift);
+
     _drawEye(canvas, 44);
     _drawEye(canvas, 76);
-    _drawBrow(canvas, 44);
-    _drawBrow(canvas, 76);
+    // Eyebrows removed by design — the browless face reads softer and
+    // rounder. Poses still carry a BrowKind for possible future use.
 
     // Nose with specular dot.
     canvas.drawOval(
@@ -286,6 +301,7 @@ class MascotPainter extends CustomPainter {
         Paint()..color = Colors.white.withValues(alpha: 0.7));
 
     _drawMouth(canvas);
+    canvas.restore();
   }
 
   void _drawEye(Canvas canvas, double x) {
@@ -327,33 +343,6 @@ class MascotPainter extends CustomPainter {
           ..quadraticBezierTo(x, 59 + dip, x + 8, 59);
         canvas.drawPath(p, stroke);
     }
-  }
-
-  void _drawBrow(Canvas canvas, double x) {
-    if (pose.brow == BrowKind.none) return;
-    final stroke = Paint()
-      ..color = HanaColors.eye.withValues(alpha: 0.85)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.2
-      ..strokeCap = StrokeCap.round;
-    final p = Path();
-    switch (pose.brow) {
-      case BrowKind.happy:
-        p
-          ..moveTo(x - 7, 46)
-          ..quadraticBezierTo(x, 43, x + 7, 46);
-      case BrowKind.up:
-        p
-          ..moveTo(x - 7, 44)
-          ..quadraticBezierTo(x, 40, x + 7, 44);
-      case BrowKind.flat:
-        p
-          ..moveTo(x - 7, 47)
-          ..lineTo(x + 7, 47);
-      case BrowKind.none:
-        return;
-    }
-    canvas.drawPath(p, stroke);
   }
 
   void _drawMouth(Canvas canvas) {

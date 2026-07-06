@@ -401,6 +401,30 @@ class QueueManager {
     _state.add(state.copyWith(status: PlaybackStatus.idle));
   }
 
+  /// Stop AND forget what was playing — empties the queue and clears the
+  /// current track, so the mini player dismisses and the mascot returns
+  /// to her eyes-open idle. The saved-session pref is cleared separately
+  /// by the caller so a cleared player doesn't re-offer resume.
+  Future<void> clear() async {
+    await _abortCrossfade();
+    await _primary.stop();
+    try {
+      await _session?.setActive(false);
+    } catch (_) {}
+    _source = [];
+    _order = [];
+    _cursor = 0;
+    _history.clear();
+    _position.add(Duration.zero);
+    _state.add(state.copyWith(
+      clearCurrentTrack: true,
+      queue: const [],
+      status: PlaybackStatus.idle,
+      duration: Duration.zero,
+      clearCrossfade: true,
+    ));
+  }
+
   /// For the sleep timer's fade-out (M11).
   Future<void> setVolume(double volume) => _primary.setVolume(volume);
 
