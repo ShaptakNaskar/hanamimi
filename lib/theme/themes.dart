@@ -19,24 +19,7 @@ const cherryBlossom = HanamimiTheme(
   brightness: HanamimiBrightness.light,
 );
 
-/// Theme 2 — Rainy Day. Quiet grey afternoon indoors.
-const rainyDay = HanamimiTheme(
-  id: 'rainy_day',
-  name: 'Rainy Day',
-  emoji: '🌧️',
-  background: Color(0xFFEFF4F9),
-  surface: Color(0xFFF8FAFC),
-  primary: Color(0xFF7EB8D4),
-  secondary: Color(0xFFA8C5D8),
-  accent: Color(0xFF4D9EC5),
-  textPrimary: Color(0xFF2A3D50),
-  textMuted: Color(0xFF6A8599),
-  divider: Color(0xFFD0E2ED),
-  visualizerStyle: VisualizerStyle.raindrops,
-  brightness: HanamimiBrightness.light,
-);
-
-/// Theme 3 — Starry Night. Late night; the only dark theme.
+/// Theme 3 — Starry Night. Late night.
 const starryNight = HanamimiTheme(
   id: 'starry_night',
   name: 'Starry Night',
@@ -55,34 +38,20 @@ const starryNight = HanamimiTheme(
   brightness: HanamimiBrightness.dark,
 );
 
-/// Theme 4 — Matcha. Tea house in the morning.
-const matcha = HanamimiTheme(
-  id: 'matcha',
-  name: 'Matcha',
-  emoji: '🍵',
-  background: Color(0xFFF2F6EE),
-  surface: Color(0xFFFAFCF7),
-  primary: Color(0xFF7DB87D),
-  secondary: Color(0xFFB5D49A),
-  accent: Color(0xFF4A7C59),
-  textPrimary: Color(0xFF1E3020),
-  textMuted: Color(0xFF6A8C6A),
-  divider: Color(0xFFD4E4CC),
-  visualizerStyle: VisualizerStyle.wave,
-  brightness: HanamimiBrightness.light,
-);
+/// Themes 2 & 4 — Adaptive Light / Adaptive Dark (Monet). Their palettes
+/// are pulled from the current track's album art at runtime
+/// (see adaptive_theme_provider), each pinned to its own brightness so the
+/// user picks light or dark and the art only supplies the colours. These
+/// consts are the placeholder/neutral values shown before any art
+/// resolves; [fromArtScheme] overrides them per track.
+const adaptiveLight = neutralAdaptiveLight;
+const adaptiveDark = neutralAdaptiveDark;
 
-/// Theme 5 — Adaptive (Monet). Its palette is pulled from the current
-/// track's album art at runtime (see adaptive_theme_provider). These are
-/// only the placeholder/neutral values shown before any art resolves;
-/// [fromArtScheme] overrides them per track.
-const adaptive = neutralAdaptive;
-
-/// Soft grey-pink fallback for the Adaptive theme when there's no art (or
+/// Soft grey-pink fallback for Adaptive Light when there's no art (or
 /// extraction hasn't finished / failed) — never a jarring default.
-const neutralAdaptive = HanamimiTheme(
-  id: 'adaptive',
-  name: 'Adaptive',
+const neutralAdaptiveLight = HanamimiTheme(
+  id: 'adaptive_light',
+  name: 'Adaptive Light',
   emoji: '🎨',
   background: Color(0xFFF6F2F4),
   surface: Color(0xFFFFFFFF),
@@ -96,13 +65,32 @@ const neutralAdaptive = HanamimiTheme(
   brightness: HanamimiBrightness.light,
 );
 
+/// Dusky grey-mauve fallback for Adaptive Dark, same role as
+/// [neutralAdaptiveLight].
+const neutralAdaptiveDark = HanamimiTheme(
+  id: 'adaptive_dark',
+  name: 'Adaptive Dark',
+  emoji: '🌌',
+  background: Color(0xFF201B20),
+  surface: Color(0xFF2C252C),
+  primary: Color(0xFFC9A9C4),
+  secondary: Color(0xFFB79AAE),
+  accent: Color(0xFFD9BAD2),
+  textPrimary: Color(0xFFEDE4EA),
+  textMuted: Color(0xFFA898A4),
+  divider: Color(0xFF3C333C),
+  visualizerStyle: VisualizerStyle.bars,
+  brightness: HanamimiBrightness.dark,
+);
+
 /// Builds an Adaptive theme from a Material You [ColorScheme] extracted
-/// from album art. Follows the scheme's own brightness, so a dark cover
-/// yields a dark, readable UI.
-HanamimiTheme fromArtScheme(ColorScheme s) => HanamimiTheme(
-      id: 'adaptive',
-      name: 'Adaptive',
-      emoji: '🎨',
+/// from album art. The scheme is generated at the variant's brightness
+/// (see adaptive_theme_provider), so [variant] just supplies id/name.
+HanamimiTheme fromArtScheme(ColorScheme s, HanamimiTheme variant) =>
+    HanamimiTheme(
+      id: variant.id,
+      name: variant.name,
+      emoji: variant.emoji,
       background: s.surface,
       surface: s.surfaceContainerHigh,
       primary: s.primary,
@@ -117,12 +105,13 @@ HanamimiTheme fromArtScheme(ColorScheme s) => HanamimiTheme(
           : HanamimiBrightness.light,
     );
 
-/// Adaptive replaces Rainy Day in the picker (it took the "ocean" slot).
-const allThemes = [cherryBlossom, adaptive, starryNight, matcha];
+const allThemes = [cherryBlossom, adaptiveLight, starryNight, adaptiveDark];
 
 HanamimiTheme themeById(String id) {
-  // Rainy Day was retired for Adaptive — anyone still on it lands on the
-  // default rather than a missing theme.
-  if (id == 'rainy_day') return cherryBlossom;
+  // Retired themes land on a sensible survivor rather than a missing one:
+  // Rainy Day and Matcha fold into the default; plain "adaptive" (which
+  // used to follow the art's brightness) becomes Adaptive Light.
+  if (id == 'rainy_day' || id == 'matcha') return cherryBlossom;
+  if (id == 'adaptive') return adaptiveLight;
   return allThemes.firstWhere((t) => t.id == id, orElse: () => cherryBlossom);
 }

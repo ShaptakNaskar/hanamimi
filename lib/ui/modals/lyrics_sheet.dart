@@ -12,11 +12,13 @@ import '../../lyrics/models/lyric_line.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/lyrics_provider.dart';
+import '../../providers/power_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
 import '../components/mascot/hanamimi_widget.dart';
+import 'share_lyrics_sheet.dart';
 
 /// Slide-up sheet (85% height) with the blurred album art as backdrop
 /// and karaoke-style synced lines: the active line fills word by word,
@@ -44,6 +46,20 @@ class _LyricsSheetBody extends ConsumerStatefulWidget {
 }
 
 class _LyricsSheetBodyState extends ConsumerState<_LyricsSheetBody> {
+  @override
+  void initState() {
+    super.initState();
+    // Reading along shouldn't be interrupted by the screen dozing off.
+    PowerChannel.setKeepScreenOn(true);
+  }
+
+  @override
+  void dispose() {
+    // Hand the flag back to whatever Caffeine says it should be.
+    PowerChannel.setKeepScreenOn(ref.read(caffeineProvider));
+    super.dispose();
+  }
+
   Duration _offsetFor(int trackId) => Duration(
       milliseconds:
           ref.read(sharedPrefsProvider).getInt('lyrics_offset_$trackId') ??
@@ -147,6 +163,32 @@ class _LyricsSheetBodyState extends ConsumerState<_LyricsSheetBody> {
                               _adjustOffset(track.id, delta),
                         ),
                       ],
+                      const SizedBox(width: Space.s2),
+                      // Share a lyrics card (Spotify-style, with mascot).
+                      InkResponse(
+                        onTap: () => showShareLyricsSheet(
+                          context,
+                          track,
+                          [
+                            for (final l in lyrics.value!.lines)
+                              if (l.text.trim().isNotEmpty) l.text,
+                          ],
+                          theme,
+                        ),
+                        radius: 18,
+                        child: Container(
+                          padding: const EdgeInsets.all(Space.s1),
+                          decoration: BoxDecoration(
+                            color: theme.surface.withValues(alpha: 0.95),
+                            borderRadius: BorderRadius.circular(Radii.sm),
+                            border: Border.all(
+                                color: theme.divider.withValues(alpha: 0.8),
+                                width: 1),
+                          ),
+                          child: Icon(Icons.ios_share,
+                              size: 14, color: theme.textPrimary),
+                        ),
+                      ),
                     ],
                   ),
                 ],
@@ -597,14 +639,30 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
                   duration: const Duration(milliseconds: 350),
                   curve: Curves.easeOut,
                   child: Center(
-                    child: isActive
+                    // The word-by-word fill only runs on genuinely
+                    // word-synced sources; guessing word timings for
+                    // line-synced lyrics made the sweep visibly drift
+                    // from the vocal. Those get a plain bright line.
+                    child: isActive && lines[lineIndex].hasWordTimings
                         ? _KaraokeLine(
                             words: _timedLines[lineIndex],
                             position: position,
                             bright: bright,
                             dim: bright.withValues(alpha: 0.35),
                           )
-                        : Text(
+                        : isActive
+                            ? Text(
+                                lines[lineIndex].text,
+                                textAlign: TextAlign.center,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppText.body(theme).copyWith(
+                                  height: 1.25,
+                                  fontWeight: FontWeight.w700,
+                                  color: bright,
+                                ),
+                              )
+                            : Text(
                             lines[lineIndex].text,
                             textAlign: TextAlign.center,
                             maxLines: 2,

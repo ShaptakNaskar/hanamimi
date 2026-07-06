@@ -199,6 +199,19 @@ class PlaylistsNotifier extends AsyncNotifier<List<Playlist>> {
     state = AsyncData(await repo.allPlaylists());
   }
 
+  /// Creates a playlist pre-filled with tracks, in the given order
+  /// (folder → playlist). Returns the new playlist id.
+  Future<int> createWithTracks(
+      String name, int coverColor, List<int> trackIds) async {
+    final repo = await ref.read(libraryRepositoryProvider.future);
+    final id = await repo.createPlaylist(name, coverColor);
+    for (final trackId in trackIds) {
+      await repo.addToPlaylist(id, trackId);
+    }
+    state = AsyncData(await repo.allPlaylists());
+    return id;
+  }
+
   Future<void> addTrack(int playlistId, int trackId) async {
     final repo = await ref.read(libraryRepositoryProvider.future);
     await repo.addToPlaylist(playlistId, trackId);
@@ -215,6 +228,35 @@ class PlaylistsNotifier extends AsyncNotifier<List<Playlist>> {
     final repo = await ref.read(libraryRepositoryProvider.future);
     await repo.deletePlaylist(playlistId);
     state = AsyncData(await repo.allPlaylists());
+  }
+
+  /// Sets or clears (null) a playlist's custom cover image.
+  Future<void> setCover(int playlistId, String? path) async {
+    final repo = await ref.read(libraryRepositoryProvider.future);
+    await repo.setPlaylistCover(playlistId, path);
+    state = AsyncData(await repo.allPlaylists());
+  }
+
+  /// Drag-reorder: moves the track at [oldIndex] to [newIndex] (indices
+  /// into the playlist's current order). State updates optimistically so
+  /// the row lands where it was dropped without a DB round-trip.
+  Future<void> reorderTrack(
+      int playlistId, int oldIndex, int newIndex) async {
+    final playlists = state.value ?? [];
+    final playlist =
+        playlists.where((p) => p.id == playlistId).firstOrNull;
+    if (playlist == null) return;
+    final ids = [...playlist.trackIds];
+    if (oldIndex < 0 || oldIndex >= ids.length) return;
+    final id = ids.removeAt(oldIndex);
+    ids.insert(newIndex.clamp(0, ids.length), id);
+
+    state = AsyncData([
+      for (final p in playlists)
+        p.id == playlistId ? p.copyWith(trackIds: ids) : p,
+    ]);
+    final repo = await ref.read(libraryRepositoryProvider.future);
+    await repo.reorderPlaylist(playlistId, ids);
   }
 
   /// Creates a playlist from imported online results (M30). Each result

@@ -21,6 +21,27 @@ class PowerChannel(private val context: Context) {
             "isIgnoringBatteryOptimizations" ->
                 result.success(pm.isIgnoringBatteryOptimizations(context.packageName))
 
+            // Caffeine / lyrics view: hold the screen awake without any
+            // wakelock permission — just the activity window flag.
+            "setKeepScreenOn" -> {
+                val on = call.argument<Boolean>("on") ?: false
+                val activity = context as? android.app.Activity
+                if (activity != null) {
+                    activity.runOnUiThread {
+                        if (on) {
+                            activity.window.addFlags(
+                                android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+                            )
+                        } else {
+                            activity.window.clearFlags(
+                                android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+                            )
+                        }
+                    }
+                }
+                result.success(activity != null)
+            }
+
             // The direct allow/deny dialog (ACTION_REQUEST_…). Fine for a
             // sideloaded build; a Play-Store build should switch to
             // ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS (the list) to

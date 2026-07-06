@@ -1,0 +1,19 @@
+<!-- Status-bar (small) notification icon: the mascot as an alpha-only
+     silhouette — head + floppy beagle ears, with eyes and nose punched
+     out (reverse-wound subpaths, nonZero fill). The system tints it, so
+     only the alpha channel matters. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="nonZero"
+        android:pathData="M 5.5,11.5 a 6.5,6.5 0 1,0 13,0 a 6.5,6.5 0 1,0 -13,0
+            M 3.0,12.5 a 1.9,4.6 0 1,0 3.8,0 a 1.9,4.6 0 1,0 -3.8,0
+            M 17.2,12.5 a 1.9,4.6 0 1,0 3.8,0 a 1.9,4.6 0 1,0 -3.8,0
+            M 8.9,10.8 a 0.95,0.95 0 1,1 1.9,0 a 0.95,0.95 0 1,1 -1.9,0
+            M 13.2,10.8 a 0.95,0.95 0 1,1 1.9,0 a 0.95,0.95 0 1,1 -1.9,0
+            M 11.05,13.9 a 0.95,0.95 0 1,1 1.9,0 a 0.95,0.95 0 1,1 -1.9,0" />
+</vector>

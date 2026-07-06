@@ -375,6 +375,21 @@ class QueueManager {
     _state.add(state.copyWith(queue: [for (final i in _order) _source[i]]));
   }
 
+  /// Drag-reorder in the queue sheet: moves the play-order entry at
+  /// [oldIndex] to [newIndex]. The current track stays current — the
+  /// cursor is re-found by its entry, since _order is a permutation of
+  /// distinct source indices.
+  void moveInQueue(int oldIndex, int newIndex) {
+    if (oldIndex < 0 || oldIndex >= _order.length) return;
+    newIndex = newIndex.clamp(0, _order.length - 1);
+    if (oldIndex == newIndex) return;
+    final currentEntry = _order.isEmpty ? null : _order[_cursor];
+    final entry = _order.removeAt(oldIndex);
+    _order.insert(newIndex, entry);
+    if (currentEntry != null) _cursor = _order.indexOf(currentEntry);
+    _state.add(state.copyWith(queue: [for (final i in _order) _source[i]]));
+  }
+
   /// Jump straight to a position in the play order (queue sheet).
   Future<void> jumpToQueueIndex(int index) async {
     if (index < 0 || index >= _order.length) return;

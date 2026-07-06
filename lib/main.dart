@@ -29,6 +29,9 @@ Future<void> main() async {
       androidNotificationChannelName: 'Hanamimi playback',
       androidNotificationOngoing: true,
       androidStopForegroundOnPause: true,
+      // Status-bar icons render alpha-only; the launcher mascot became a
+      // featureless blob there. This is a purpose-drawn silhouette.
+      androidNotificationIcon: 'drawable/ic_stat_hanamimi',
     ),
   );
 

@@ -4,9 +4,10 @@ import '../../../library/models/playlist.dart';
 import '../../../theme/app_theme.dart';
 import '../../../theme/hanamimi_theme.dart';
 import '../../../theme/theme_tokens.dart';
+import 'playlist_cover.dart';
 
-/// Horizontal notebook-style card (DESIGN.md §9.3): colored block with
-/// initial on the left, name + track count on the right.
+/// Horizontal notebook-style card (DESIGN.md §9.3): cover (custom image,
+/// art collage or colour block) on the left, name + track count right.
 class PlaylistCard extends StatelessWidget {
   const PlaylistCard({
     super.key,
@@ -35,25 +36,11 @@ class PlaylistCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Container(
-                width: 80,
-                decoration: BoxDecoration(
-                  color: playlist.coverColor,
-                  borderRadius: const BorderRadius.horizontal(
-                      left: Radius.circular(Radii.md)),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  playlist.name.isEmpty
-                      ? '♪'
-                      : playlist.name[0].toUpperCase(),
-                  style: TextStyle(
-                    fontFamily: 'Nunito',
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white.withValues(alpha: 0.9),
-                  ),
-                ),
+              PlaylistCover(
+                playlist: playlist,
+                size: 80,
+                borderRadius: const BorderRadius.horizontal(
+                    left: Radius.circular(Radii.md)),
               ),
               const SizedBox(width: Space.s4),
               Expanded(

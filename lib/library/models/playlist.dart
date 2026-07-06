@@ -7,6 +7,7 @@ class Playlist {
     required this.coverColor,
     required this.trackIds,
     required this.createdAt,
+    this.coverImagePath,
   });
 
   final int id;
@@ -15,6 +16,25 @@ class Playlist {
   final List<int> trackIds;
   final DateTime createdAt;
 
+  /// User-picked cover image; null falls back to the art collage / colour.
+  final String? coverImagePath;
+
+  Playlist copyWith({
+    String? name,
+    List<int>? trackIds,
+    String? coverImagePath,
+    bool clearCoverImage = false,
+  }) =>
+      Playlist(
+        id: id,
+        name: name ?? this.name,
+        coverColor: coverColor,
+        trackIds: trackIds ?? this.trackIds,
+        createdAt: createdAt,
+        coverImagePath:
+            clearCoverImage ? null : (coverImagePath ?? this.coverImagePath),
+      );
+
   factory Playlist.fromRow(Map<String, Object?> r, List<int> trackIds) =>
       Playlist(
         id: r['id'] as int,
@@ -22,6 +42,7 @@ class Playlist {
         coverColor: Color(r['cover_color'] as int),
         trackIds: trackIds,
         createdAt: DateTime.fromMillisecondsSinceEpoch(r['created_at'] as int),
+        coverImagePath: r['cover_image_path'] as String?,
       );
 }
 

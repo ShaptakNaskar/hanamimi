@@ -19,8 +19,9 @@ class SelectedThemeId extends Notifier<String> {
   @override
   String build() {
     final saved = ref.watch(sharedPrefsProvider).getString(_key);
-    if (saved == null || saved == 'rainy_day') return cherryBlossom.id;
-    return saved;
+    // themeById knows the retired-theme migrations; normalize through it
+    // so a stale saved id can't linger.
+    return themeById(saved ?? cherryBlossom.id).id;
   }
 
   void setTheme(String id) {
@@ -37,8 +38,11 @@ final selectedThemeIdProvider =
 /// it resolves).
 final resolvedThemeProvider = Provider<HanamimiTheme>((ref) {
   final id = ref.watch(selectedThemeIdProvider);
-  if (id == 'adaptive') {
-    return ref.watch(adaptiveThemeProvider).value ?? neutralAdaptive;
+  if (id == neutralAdaptiveLight.id || id == neutralAdaptiveDark.id) {
+    return ref.watch(adaptiveThemeProvider).value ??
+        (id == neutralAdaptiveDark.id
+            ? neutralAdaptiveDark
+            : neutralAdaptiveLight);
   }
   return themeById(id);
 });

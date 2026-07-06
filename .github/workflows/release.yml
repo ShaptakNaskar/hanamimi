@@ -85,8 +85,11 @@ jobs:
           # major/minor (e.g. to 1.1.0). versionCode stays the global run
           # number so the in-app updater's "newer" check is monotonic.
           MM=$(grep '^version:' pubspec.yaml | sed 's/version: *//; s/+.*//' | cut -d. -f1,2)
-          COUNT=$(gh api "repos/${{ github.repository }}/releases?per_page=100" \
-            --jq "[.[] | select(.tag_name | startswith(\"${BRANCH}-v${MM}.\"))] | length" 2>/dev/null || echo 0)
+          # Count TAGS, not releases: old releases get pruned (below) and can
+          # be deleted by hand, which would reset the count and hand out an
+          # already-used version. Tags are permanent.
+          COUNT=$(gh api "repos/${{ github.repository }}/tags?per_page=100" --paginate \
+            --jq "[.[] | select(.name | startswith(\"${BRANCH}-v${MM}.\"))] | length" 2>/dev/null || echo 0)
           PATCH=$((COUNT + 1))
           SEMVER="${MM}.${PATCH}"
           EDITION=$([ "$BRANCH" = "plus" ] && echo "Hanamimi+" || echo "Hanamimi")
@@ -161,6 +164,25 @@ jobs:
           name: ${{ steps.ver.outputs.display }}
           body_path: release_body.md
           files: build/app/outputs/flutter-apk/hanamimi-*.apk
+          # The releases page sorts by the tagged COMMIT's date, so commits
+          # committed long before they're pushed scramble the order. Forcing
+          # the badge keeps "Latest" on the newest publish regardless.
+          make_latest: true
+
+      # Keep the releases page short and ordered: only the newest 3 releases
+      # per edition stay up. Tags are kept (versioning counts them; git
+      # history stays browsable) — only the release entries go.
+      - name: Prune old releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          gh api "repos/${{ github.repository }}/releases?per_page=100" --paginate \
+            --jq ".[] | select(.tag_name | startswith(\"${BRANCH}-v\")) | \"\(.published_at) \(.id)\"" \
+            | sort -r | tail -n +4 | awk '{print $2}' \
+            | while read -r id; do
+                gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
+              done
 
       - name: Post to Telegram
         if: ${{ env.BOT != '' && env.CHAT != '' }}
@@ -170,10 +192,13 @@ jobs:
           NOTES: ${{ steps.notes.outputs.notes }}
           DIFFLINK: ${{ steps.notes.outputs.difflink }}
         run: |
-          # Groq emits '* ' / '- ' markdown bullets, which Telegram shows
-          # as literal asterisks in a plain-text caption. Turn them into
-          # real bullet dots so the changelog reads cleanly.
-          NOTES=$(printf '%s' "$NOTES" | sed -E 's/^[[:space:]]*[*-][[:space:]]+/• /')
+          # Groq emits markdown, which Telegram shows literally in a
+          # plain-text caption. Turn leading '*'/'-' bullets into real
+          # bullet dots and strip inline **bold**/__underline__/`code`
+          # markers so the changelog reads cleanly.
+          NOTES=$(printf '%s' "$NOTES" \
+            | sed -E 's/^[[:space:]]*[*-][[:space:]]+/• /' \
+            | sed -E 's/\*\*//g; s/__//g; s/`//g; s/^#+[[:space:]]*//')
           # Reserve room for the diff link (~110 chars) under Telegram's
           # 1024-char cap, so it survives even a long changelog.
           NOTES=$(printf '%s' "$NOTES" | head -c 800)

@@ -6,22 +6,31 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../theme/hanamimi_theme.dart';
 import '../theme/themes.dart';
 import 'audio_provider.dart';
+import 'theme_provider.dart';
 
 /// Art-derived (Monet) theme for the current track. Runs Flutter's built-in
 /// Material You quantizer (`ColorScheme.fromImageProvider`) over the album
-/// art and maps the result to a [HanamimiTheme]. Recomputes only when the
-/// track's art actually changes (keyed), and falls back to a neutral
-/// grey-pink when there's no art or extraction fails — never a jarring
-/// default. Only consulted while the selected theme is "adaptive".
+/// art and maps the result to a [HanamimiTheme]. The scheme is generated at
+/// the selected variant's brightness — Adaptive Light stays light and
+/// Adaptive Dark stays dark no matter how bright the cover is. Recomputes
+/// only when the art or the variant actually changes (keyed), and falls
+/// back to the variant's neutral palette when there's no art or extraction
+/// fails — never a jarring default. Only consulted while the selected theme
+/// is one of the adaptive ids.
 final adaptiveThemeProvider = FutureProvider<HanamimiTheme>((ref) async {
+  final dark = ref.watch(selectedThemeIdProvider) == neutralAdaptiveDark.id;
+  final variant = dark ? neutralAdaptiveDark : neutralAdaptiveLight;
   final track = ref.watch(_artKeyProvider);
   final provider = track?.$2;
-  if (provider == null) return neutralAdaptive;
+  if (provider == null) return variant;
   try {
-    final scheme = await ColorScheme.fromImageProvider(provider: provider);
-    return fromArtScheme(scheme);
+    final scheme = await ColorScheme.fromImageProvider(
+      provider: provider,
+      brightness: dark ? Brightness.dark : Brightness.light,
+    );
+    return fromArtScheme(scheme, variant);
   } catch (_) {
-    return neutralAdaptive;
+    return variant;
   }
 });
 
