@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- audio_service resolves the notification small icon by NAME at runtime
+     (Resources.getIdentifier), which the release resource shrinker can't
+     see — without this keep it strips the drawable and the foreground
+     service crashes with "Invalid notification (no valid small icon)"
+     the moment playback starts (the 1.1.1 crash). -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_hanamimi" />
