@@ -67,17 +67,7 @@ class YouScreen extends ConsumerWidget {
           const SizedBox(height: Space.s8),
           Text('YOUR COMPANION', style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
-          // The hamster scampers along the roof of the companion card,
-          // keeping the beagle company — anchored, not floating.
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              const _CompanionCard(),
-              if (ref.watch(buddyEnabledProvider('hamster')))
-                const Positioned(
-                    left: 14, right: 14, top: -14, child: YouHamster()),
-            ],
-          ),
+          const _CompanionCard(),
           const SizedBox(height: Space.s8),
           Text('BUDDIES', style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
@@ -203,11 +193,15 @@ class _BuddiesCard extends ConsumerWidget {
       case 'cat':
         return CustomPaint(painter: CatPainter(0.25));
       case 'hamster':
-        return CustomPaint(painter: HamsterPainter(0.1));
+        return CustomPaint(
+            painter:
+                HamsterWheelPainter(rot: 0.6, phase: 0.1, running: false));
       case 'duck':
         return CustomPaint(painter: DuckPainter(0));
       case 'koi':
-        return CustomPaint(painter: KoiPainter(0.25));
+        return CustomPaint(painter: KoiBowlPainter(2.0));
+      case 'fireflies':
+        return CustomPaint(painter: FireflyPreviewPainter(0));
       case 'rabbit':
         return CustomPaint(painter: RabbitPainter(0));
       default:

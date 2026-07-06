@@ -63,13 +63,26 @@ class PlaylistCover extends ConsumerWidget {
 
     if (arts.length == 4) {
       final half = size / 2;
+      // Positioned quadrants inside a fixed SizedBox: flex rows either
+      // stretched to the parent's width (collage sat off-center, right
+      // corners unclipped) or overflowed by a rounding pixel.
       return ClipRRect(
         borderRadius: radius,
-        child: Column(
-          children: [
-            Row(children: [art(arts[0], half), art(arts[1], half)]),
-            Row(children: [art(arts[2], half), art(arts[3], half)]),
-          ],
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: Stack(
+            children: [
+              for (final (i, path) in arts.indexed)
+                Positioned(
+                  left: (i % 2) * half,
+                  top: (i ~/ 2) * half,
+                  width: half,
+                  height: half,
+                  child: art(path, half),
+                ),
+            ],
+          ),
         ),
       );
     }

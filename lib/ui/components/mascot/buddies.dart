@@ -1123,24 +1123,136 @@ class HeaderParrot extends StatelessWidget {
   }
 }
 
-/// Hamster for the You tab header strip.
-class YouHamster extends StatelessWidget {
-  const YouHamster({super.key, this.size = 19});
+/// The hamster's wheel: a metal wheel on a little stand, hamster
+/// running inside while the music plays, resting (nibbling) when it's
+/// paused. Furniture, not a free-roamer — the scampering version read
+/// as out of place.
+class HamsterWheel extends StatefulWidget {
+  const HamsterWheel({super.key, required this.running, this.size = 46});
 
+  final bool running;
   final double size;
 
   @override
+  State<HamsterWheel> createState() => _HamsterWheelState();
+}
+
+class _HamsterWheelState extends State<HamsterWheel> {
+  late final Ticker _ticker;
+  Duration _last = Duration.zero;
+  double _rot = 0; // wheel angle, radians
+  double _phase = 0; // hamster gait / nibble cycle
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Ticker(_tick)..start();
+  }
+
+  void _tick(Duration elapsed) {
+    final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 0.05);
+    _last = elapsed;
+    if (widget.running) {
+      _rot += dt * 4.2;
+      _phase += dt / 0.45; // fast little legs
+    } else {
+      _phase += dt / 1.6; // slow nibble
+    }
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return RoamingBuddy(
-      size: size,
-      speed: 135,
-      stride: 9,
-      idlePeriod: 0.9,
-      pauseMin: 1.2,
-      pauseMax: 3.6,
-      painterBuilder: (p, m) => HamsterPainter(p, moving: m),
+    return SizedBox(
+      width: widget.size,
+      height: widget.size,
+      child: CustomPaint(
+        painter: HamsterWheelPainter(
+          rot: _rot,
+          phase: _phase % 1.0,
+          running: widget.running,
+        ),
+      ),
     );
   }
+}
+
+class HamsterWheelPainter extends CustomPainter {
+  HamsterWheelPainter(
+      {required this.rot, required this.phase, required this.running});
+
+  final double rot;
+  final double phase;
+  final bool running;
+
+  static const _metal = Color(0xFFB9AEC0);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = size.width / 32.0;
+    canvas.save();
+    canvas.translate((size.width - 32 * s) / 2, size.height - 32 * s);
+    canvas.scale(s);
+
+    // Stand.
+    final leg = Paint()
+      ..color = const Color(0xFFA99FB5)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(const Offset(9, 25), const Offset(5.5, 30.5), leg);
+    canvas.drawLine(const Offset(23, 25), const Offset(26.5, 30.5), leg);
+    canvas.drawLine(const Offset(4, 30.8), const Offset(28, 30.8),
+        leg..strokeWidth = 1.6);
+
+    // Wheel rings.
+    const hub = Offset(16, 15.5);
+    final ring = Paint()
+      ..color = _metal
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6;
+    canvas.drawCircle(hub, 11.5, ring);
+    canvas.drawCircle(
+        hub,
+        9.8,
+        Paint()
+          ..color = _metal.withValues(alpha: 0.7)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.9);
+
+    // Hamster inside, feet on the inner rim.
+    canvas.save();
+    canvas.translate(8, 10.1);
+    HamsterPainter(phase, moving: running)
+        .paint(canvas, const Size(16, 16));
+    canvas.restore();
+
+    // Spokes in front (low alpha so the hamster shows through) + hub.
+    final spoke = Paint()
+      ..color = _metal.withValues(alpha: 0.45)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.1;
+    for (var i = 0; i < 6; i++) {
+      final a = rot + i * math.pi / 3;
+      canvas.drawLine(
+          hub,
+          hub + Offset(math.cos(a), math.sin(a)) * 11.0,
+          spoke);
+    }
+    canvas.drawCircle(hub, 1.8, Paint()..color = _metal);
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant HamsterWheelPainter old) =>
+      old.rot != rot || old.phase != phase || old.running != running;
 }
 
 /// Duck for the Playlists tab.
@@ -1163,63 +1275,160 @@ class PlaylistsDuck extends StatelessWidget {
   }
 }
 
-/// Koi for the Now Playing pond — never really stops, just drifts.
-/// The koi gets actual water: a soft translucent pool behind it, so
-/// the fish reads as "in its pond" instead of floating in the layout.
-class PondKoi extends StatelessWidget {
-  const PondKoi({super.key, this.size = 26});
+/// The koi's fishbowl: glass bowl on the floor, water, pebbles, a
+/// plant strand, and the koi swimming lazy laps inside. Furniture,
+/// not a free-swimmer — open-air ponds read as out of place.
+class KoiBowl extends StatefulWidget {
+  const KoiBowl({super.key, this.size = 46});
 
   final double size;
 
   @override
+  State<KoiBowl> createState() => _KoiBowlState();
+}
+
+class _KoiBowlState extends State<KoiBowl> {
+  late final Ticker _ticker;
+  Duration _last = Duration.zero;
+  double _t = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Ticker(_tick)..start();
+  }
+
+  void _tick(Duration elapsed) {
+    final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 0.05);
+    _last = elapsed;
+    _t += dt;
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned.fill(child: CustomPaint(painter: _PondWater())),
-        RoamingBuddy(
-          size: size,
-          speed: 32,
-          stride: 38,
-          idlePeriod: 3.2,
-          pauseMin: 0.4,
-          pauseMax: 1.6,
-          swayAmp: 2.5,
-          swayPeriod: 3.1,
-          painterBuilder: (p, m) => KoiPainter(p, moving: m),
-        ),
-      ],
+    return SizedBox(
+      width: widget.size,
+      height: widget.size,
+      child: CustomPaint(painter: KoiBowlPainter(_t)),
     );
   }
 }
 
-/// The koi's pool: a soft aqua capsule with a few ripple arcs and
-/// bubbles. Static — the moving fish supplies the life.
-class _PondWater extends CustomPainter {
+class KoiBowlPainter extends CustomPainter {
+  KoiBowlPainter(this.t);
+
+  /// Continuous seconds — drives both the lap (slow) and tail (fast).
+  final double t;
+
   @override
   void paint(Canvas canvas, Size size) {
-    final pool = RRect.fromRectAndRadius(
-      Rect.fromLTWH(0, size.height * 0.22, size.width, size.height * 0.78),
-      Radius.circular(size.height * 0.39),
-    );
-    canvas.drawRRect(pool, Paint()..color = const Color(0x2E8FC7DD));
+    final s = size.width / 32.0;
+    canvas.save();
+    canvas.translate((size.width - 32 * s) / 2, size.height - 32 * s);
+    canvas.scale(s);
 
-    final ripple = Paint()
-      ..color = const Color(0x4D7FB8D0)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..strokeCap = StrokeCap.round;
-    void arc(double cx, double cy, double r) => canvas.drawArc(
-        Rect.fromCircle(center: Offset(cx, cy), radius: r),
-        math.pi * 0.15, math.pi * 0.7, false, ripple);
-    arc(size.width * 0.18, size.height * 0.52, 5);
-    arc(size.width * 0.55, size.height * 0.7, 4);
-    arc(size.width * 0.84, size.height * 0.48, 5.5);
-    canvas.drawCircle(Offset(size.width * 0.36, size.height * 0.55), 1.1,
-        Paint()..color = const Color(0x4D7FB8D0));
-    canvas.drawCircle(Offset(size.width * 0.7, size.height * 0.42), 0.9,
-        Paint()..color = const Color(0x4D7FB8D0));
+    const center = Offset(16, 17.5);
+    const r = 13.0;
+    final bowlPath = Path()
+      ..addOval(Rect.fromCircle(center: center, radius: r));
+    final line = _buddyLine();
+
+    // Water + contents, clipped to the glass.
+    canvas.save();
+    canvas.clipPath(bowlPath);
+    canvas.drawRect(const Rect.fromLTRB(2, 11.5, 30, 31),
+        Paint()..color = const Color(0x3A8FC7DD));
+    // Surface line.
+    canvas.drawOval(
+        Rect.fromCenter(center: const Offset(16, 11.5), width: 24, height: 3),
+        Paint()
+          ..color = const Color(0x668FC7DD)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1);
+    // Pebbles.
+    for (final (c, pr, col) in [
+      (const Offset(12, 29), 1.7, const Color(0xFFD8CBC0)),
+      (const Offset(16.5, 29.7), 2.0, const Color(0xFFC9BFD9)),
+      (const Offset(21, 29), 1.5, const Color(0xFFE0D4C4)),
+    ]) {
+      canvas.drawCircle(c, pr, Paint()..color = col);
+    }
+    // Plant strand, swaying gently.
+    final sway = math.sin(t * 1.3) * 0.8;
+    canvas.drawPath(
+        Path()
+          ..moveTo(23, 29)
+          ..quadraticBezierTo(24.5 + sway, 24, 23.5 + sway * 1.6, 19.5),
+        Paint()
+          ..color = const Color(0xFF8FBF9A)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.4
+          ..strokeCap = StrokeCap.round);
+
+    // The koi, swimming laps: x oscillates, faces its heading.
+    final lap = t * 0.55;
+    final swim = math.sin(lap) * 4.5;
+    final faceLeft = math.cos(lap) < 0;
+    canvas.save();
+    canvas.translate(16 + swim, 14.5 + math.sin(t * 1.1) * 0.7);
+    if (faceLeft) canvas.scale(-1, 1);
+    canvas.translate(-11.25, -12.5); // fish visual center → origin
+    KoiPainter(t * 1.4 % 1.0, moving: true)
+        .paint(canvas, const Size(20, 20));
+    canvas.restore();
+    canvas.restore(); // unclip
+
+    // Glass: outline, opening rim, highlight.
+    canvas.drawPath(bowlPath, line);
+    canvas.drawOval(
+        Rect.fromCenter(center: const Offset(16, 5.6), width: 13, height: 3.6),
+        line);
+    canvas.drawArc(
+        Rect.fromCircle(center: center, radius: r - 2.5),
+        math.pi * 1.05,
+        math.pi * 0.35,
+        false,
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.5)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.6
+          ..strokeCap = StrokeCap.round);
+
+    canvas.restore();
   }
 
   @override
-  bool shouldRepaint(covariant _PondWater old) => false;
+  bool shouldRepaint(covariant KoiBowlPainter old) => old.t != t;
+}
+
+/// Static three-dot firefly still for the settings preview row.
+class FireflyPreviewPainter extends BuddyPainter {
+  FireflyPreviewPainter(super.phase);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const glow = Color(0xFFCFDA7E);
+    const core = Color(0xFFEFE9A8);
+    for (final (c, r, a) in [
+      (Offset(size.width * 0.3, size.height * 0.35), 2.2, 1.0),
+      (Offset(size.width * 0.68, size.height * 0.6), 1.7, 0.7),
+      (Offset(size.width * 0.5, size.height * 0.82), 1.3, 0.45),
+    ]) {
+      canvas.drawCircle(
+          c,
+          r * 3,
+          Paint()
+            ..color = glow.withValues(alpha: 0.22 * a)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4));
+      canvas.drawCircle(
+          c, r, Paint()..color = core.withValues(alpha: 0.9 * a));
+    }
+  }
 }

@@ -20,9 +20,10 @@ const buddyCatalog = [
   BuddyInfo('beagle', 'Hanamimi', 'Header & Now Playing'),
   BuddyInfo('parrot', 'Parrot', 'Perches on the Library title'),
   BuddyInfo('cat', 'Cat', 'Naps on the mini player'),
-  BuddyInfo('hamster', 'Hamster', 'Scampers on your companion card'),
+  BuddyInfo('hamster', 'Hamster', 'Runs its wheel on Now Playing'),
   BuddyInfo('duck', 'Duck', 'Struts atop Liked songs'),
-  BuddyInfo('koi', 'Koi', 'Has a pond below Now Playing'),
+  BuddyInfo('koi', 'Koi', 'Fishbowl beside the mascot'),
+  BuddyInfo('fireflies', 'Fireflies', 'Glow on the dark themes'),
   BuddyInfo('rabbit', 'Rabbit', 'Hops along downloads'),
 ];
 

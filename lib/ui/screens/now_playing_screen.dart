@@ -74,7 +74,9 @@ class NowPlayingScreen extends ConsumerWidget {
       fit: StackFit.expand,
       children: [
         _BlurredArtBackground(track: track, theme: theme),
-        ParticleOverlay(theme: theme),
+        ParticleOverlay(
+            theme: theme,
+            fireflies: ref.watch(buddyEnabledProvider('fireflies'))),
         SafeArea(
           bottom: false,
           child: LayoutBuilder(
@@ -166,14 +168,21 @@ class NowPlayingScreen extends ConsumerWidget {
                         width: double.infinity,
                         child: Stack(
                           children: [
-                            // The koi drifts along the bottom of the
-                            // mascot's slot — a little pond at her feet.
+                            // The pets' furniture flanks the mascot:
+                            // hamster wheel bottom-left (spins with the
+                            // music), koi fishbowl bottom-right. Real
+                            // objects — free-roaming versions of these
+                            // two read as glitches.
+                            if (ref.watch(buddyEnabledProvider('hamster')))
+                              Positioned(
+                                left: 0,
+                                bottom: 0,
+                                child: HamsterWheel(
+                                    running: audio?.isPlaying ?? false),
+                              ),
                             if (ref.watch(buddyEnabledProvider('koi')))
                               const Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  child: PondKoi()),
+                                  right: 0, bottom: 0, child: KoiBowl()),
                             if (ref.watch(buddyEnabledProvider('beagle')))
                               Align(
                                 child: FittedBox(
