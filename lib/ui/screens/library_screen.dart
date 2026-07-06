@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../audio/models/queue_mode.dart';
 import '../../library/models/playlist.dart';
 import '../../library/models/track.dart';
 import '../../utils/back_stack.dart';
@@ -16,12 +17,15 @@ import '../../providers/update_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
+import '../../providers/buddy_provider.dart';
 import '../components/library/album_card.dart';
+import '../components/mascot/buddies.dart';
 import '../components/mascot/hanamimi_widget.dart';
 import '../components/library/playlist_card.dart';
 import '../components/library/playlist_cover.dart';
 import '../components/library/track_row.dart';
 import '../components/shared/pill_tab_bar.dart';
+import '../modals/playlist_picker_sheet.dart';
 
 class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});
@@ -116,15 +120,30 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                     children: [
                       // The mascot lives in the header too — she reacts
                       // to playback just like on Now Playing.
-                      HanamimiMascot(
-                          state: ref.watch(mascotStateProvider),
-                          size: 30),
-                      const SizedBox(width: Space.s2),
-                      Text(
-                          ref.watch(editionNameProvider).value ??
-                              'Hanamimi',
-                          style: AppText.screenTitle(theme)
-                              .copyWith(fontSize: 22)),
+                      if (ref.watch(buddyEnabledProvider('beagle'))) ...[
+                        HanamimiMascot(
+                            state: ref.watch(mascotStateProvider),
+                            size: 30),
+                        const SizedBox(width: Space.s2),
+                      ],
+                      Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Text(
+                              ref.watch(editionNameProvider).value ??
+                                  'Hanamimi',
+                              style: AppText.screenTitle(theme)
+                                  .copyWith(fontSize: 22)),
+                          // The parrot perches on the title and hops
+                          // along it (Requests.txt #20).
+                          if (ref.watch(buddyEnabledProvider('parrot')))
+                            const Positioned(
+                                left: 0,
+                                right: 0,
+                                top: -15,
+                                child: HeaderParrot()),
+                        ],
+                      ),
                       const Spacer(),
                       InkResponse(
                         onTap: () => setState(() => _searching = true),
@@ -178,10 +197,13 @@ class _SongsTab extends ConsumerWidget {
           child: CircularProgressIndicator(color: theme.primary)),
       error: (e, _) => _Message('Something went wrong: $e', theme: theme),
       data: (allTracks) {
+        // Deduped: the same song ripped twice (same tags + duration,
+        // different filename) shows once.
+        final localTracks = dedupeTracks(allTracks);
         final q = query.trim().toLowerCase();
         final tracks = q.isEmpty
-            ? allTracks
-            : allTracks
+            ? localTracks
+            : localTracks
                 .where((t) =>
                     t.title.toLowerCase().contains(q) ||
                     t.artist.toLowerCase().contains(q) ||
@@ -227,7 +249,7 @@ class _SongsTab extends ConsumerWidget {
                 _toast(context, 'Added to queue');
               },
               onAddToPlaylist: () =>
-                  _showPlaylistPicker(context, ref, theme, tracks[i].id),
+                  showPlaylistPicker(context, ref, theme, tracks[i].id),
             ),
           ),
         );
@@ -450,7 +472,7 @@ class _FoldersTabState extends ConsumerState<_FoldersTab> {
                           .addToQueue(tracks[i]);
                       _toast(context, 'Added to queue');
                     },
-                    onAddToPlaylist: () => _showPlaylistPicker(
+                    onAddToPlaylist: () => showPlaylistPicker(
                         context, ref, theme, tracks[i].id),
                   ),
                 ),
@@ -663,10 +685,28 @@ class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
           separatorBuilder: (_, __) => const SizedBox(height: Space.s3),
           itemBuilder: (context, i) {
             if (i == 0) {
-              return _LikedSongsCard(
+              final card = _LikedSongsCard(
                 count: likedCount,
                 theme: theme,
                 onTap: () => setState(() => _likedOpen = true),
+              );
+              // The duck struts along the top edge of the pinned card
+              // — anchored to furniture like the cat and parrot, not
+              // floating in the whitespace.
+              if (!ref.watch(buddyEnabledProvider('duck'))) return card;
+              return Padding(
+                padding: const EdgeInsets.only(top: Space.s2),
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    card,
+                    const Positioned(
+                        left: 10,
+                        right: 10,
+                        top: -17,
+                        child: PlaylistsDuck(size: 22)),
+                  ],
+                ),
               );
             }
             final playlist = playlists[i - 1];
@@ -800,6 +840,77 @@ class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
         .toList();
     final playingId = ref.watch(audioStateProvider).value?.currentTrack?.id;
 
+    // Hero header (community ask): big collage cover, name, meta and
+    // the action row — the playlist as a place, not just a list.
+    final totalDur = tracks.fold(Duration.zero, (d, t) => d + t.duration);
+    final totalLabel = totalDur.inHours > 0
+        ? '${totalDur.inHours}h ${totalDur.inMinutes.remainder(60)}m'
+        : '${totalDur.inMinutes} min';
+    final header = Padding(
+      padding: const EdgeInsets.fromLTRB(Space.s4, 0, Space.s4, Space.s4),
+      child: Column(
+        children: [
+          // Tap the cover to pick a custom image (or reset it).
+          GestureDetector(
+            onTap: () => _pickCover(playlist, theme),
+            child:
+                PlaylistCover(playlist: playlist, size: 180, fontSize: 56),
+          ),
+          const SizedBox(height: Space.s4),
+          Text(playlist.name,
+              style: AppText.screenTitle(theme),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis),
+          const SizedBox(height: Space.s1),
+          Text(
+            '${tracks.length} song${tracks.length == 1 ? '' : 's'} · $totalLabel',
+            style: AppText.caption(theme),
+          ),
+          Text('swipe left to remove · hold to reorder',
+              style: AppText.caption(theme).copyWith(fontSize: 10)),
+          const SizedBox(height: Space.s3),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              InkResponse(
+                onTap: tracks.isEmpty
+                    ? null
+                    : () {
+                        final handler = ref.read(audioHandlerProvider);
+                        handler.playTracks(tracks);
+                        handler.engine.setMode(QueueMode.shuffle);
+                      },
+                radius: 22,
+                child: SizedBox(
+                  width: Sizes.minTouchTarget,
+                  height: Sizes.minTouchTarget,
+                  child:
+                      Icon(Icons.shuffle, size: 24, color: theme.textMuted),
+                ),
+              ),
+              const SizedBox(width: Space.s4),
+              InkResponse(
+                onTap: tracks.isEmpty
+                    ? null
+                    : () =>
+                        ref.read(audioHandlerProvider).playTracks(tracks),
+                radius: 30,
+                child: Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                      color: theme.primary, shape: BoxShape.circle),
+                  child: const Icon(Icons.play_arrow,
+                      color: Colors.white, size: 32),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -817,28 +928,7 @@ class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
                       size: 26, color: theme.textPrimary),
                 ),
               ),
-              // Tap the cover to pick a custom image (or reset it).
-              GestureDetector(
-                onTap: () => _pickCover(playlist, theme),
-                child:
-                    PlaylistCover(playlist: playlist, size: 34, fontSize: 16),
-              ),
-              const SizedBox(width: Space.s3),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(playlist.name,
-                        style: AppText.rowSongTitle(theme),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                    Text(
-                      '${tracks.length} song${tracks.length == 1 ? '' : 's'} · swipe left to remove',
-                      style: AppText.caption(theme).copyWith(fontSize: 10),
-                    ),
-                  ],
-                ),
-              ),
+              const Spacer(),
               InkResponse(
                 onTap: () => _confirmDeletePlaylist(playlist, theme),
                 radius: 20,
@@ -849,34 +939,27 @@ class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
                       size: 20, color: theme.textMuted),
                 ),
               ),
-              InkResponse(
-                onTap: tracks.isEmpty
-                    ? null
-                    : () =>
-                        ref.read(audioHandlerProvider).playTracks(tracks),
-                radius: 22,
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                      color: theme.primary, shape: BoxShape.circle),
-                  child: const Icon(Icons.play_arrow,
-                      color: Colors.white, size: 22),
-                ),
-              ),
             ],
           ),
         ),
         Expanded(
           child: visible.isEmpty
-              ? _Message(
-                  q.isEmpty
-                      ? 'Nothing here yet — swipe a song left in Songs and pick "${playlist.name}"'
-                      : 'Nothing matches "${widget.query}"',
-                  theme: theme)
+              ? Column(
+                  children: [
+                    header,
+                    Expanded(
+                      child: _Message(
+                          q.isEmpty
+                              ? 'Nothing here yet — swipe a song left in Songs and pick "${playlist.name}"'
+                              : 'Nothing matches "${widget.query}"',
+                          theme: theme),
+                    ),
+                  ],
+                )
               // Long-press drag to reorder — but only on the unfiltered
               // list, where row indices match playlist positions.
               : ReorderableListView.builder(
+                  header: header,
                   buildDefaultDragHandles: q.isEmpty,
                   onReorder: (oldIndex, newIndex) {
                     if (q.isNotEmpty) return;
@@ -1019,58 +1102,6 @@ void _toast(BuildContext context, String message) {
     content:
         Text(message, style: const TextStyle(fontFamily: 'Nunito')),
   ));
-}
-
-Future<void> _showPlaylistPicker(
-    BuildContext context, WidgetRef ref, HanamimiTheme theme, int trackId) async {
-  // ref.read gives AsyncLoading if the Playlists tab was never opened
-  // this session — await the future so existing playlists always show.
-  final playlists = await ref.read(playlistsProvider.future);
-  if (!context.mounted) return;
-  if (playlists.isEmpty) {
-    _toast(context, 'No playlists yet — make one first!');
-    return;
-  }
-  showModalBottomSheet(
-    context: context,
-    builder: (sheetContext) => SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(Space.s4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Add to playlist',
-                style: TextStyle(
-                    fontFamily: 'Nunito',
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: theme.textPrimary)),
-            const SizedBox(height: Space.s3),
-            Flexible(
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: playlists.length,
-                separatorBuilder: (_, __) =>
-                    const SizedBox(height: Space.s3),
-                itemBuilder: (context, i) => PlaylistCard(
-                  playlist: playlists[i],
-                  theme: theme,
-                  onTap: () {
-                    ref
-                        .read(playlistsProvider.notifier)
-                        .addTrack(playlists[i].id, trackId);
-                    Navigator.pop(sheetContext);
-                    _toast(context, 'Added to ${playlists[i].name}');
-                  },
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
 }
 
 void _showCreatePlaylistSheet(

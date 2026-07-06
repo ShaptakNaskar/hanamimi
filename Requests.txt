@@ -1,0 +1,45 @@
+The app has gained some popularity (in my close circle, and the bug report just flooded, with genuine requests. So yay to us for this. I am genuinely proud of you. You helped me bring my passion project to life.
+
+1. Lets say I have songs nested but foldered in a directory.
+--Downloads
+--Music
+----Album
+If i hide album, its hiding album, but if i am hiding Downloads, Its hiding everything, which is a problem cuz my downloads folder has call recordings, which i wanna hide but its hiding everything inside it as well. So this needs to be fixed.
+
+2. Adaptive is Light mode only.
+The four themes should be
+1. Cherry 2. Adaptive Light
+3. Starry night 4. Adaptive Dark.
+
+3. Why is github releases unorganised - /home/sappy/Pictures/Screenshots/Screenshot_20260705_215733.png
+
+4. Check this and report - My device tends to heat up when using hanamimi, now is it just hanamimi or some rogue process that needs to be determined, so please check
+5. Some album arts are not visible for some reason even tho the have album art, please look into it. /home/sappy/Downloads/Screenshot_20260705-222159_Hanamimi+.png
+/home/sappy/Downloads/Screenshot_20260705-222216_MiXplorer.png
+The song directory is /home/sappy/Downloads/Spotiflac.
+
+6. The version checker apparently aint working properly in both me and my friends device. We had version 1.0.6, and when i clicked on check for update, it did not show any. I was using Hanamimi+
+7. The top text, Hanamimi, Add our mascot there too
+8. In Hanamimi+. the top text should say Hanamimi+
+9. The telegram releases have ** and stuff /home/sappy/Pictures/Screenshots/Screenshot_20260705_224106.png
+10. Folder options, Create a playlist from folder.
+11. Add cover for albums (user defined, or the first four album art)
+12. except word synced lyrics, word by word animation remove, cuz the emulated word for word aint matching for line synced, and it triggers my OCD brain
+13. Rearrange Playlist musics, people love doing that (me included).
+14. Rearrange Queue (i personally do this)
+15. Add a caffeine button "to prevent screen turning off" in the now playing beside the repeat, shuffle buttons (i like staring at the visualisers. (on that note, can some more visualisers be added, VU meters, , just keep a documentation nothing more)
+16. Prevent screen turn off in lyrics view
+17. Add app logo to notification icons as well /home/sappy/Downloads/Screenshot_20260706-093622_System UI.png
+18. Share lyrics feature? Lyrics card? With our cute mascot on top right of  shared card. Like Spotify? /home/sappy/Downloads/Screenshot_20260706-093708_Spotify.png /home/sappy/Downloads/Screenshot_20260706-093711_Spotify.png
+19. Pressing back button on any screen except some just closes the app. DOnt do that, make it navigate to the previous menus
+20. Plan on adding some more mascot buddies(i think there is a memory entry for this project), cuz those mascots just make this app cuter, like imagine a parrot over the hanamimi text, jumping, the app will be a sanctuary, a place to escape, where you can listen to your favourite music and jam with your pets. (ah i know i am being too emotional) (just plan cuz i dont wanna commit to it rn)
+21. Bump version to 1.1.0, in both branches   
+Just so you remember to turn on the emulator and test. THis is the command i use to build stuffs. ❯ export SDKROOT="$HOME/Android/Sdk"
+  set -gx ANDROID_HOME "$SDKROOT"
+  set -gx ANDROID_SDK_ROOT "$SDKROOT"
+  set -gx PATH /opt/android-sdk/cmdline-tools/latest/bin $SDKROOT/platform-tools $PATH
+  echo "sdk.dir=$SDKROOT" > android/local.properties
+  cd android && ./gradlew assembleRelease --no-daemon\
+
+
+
