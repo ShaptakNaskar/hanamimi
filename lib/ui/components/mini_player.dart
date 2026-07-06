@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../audio/models/audio_state.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/buddy_provider.dart';
+import '../../providers/session_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
@@ -104,6 +105,21 @@ class MiniPlayer extends ConsumerWidget {
                                     ? handler.pause()
                                     : handler.play();
                               },
+                            ),
+                            const SizedBox(width: Space.s1),
+                            // Clear what's playing: stops, dismisses the
+                            // bar, and lets the mascot open her eyes.
+                            InkResponse(
+                              onTap: () {
+                                ref.read(audioHandlerProvider).clear();
+                                clearSavedSession(ref);
+                              },
+                              radius: 18,
+                              child: Padding(
+                                padding: const EdgeInsets.all(4),
+                                child: Icon(Icons.close,
+                                    size: 20, color: theme.textMuted),
+                              ),
                             ),
                           ],
                         ),
