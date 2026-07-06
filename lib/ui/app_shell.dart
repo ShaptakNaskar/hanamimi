@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../audio/models/playback_session.dart';
@@ -12,6 +13,7 @@ import '../providers/update_provider.dart';
 import '../theme/app_theme.dart';
 import '../theme/hanamimi_theme.dart';
 import '../theme/theme_tokens.dart';
+import '../utils/back_stack.dart';
 import '../utils/duration_ext.dart';
 import 'components/mini_player.dart';
 import 'components/shared/bottom_nav.dart';
@@ -31,10 +33,6 @@ class _AppShellState extends ConsumerState<AppShell>
     with WidgetsBindingObserver {
   int _index = 0;
   int _previousIndex = 0;
-
-  // Tabs visited before the current one; system back walks this before
-  // it's allowed to close the app.
-  final List<int> _navHistory = [];
 
   // VLC-style resume ticker: the saved session waiting to be resumed,
   // shown as a dismissible banner above the mini player (not a modal).
@@ -89,17 +87,20 @@ class _AppShellState extends ConsumerState<AppShell>
     if (i == _index) return;
     setState(() {
       _previousIndex = _index;
-      _navHistory.add(_index);
       _index = i;
     });
   }
 
-  void _goBack() {
-    if (_navHistory.isEmpty) return;
-    setState(() {
-      _previousIndex = _index;
-      _index = _navHistory.removeLast();
-    });
+  /// System back: first give any open in-app view (search overlay, inline
+  /// folder/playlist detail) the chance to close, then step back to the
+  /// Library tab, and only exit once back is pressed there.
+  void _onSystemBack() {
+    if (BackStack.pop()) return;
+    if (_index != 0) {
+      _onNavChanged(0);
+      return;
+    }
+    SystemNavigator.pop();
   }
 
   /// Surface the resume ticker if the last session was more than a few
@@ -144,9 +145,9 @@ class _AppShellState extends ConsumerState<AppShell>
     final slideFromRight = _index > _previousIndex;
 
     return PopScope(
-      canPop: _navHistory.isEmpty,
+      canPop: false,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _goBack();
+        if (!didPop) _onSystemBack();
       },
       child: Scaffold(
         body: AnimatedSwitcher(

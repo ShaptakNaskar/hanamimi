@@ -12,13 +12,18 @@ class LibraryScanner {
 
   final LibraryRepository _repo;
 
-  /// Directories the user opted out of; tracks inside them (at any
-  /// depth) are dropped from the scan, which also removes their
-  /// existing DB rows via the sync's disappeared-file cleanup.
+  /// Directories the user opted out of; tracks directly inside them are
+  /// dropped from the scan, which also removes their existing DB rows via
+  /// the sync's disappeared-file cleanup. Subfolders are separate entries
+  /// in the Folders tab, so they hide independently — hiding Downloads
+  /// must not take Downloads/Music/Album with it.
   final Set<String> excludedDirs;
 
-  bool _isExcluded(String filePath) => excludedDirs
-      .any((dir) => filePath == dir || filePath.startsWith('$dir/'));
+  bool _isExcluded(String filePath) {
+    final slash = filePath.lastIndexOf('/');
+    final dir = slash <= 0 ? '/' : filePath.substring(0, slash);
+    return excludedDirs.contains(dir);
+  }
 
   Future<bool> requestPermission() async {
     // permission_handler maps Permission.audio to READ_MEDIA_AUDIO on
@@ -39,15 +44,19 @@ class LibraryScanner {
     // track whose file is actually gone from disk.
     await _repo.pruneMissingLocalFiles();
 
-    // Fetch art once per album that has tracks without an art path.
+    // Fetch art once per album that has tracks without an art path. A
+    // local file from the album rides along so the channel can read the
+    // embedded picture itself when the system thumbnailer fails.
     final tracks = await _repo.allTracks();
-    final missingArt = <int>{
-      for (final t in tracks)
-        if (t.albumArtPath == null) t.albumId,
-    };
-    for (final albumId in missingArt) {
-      final path = await MediaStoreChannel.getAlbumArt(albumId);
-      if (path != null) await _repo.setAlbumArt(albumId, path);
+    final missingArt = <int, String?>{};
+    for (final t in tracks) {
+      if (t.albumArtPath != null) continue;
+      missingArt[t.albumId] = t.filePath;
+    }
+    for (final e in missingArt.entries) {
+      final path =
+          await MediaStoreChannel.getAlbumArt(e.key, filePath: e.value);
+      if (path != null) await _repo.setAlbumArt(e.key, path);
     }
     return ScanResult.done;
   }

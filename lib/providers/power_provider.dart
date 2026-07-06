@@ -23,7 +23,32 @@ class PowerChannel {
       await _ch.invokeMethod('requestIgnoreBatteryOptimizations');
     } catch (_) {}
   }
+
+  /// Holds the screen awake via the activity window flag (no wakelock
+  /// permission involved). Callers own turning it back off.
+  static Future<void> setKeepScreenOn(bool on) async {
+    try {
+      await _ch.invokeMethod('setKeepScreenOn', {'on': on});
+    } catch (_) {}
+  }
 }
+
+/// Caffeine ☕ — keeps the screen awake for staring at the visualizer.
+/// Deliberately not persisted: like real caffeine it wears off (next
+/// launch starts fresh), so a forgotten toggle can't drain the battery
+/// for days.
+class CaffeineNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void toggle() {
+    state = !state;
+    PowerChannel.setKeepScreenOn(state);
+  }
+}
+
+final caffeineProvider =
+    NotifierProvider<CaffeineNotifier, bool>(CaffeineNotifier.new);
 
 /// True when the app is exempt from battery optimization. `ref.refresh`
 /// it after returning from the system dialog to pick up the new state.

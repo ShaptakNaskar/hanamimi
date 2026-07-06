@@ -31,7 +31,8 @@ class MediaStoreChannel(private val context: Context) {
             "queryTracks" -> runAsync(result) { queryTracks() }
             "getAlbumArt" -> {
                 val albumId = call.argument<Number>("albumId")!!.toLong()
-                runAsync(result) { getAlbumArt(albumId) }
+                val filePath = call.argument<String>("filePath")
+                runAsync(result) { getAlbumArt(albumId, filePath) }
             }
             else -> result.notImplemented()
         }
@@ -175,28 +176,127 @@ class MediaStoreChannel(private val context: Context) {
         return out
     }
 
-    /** Saves a 512px album art thumbnail to the cache dir; returns its path, or null. */
-    private fun getAlbumArt(albumId: Long): String? {
+    /**
+     * Saves a 512px album art thumbnail to the cache dir; returns its path,
+     * or null. MediaProvider's thumbnailer is tried first but silently fails
+     * on some embedded covers, so a file from the album (when given) is also
+     * read directly: MediaMetadataRetriever's embedded picture, then — since
+     * Android's FLAC extractor has let us down before — the raw FLAC
+     * PICTURE block.
+     */
+    private fun getAlbumArt(albumId: Long, filePath: String?): String? {
         val artDir = File(context.cacheDir, "album_art").apply { mkdirs() }
         val outFile = File(artDir, "$albumId.jpg")
         if (outFile.exists()) return outFile.absolutePath
 
-        val bitmap: Bitmap = try {
+        var bitmap: Bitmap? = try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val uri = ContentUris.withAppendedId(
                     MediaStore.Audio.Albums.EXTERNAL_CONTENT_URI, albumId
                 )
                 context.contentResolver.loadThumbnail(uri, Size(512, 512), null)
             } else {
-                return null
+                null
             }
         } catch (e: Exception) {
-            return null
+            null
         }
+
+        if (bitmap == null && filePath != null) {
+            val bytes = embeddedPicture(filePath)
+                ?: if (filePath.endsWith(".flac", true)) readFlacPicture(filePath) else null
+            if (bytes != null) bitmap = decodeScaled(bytes, 512)
+        }
+        if (bitmap == null) return null
 
         FileOutputStream(outFile).use {
             bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it)
         }
         return outFile.absolutePath
+    }
+
+    private fun embeddedPicture(path: String): ByteArray? = try {
+        val mmr = android.media.MediaMetadataRetriever()
+        try {
+            mmr.setDataSource(path)
+            mmr.embeddedPicture
+        } finally {
+            mmr.release()
+        }
+    } catch (_: Exception) {
+        null
+    }
+
+    /**
+     * Raw FLAC PICTURE (block type 6) reader. Layout after the block
+     * header, all big-endian: picture type (4), MIME len (4) + string,
+     * description len (4) + string, width/height/depth/colors (4 each),
+     * data length (4), image data.
+     */
+    private fun readFlacPicture(path: String): ByteArray? {
+        try {
+            java.io.RandomAccessFile(path, "r").use { raf ->
+                val magic = ByteArray(4)
+                if (raf.read(magic) != 4 || String(magic, Charsets.US_ASCII) != "fLaC") {
+                    return null
+                }
+                while (true) {
+                    val header = raf.read()
+                    if (header < 0) break
+                    val last = header and 0x80 != 0
+                    val type = header and 0x7F
+                    val b1 = raf.read(); val b2 = raf.read(); val b3 = raf.read()
+                    if (b3 < 0) break
+                    val len = (b1 shl 16) or (b2 shl 8) or b3
+                    if (type == 6) {
+                        val blockEnd = raf.filePointer + len
+                        fun be32(): Int {
+                            val b = ByteArray(4)
+                            if (raf.read(b) != 4) return -1
+                            return ((b[0].toInt() and 0xFF) shl 24) or
+                                ((b[1].toInt() and 0xFF) shl 16) or
+                                ((b[2].toInt() and 0xFF) shl 8) or
+                                (b[3].toInt() and 0xFF)
+                        }
+                        raf.seek(raf.filePointer + 4) // picture type
+                        val mimeLen = be32()
+                        if (mimeLen < 0) return null
+                        raf.seek(raf.filePointer + mimeLen)
+                        val descLen = be32()
+                        if (descLen < 0) return null
+                        raf.seek(raf.filePointer + descLen + 16) // w/h/depth/colors
+                        val dataLen = be32()
+                        if (dataLen <= 0 || raf.filePointer + dataLen > blockEnd) return null
+                        val data = ByteArray(dataLen)
+                        if (raf.read(data) != dataLen) return null
+                        return data
+                    }
+                    raf.seek(raf.filePointer + len)
+                    if (last) break
+                }
+            }
+        } catch (_: Exception) {
+            return null
+        }
+        return null
+    }
+
+    /** Decodes image bytes downsampled to roughly the target edge. */
+    private fun decodeScaled(bytes: ByteArray, target: Int): Bitmap? = try {
+        val bounds = android.graphics.BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= target &&
+            bounds.outHeight / (sample * 2) >= target) {
+            sample *= 2
+        }
+        val opts = android.graphics.BitmapFactory.Options().apply {
+            inSampleSize = sample
+        }
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+    } catch (_: Exception) {
+        null
     }
 }

@@ -15,7 +15,10 @@ class MediaStoreChannel {
   }
 
   /// Extracts a 512px thumbnail for the album into the cache dir.
-  /// Returns the file path, or null if the album has no art.
-  static Future<String?> getAlbumArt(int albumId) =>
-      _channel.invokeMethod<String>('getAlbumArt', {'albumId': albumId});
+  /// Returns the file path, or null if the album has no art. [filePath]
+  /// is a file from the album, read directly when the system thumbnailer
+  /// comes up empty (it fails silently on some embedded covers).
+  static Future<String?> getAlbumArt(int albumId, {String? filePath}) =>
+      _channel.invokeMethod<String>(
+          'getAlbumArt', {'albumId': albumId, 'filePath': filePath});
 }

@@ -16,13 +16,18 @@ class LibraryRepository {
   static Future<LibraryRepository> open() async {
     final db = await openDatabase(
       'hanamimi.db',
-      version: 2,
+      version: 3,
       // v2 adds lyric quality (word/line/plain). Old rows predate the
       // word-synced provider, so wipe them and refetch on demand.
+      // v3 (main numbering) adds user-picked playlist cover images.
       onUpgrade: (db, oldVersion, _) async {
         if (oldVersion < 2) {
           await db.execute('DROP TABLE IF EXISTS lyric_cache');
           await _createLyricCache(db);
+        }
+        if (oldVersion < 3) {
+          await db.execute(
+              'ALTER TABLE playlists ADD COLUMN cover_image_path TEXT');
         }
       },
       onCreate: (db, _) async {
@@ -48,7 +53,8 @@ class LibraryRepository {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             cover_color INTEGER NOT NULL,
-            created_at INTEGER NOT NULL
+            created_at INTEGER NOT NULL,
+            cover_image_path TEXT
           )
         ''');
         await db.execute('''
@@ -205,6 +211,24 @@ class LibraryRepository {
       },
       conflictAlgorithm: ConflictAlgorithm.ignore,
     );
+  }
+
+  /// Sets or clears (null) the user-picked playlist cover image.
+  Future<void> setPlaylistCover(int playlistId, String? path) =>
+      _db.update('playlists', {'cover_image_path': path},
+          where: 'id = ?', whereArgs: [playlistId]);
+
+  /// Persists a drag-reorder: positions are rewritten to match the
+  /// given full track-id order.
+  Future<void> reorderPlaylist(
+      int playlistId, List<int> orderedTrackIds) async {
+    final batch = _db.batch();
+    for (var i = 0; i < orderedTrackIds.length; i++) {
+      batch.update('playlist_tracks', {'position': i},
+          where: 'playlist_id = ? AND track_id = ?',
+          whereArgs: [playlistId, orderedTrackIds[i]]);
+    }
+    await batch.commit(noResult: true);
   }
 
   /// Dev tool: force every lyric to refetch on next open.

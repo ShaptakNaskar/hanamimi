@@ -24,6 +24,17 @@ final appVersionLabelProvider = FutureProvider<String>((ref) async {
   }
 });
 
+/// "Hanamimi+" on the plus edition, "Hanamimi" on the base app — for the
+/// Library header and anywhere else the edition name shows.
+final editionNameProvider = FutureProvider<String>((ref) async {
+  try {
+    final info = await PackageInfo.fromPlatform();
+    return info.packageName.endsWith('.plus') ? 'Hanamimi+' : 'Hanamimi';
+  } catch (_) {
+    return 'Hanamimi';
+  }
+});
+
 /// The release channel THIS build follows, derived from its own package
 /// id so main and plus never cross-update: `com.hanamimi.app.plus` →
 /// `plus-v…` tags, `com.hanamimi.app` → `main-v…`. Same source on both
@@ -35,6 +46,7 @@ String _tagPrefixFor(String packageName) =>
 class AppUpdate {
   const AppUpdate({
     required this.versionName,
+    required this.semver,
     required this.runNumber,
     required this.changelog,
     required this.apkUrl,
@@ -43,6 +55,9 @@ class AppUpdate {
 
   final String versionName;
 
+  /// Bare x.y.z parsed from the tag, for version comparisons.
+  final String semver;
+
   /// CI run number == versionCode; monotonic, what we compare.
   final int runNumber;
   final String changelog;
@@ -50,21 +65,37 @@ class AppUpdate {
   final int sizeBytes;
 }
 
+/// Compares dotted version strings; returns <0, 0 or >0 like compareTo.
+int compareSemver(String a, String b) {
+  final pa = a.split('.').map((s) => int.tryParse(s) ?? 0).toList();
+  final pb = b.split('.').map((s) => int.tryParse(s) ?? 0).toList();
+  for (var i = 0; i < 3; i++) {
+    final d = (i < pa.length ? pa[i] : 0) - (i < pb.length ? pb[i] : 0);
+    if (d != 0) return d;
+  }
+  return 0;
+}
+
 /// Checks GitHub Releases for a newer build of THIS edition. Null = up to
-/// date (or the check failed — never nag on network errors). The CI tags
-/// releases `<branch>-v<version>-<run>` with versionCode = run number, so
-/// "newer" is a plain integer comparison against this build's versionCode.
+/// date (or the check failed — never nag on network errors). CI tags
+/// releases `<branch>-v<version>-<run>`; the version name is the primary
+/// comparison. versionCode (= run number) only breaks ties, and must be
+/// taken mod 1000 first: Flutter stamps per-ABI split APKs with
+/// `abiCode*1000 + versionCode`, which made split installs (exactly what
+/// the updater downloads) look newer than every release — the 1.0.6
+/// "no updates found" bug.
 final updateCheckProvider = FutureProvider<AppUpdate?>((ref) async {
   try {
     final info = await PackageInfo.fromPlatform();
-    final currentCode = int.tryParse(info.buildNumber) ?? 0;
+    final currentCode = (int.tryParse(info.buildNumber) ?? 0) % 1000;
+    final currentVersion = info.version;
     final tagPrefix = _tagPrefixFor(info.packageName);
     // The device's preferred ABI, so we download the matching split APK
     // (smallest) and only fall back to the universal one.
     final abi = await UpdaterChannel.deviceAbi();
 
     final res = await http.get(
-      Uri.parse('https://api.github.com/repos/$_repo/releases?per_page=15'),
+      Uri.parse('https://api.github.com/repos/$_repo/releases?per_page=50'),
       headers: {'Accept': 'application/vnd.github+json'},
     ).timeout(const Duration(seconds: 12));
     if (res.statusCode != 200) return null;
@@ -74,9 +105,21 @@ final updateCheckProvider = FutureProvider<AppUpdate?>((ref) async {
     for (final r in releases) {
       final tag = r['tag_name'] as String? ?? '';
       if (!tag.startsWith(tagPrefix)) continue;
-      // <branch>-v1.0.1-42 → run number after the final dash.
+      // <branch>-v1.0.1-42 → version between the prefix and the final
+      // dash, run number after it.
       final run = int.tryParse(tag.split('-').last) ?? 0;
-      if (run <= currentCode || run <= (best?.runNumber ?? 0)) continue;
+      final version = tag.substring(
+          tagPrefix.length,
+          tag.lastIndexOf('-') > tagPrefix.length
+              ? tag.lastIndexOf('-')
+              : tag.length);
+      final versionCmp = compareSemver(version, currentVersion);
+      final isNewer = versionCmp > 0 || (versionCmp == 0 && run > currentCode);
+      if (!isNewer) continue;
+      if (best != null) {
+        final bestCmp = compareSemver(version, best.semver);
+        if (bestCmp < 0 || (bestCmp == 0 && run <= best.runNumber)) continue;
+      }
 
       // Match the device ABI (e.g. hanamimi-plus-arm64-v8a.apk); fall back
       // to the universal APK, then any split as a last resort.
@@ -95,6 +138,7 @@ final updateCheckProvider = FutureProvider<AppUpdate?>((ref) async {
 
       best = AppUpdate(
         versionName: (r['name'] as String?) ?? tag,
+        semver: version,
         runNumber: run,
         changelog: (r['body'] as String?) ?? '',
         apkUrl: asset['browser_download_url'] as String,

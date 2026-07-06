@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../audio/models/audio_state.dart';
 import '../../../audio/models/queue_mode.dart';
 import '../../../providers/audio_provider.dart';
+import '../../../providers/power_provider.dart';
 import '../../../providers/sleep_timer_provider.dart';
 import '../../../providers/theme_provider.dart';
 import '../../../theme/theme_tokens.dart';
@@ -165,6 +166,15 @@ class _PlaybackControlsState extends ConsumerState<PlaybackControls>
                 QueueMode.repeatAll => QueueMode.repeatOne,
                 QueueMode.repeatOne => QueueMode.sequential,
               }),
+            ),
+            // Caffeine: keep the screen on while enjoying the visualizer.
+            _IconOnly(
+              icon: Icons.coffee_outlined,
+              size: 20,
+              color: ref.watch(caffeineProvider)
+                  ? theme.primary
+                  : theme.textMuted,
+              onTap: () => ref.read(caffeineProvider.notifier).toggle(),
             ),
             _IconOnly(
               icon: Icons.nightlight_outlined,

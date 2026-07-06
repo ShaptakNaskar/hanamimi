@@ -1,16 +1,25 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../library/models/playlist.dart';
 import '../../library/models/track.dart';
+import '../../utils/back_stack.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/library_provider.dart';
+import '../../providers/mascot_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../providers/update_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
 import '../components/library/album_card.dart';
+import '../components/mascot/hanamimi_widget.dart';
 import '../components/library/playlist_card.dart';
+import '../components/library/playlist_cover.dart';
 import '../components/library/track_row.dart';
 import '../components/shared/pill_tab_bar.dart';
 
@@ -28,7 +37,19 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   final _searchController = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    // System back closes the search overlay before leaving the screen.
+    BackStack.register(this, () {
+      if (!_searching) return false;
+      _closeSearch();
+      return true;
+    });
+  }
+
+  @override
   void dispose() {
+    BackStack.unregister(this);
     _searchController.dispose();
     super.dispose();
   }
@@ -93,7 +114,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                   )
                 : Row(
                     children: [
-                      Text('Hanamimi',
+                      // The mascot lives in the header too — she reacts
+                      // to playback just like on Now Playing.
+                      HanamimiMascot(
+                          state: ref.watch(mascotStateProvider),
+                          size: 30),
+                      const SizedBox(width: Space.s2),
+                      Text(
+                          ref.watch(editionNameProvider).value ??
+                              'Hanamimi',
                           style: AppText.screenTitle(theme)
                               .copyWith(fontSize: 22)),
                       const Spacer(),
@@ -261,6 +290,39 @@ class _FoldersTabState extends ConsumerState<_FoldersTab> {
   String? _openPath;
 
   @override
+  void initState() {
+    super.initState();
+    // System back climbs out of the open folder before leaving the tab.
+    BackStack.register(this, () {
+      if (_openPath == null) return false;
+      setState(() => _openPath = null);
+      return true;
+    });
+  }
+
+  @override
+  void dispose() {
+    BackStack.unregister(this);
+    super.dispose();
+  }
+
+  /// Folder → playlist with the folder's name (deduped "Name 2", …) and
+  /// its songs in folder order.
+  Future<void> _createPlaylistFromFolder(MusicFolder folder) async {
+    final existing = ref.read(playlistsProvider).value ?? [];
+    var name = folder.name;
+    var n = 2;
+    while (existing.any((p) => p.name.toLowerCase() == name.toLowerCase())) {
+      name = '${folder.name} ${n++}';
+    }
+    final color =
+        playlistCoverColors[existing.length % playlistCoverColors.length];
+    await ref.read(playlistsProvider.notifier).createWithTracks(
+        name, color.toARGB32(), [for (final t in folder.tracks) t.id]);
+    if (mounted) _toast(context, 'Playlist "$name" created 🌸');
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = ref.watch(currentThemeProvider);
     final folders = ref.watch(foldersProvider);
@@ -289,6 +351,7 @@ class _FoldersTabState extends ConsumerState<_FoldersTab> {
           folder: visible[i],
           theme: theme,
           onTap: () => setState(() => _openPath = visible[i].path),
+          onCreatePlaylist: () => _createPlaylistFromFolder(visible[i]),
         ),
       );
     }
@@ -338,6 +401,16 @@ class _FoldersTabState extends ConsumerState<_FoldersTab> {
                 ),
               ),
               const SizedBox(width: Space.s2),
+              InkResponse(
+                onTap: () => _createPlaylistFromFolder(open),
+                radius: 20,
+                child: SizedBox(
+                  width: Sizes.minTouchTarget,
+                  height: Sizes.minTouchTarget,
+                  child: Icon(Icons.playlist_add,
+                      size: 22, color: theme.textMuted),
+                ),
+              ),
               InkResponse(
                 onTap: () => ref
                     .read(audioHandlerProvider)
@@ -392,11 +465,15 @@ class _FolderRow extends StatelessWidget {
     required this.folder,
     required this.theme,
     required this.onTap,
+    this.onCreatePlaylist,
   });
 
   final MusicFolder folder;
   final HanamimiTheme theme;
   final VoidCallback onTap;
+
+  /// Long-press: folder → playlist.
+  final VoidCallback? onCreatePlaylist;
 
   @override
   Widget build(BuildContext context) {
@@ -404,6 +481,7 @@ class _FolderRow extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
+        onLongPress: onCreatePlaylist,
         splashColor: theme.primary.withValues(alpha: 0.12),
         highlightColor: theme.primary.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(Radii.md),
@@ -533,6 +611,29 @@ class _PlaylistsTab extends ConsumerStatefulWidget {
 class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
   int? _openId;
   bool _likedOpen = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // System back closes the open playlist / liked-songs detail first.
+    BackStack.register(this, () {
+      if (_likedOpen) {
+        setState(() => _likedOpen = false);
+        return true;
+      }
+      if (_openId != null) {
+        setState(() => _openId = null);
+        return true;
+      }
+      return false;
+    });
+  }
+
+  @override
+  void dispose() {
+    BackStack.unregister(this);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -716,25 +817,11 @@ class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
                       size: 26, color: theme.textPrimary),
                 ),
               ),
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: playlist.coverColor,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  playlist.name.isEmpty
-                      ? '♪'
-                      : playlist.name[0].toUpperCase(),
-                  style: TextStyle(
-                    fontFamily: 'Nunito',
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white.withValues(alpha: 0.9),
-                  ),
-                ),
+              // Tap the cover to pick a custom image (or reset it).
+              GestureDetector(
+                onTap: () => _pickCover(playlist, theme),
+                child:
+                    PlaylistCover(playlist: playlist, size: 34, fontSize: 16),
               ),
               const SizedBox(width: Space.s3),
               Expanded(
@@ -787,36 +874,106 @@ class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
                       ? 'Nothing here yet — swipe a song left in Songs and pick "${playlist.name}"'
                       : 'Nothing matches "${widget.query}"',
                   theme: theme)
-              : ListView.builder(
+              // Long-press drag to reorder — but only on the unfiltered
+              // list, where row indices match playlist positions.
+              : ReorderableListView.builder(
+                  buildDefaultDragHandles: q.isEmpty,
+                  onReorder: (oldIndex, newIndex) {
+                    if (q.isNotEmpty) return;
+                    if (newIndex > oldIndex) newIndex--;
+                    ref
+                        .read(playlistsProvider.notifier)
+                        .reorderTrack(playlist.id, oldIndex, newIndex);
+                  },
+                  proxyDecorator: (child, _, __) => Material(
+                      color: Colors.transparent,
+                      elevation: 4,
+                      borderRadius: BorderRadius.circular(Radii.md),
+                      child: child),
                   padding: const EdgeInsets.symmetric(
                       horizontal: Space.s4, vertical: Space.s2),
                   itemCount: visible.length,
                   itemExtent: Sizes.trackRowHeight,
-                  itemBuilder: (context, i) => TrackRow(
-                    track: visible[i],
-                    theme: theme,
-                    isPlaying: visible[i].id == playingId,
-                    onTap: () => ref
-                        .read(audioHandlerProvider)
-                        .playTracks(visible, startIndex: i),
-                    onAddToQueue: () {
-                      ref
+                  itemBuilder: (context, i) => KeyedSubtree(
+                    key: ValueKey('pl_${playlist.id}_${visible[i].id}'),
+                    child: TrackRow(
+                      track: visible[i],
+                      theme: theme,
+                      isPlaying: visible[i].id == playingId,
+                      onTap: () => ref
                           .read(audioHandlerProvider)
-                          .engine
-                          .addToQueue(visible[i]);
-                      _toast(context, 'Added to queue');
-                    },
-                    onRemove: () {
-                      ref
-                          .read(playlistsProvider.notifier)
-                          .removeTrack(playlist.id, visible[i].id);
-                      _toast(context, 'Removed from ${playlist.name}');
-                    },
+                          .playTracks(visible, startIndex: i),
+                      onAddToQueue: () {
+                        ref
+                            .read(audioHandlerProvider)
+                            .engine
+                            .addToQueue(visible[i]);
+                        _toast(context, 'Added to queue');
+                      },
+                      onRemove: () {
+                        ref
+                            .read(playlistsProvider.notifier)
+                            .removeTrack(playlist.id, visible[i].id);
+                        _toast(context, 'Removed from ${playlist.name}');
+                      },
+                    ),
                   ),
                 ),
         ),
       ],
     );
+  }
+
+  /// Cover picker: gallery image (copied into app storage so the pick
+  /// survives the gallery cleaning caches) or back to the collage.
+  Future<void> _pickCover(Playlist playlist, HanamimiTheme theme) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(Icons.image_outlined, color: theme.textPrimary),
+              title: Text('Choose cover image', style: AppText.body(theme)),
+              onTap: () => Navigator.pop(sheetContext, 'pick'),
+            ),
+            if (playlist.coverImagePath != null)
+              ListTile(
+                leading:
+                    Icon(Icons.restart_alt, color: theme.textPrimary),
+                title: Text('Back to song-art cover',
+                    style: AppText.body(theme)),
+                onTap: () => Navigator.pop(sheetContext, 'reset'),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (action == 'reset') {
+      await ref.read(playlistsProvider.notifier).setCover(playlist.id, null);
+      return;
+    }
+    if (action != 'pick') return;
+
+    final picked = await ImagePicker()
+        .pickImage(source: ImageSource.gallery, maxWidth: 1024);
+    if (picked == null) return;
+    final dir = Directory(
+        '${(await getApplicationDocumentsDirectory()).path}/playlist_covers');
+    await dir.create(recursive: true);
+    // Unique name per pick — reusing one path would keep showing the old
+    // image from the decode cache.
+    final dest =
+        '${dir.path}/${playlist.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    await File(picked.path).copy(dest);
+    final old = playlist.coverImagePath;
+    await ref.read(playlistsProvider.notifier).setCover(playlist.id, dest);
+    if (old != null) {
+      try {
+        await File(old).delete();
+      } catch (_) {}
+    }
   }
 
   void _confirmDeletePlaylist(Playlist playlist, HanamimiTheme theme) {
