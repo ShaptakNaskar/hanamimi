@@ -1,3 +1,5 @@
+import 'dart:ui' show Brightness, PlatformDispatcher;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -19,9 +21,17 @@ class SelectedThemeId extends Notifier<String> {
   @override
   String build() {
     final saved = ref.watch(sharedPrefsProvider).getString(_key);
+    if (saved == null) {
+      // First boot: follow the system look — Cherry Blossom for light,
+      // Starry Night for dark. Default only; the user's pick rules
+      // from then on.
+      final dark = PlatformDispatcher.instance.platformBrightness ==
+          Brightness.dark;
+      return (dark ? starryNight : cherryBlossom).id;
+    }
     // themeById knows the retired-theme migrations; normalize through it
     // so a stale saved id can't linger.
-    return themeById(saved ?? cherryBlossom.id).id;
+    return themeById(saved).id;
   }
 
   void setTheme(String id) {
