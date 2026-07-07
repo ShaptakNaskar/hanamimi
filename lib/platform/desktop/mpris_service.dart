@@ -6,6 +6,7 @@ import 'package:dbus/dbus.dart';
 import '../../audio/audio_handler.dart';
 import '../../audio/models/audio_state.dart';
 import '../../audio/models/queue_mode.dart';
+import 'smtc_service.dart';
 
 /// Desktop "now playing" integration (ARCHITECTURE-DESKTOP.md §2):
 /// on Linux this exports the MPRIS D-Bus object every desktop
@@ -15,7 +16,8 @@ import '../../audio/models/queue_mode.dart';
 /// Best-effort: no session bus (odd container, WM without D-Bus) just
 /// means no media keys; playback is untouched.
 Future<void> initDesktopNowPlaying(HanamimiAudioHandler handler) async {
-  if (!Platform.isLinux) return; // Windows SMTC lands separately
+  if (Platform.isWindows) return initWindowsSmtc(handler);
+  if (!Platform.isLinux) return;
   try {
     final client = DBusClient.session();
     final mpris = _MprisMediaPlayer(handler);

@@ -61,6 +61,7 @@ dependencies:
   window_manager: ^0.4.3 # min size, remembered bounds, window title
   file_selector: ^1.0.3 # folder picker (music folders) + cover picker stand-in
   dbus: ^0.7.10 # MPRIS media keys / now-playing on Linux
+  smtc_windows: ^1.1.0
 
 dev_dependencies:
   flutter_test:

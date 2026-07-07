@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
@@ -23,6 +24,9 @@ Future<void> initDesktop(List<String> args, SharedPreferences prefs) async {
 
   DesktopBinaries.supportBinDir =
       '${(await getApplicationSupportDirectory()).path}/bin';
+  // Windows: fetch ffmpeg/ffprobe once in the background (scan, art
+  // and visualizer need them; yt-dlp already lazy-fetches itself).
+  unawaited(DesktopBinaries.ensureMediaToolsWindows());
 
   // "Open with Hanamimi" on desktop = file paths as launch arguments.
   OpenWithChannel.desktopPendingFromArgs(args);

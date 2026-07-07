@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'dart:io';
+
+import 'package:http/http.dart' as http;
 
 /// Locates the helper binaries the desktop build leans on (ffmpeg,
 /// ffprobe, yt-dlp). Search order (ARCHITECTURE-DESKTOP.md §3):
@@ -42,5 +45,38 @@ class DesktopBinaries {
     } catch (_) {
       return false;
     }
+  }
+
+  /// Windows self-setup: ffmpeg/ffprobe power the library scan, album
+  /// art and the visualizer, but Windows has no system ffmpeg — fetch
+  /// the static build once into the support dir (the same lazy-init
+  /// yt-dlp already does). Linux gets ffmpeg from the AppImage/distro.
+  /// Fire-and-forget from the bootstrap; scans just find no tags until
+  /// it lands, then the next rescan fills in.
+  static Future<void> ensureMediaToolsWindows() async {
+    if (!Platform.isWindows) return;
+    if (await works('ffmpeg') && await works('ffprobe')) return;
+    final dir = _supportBin;
+    if (dir == null) return;
+    try {
+      final zip = File('$dir/ffmpeg-download.zip');
+      await Directory(dir).create(recursive: true);
+      final res = await http
+          .get(Uri.parse(
+              'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'))
+          .timeout(const Duration(minutes: 10));
+      if (res.statusCode != 200 || res.bodyBytes.isEmpty) return;
+      await zip.writeAsBytes(res.bodyBytes, flush: true);
+      // Windows always has PowerShell — no archive dependency needed.
+      await Process.run('powershell', [
+        '-NoProfile',
+        '-Command',
+        'Expand-Archive -Force "${zip.path}" "$dir/ffmpeg-tmp"; '
+            'Copy-Item "$dir/ffmpeg-tmp/*/bin/ffmpeg.exe" "$dir/"; '
+            'Copy-Item "$dir/ffmpeg-tmp/*/bin/ffprobe.exe" "$dir/"; '
+            'Remove-Item -Recurse -Force "$dir/ffmpeg-tmp", "${zip.path}"',
+      ]);
+      _cache.clear(); // re-resolve now that the binaries exist
+    } catch (_) {}
   }
 }
