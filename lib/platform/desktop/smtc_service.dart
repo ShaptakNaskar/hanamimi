@@ -9,8 +9,8 @@ import '../../audio/audio_handler.dart';
 import '../../audio/models/audio_state.dart';
 
 /// Release desktop builds have no console — SMTC init failures were
-/// invisible. Appends to <app-support>/logs/smtc.log; the Windows test
-/// checklist points testers here.
+/// invisible. Appends to `<app-support>/logs/smtc.log`; the Windows
+/// test checklist points testers here.
 Future<void> _log(String message) async {
   try {
     final dir = await getApplicationSupportDirectory();
