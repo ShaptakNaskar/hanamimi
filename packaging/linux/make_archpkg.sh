@@ -62,7 +62,10 @@ rm -f "$PKGDIR/.MTREE.tmp"
 
 # --- package ---------------------------------------------------------
 mkdir -p "$OUTDIR"
-OUT="$OUTDIR/$PKGNAME-$VERSION-1-x86_64.pkg.tar.zst"
+# Absolute path: the packaging subshell cd's into the staging dir,
+# where a relative OUTDIR doesn't exist (CI: "No such file or
+# directory" + "bsdtar: Write error").
+OUT="$(cd "$OUTDIR" && pwd)/$PKGNAME-$VERSION-1-x86_64.pkg.tar.zst"
 # stdout redirect, not -o: Ubuntu's zstd won't read stdin with -o and
 # the broken pipe surfaced as a bare "bsdtar: Write error" on CI.
 ( cd "$PKGDIR" && LANG=C bsdtar -cf - .MTREE .PKGINFO opt usr \
