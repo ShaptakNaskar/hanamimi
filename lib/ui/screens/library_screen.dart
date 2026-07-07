@@ -13,7 +13,6 @@ import '../../library/models/track.dart';
 import '../../online/models/online_search_result.dart';
 import '../../utils/back_stack.dart';
 import '../../providers/audio_provider.dart';
-import '../../platform/desktop/desktop_bootstrap.dart';
 import '../../providers/desktop_shell_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
@@ -166,11 +165,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // In the three-pane desktop shell the sidebar
-                      // already wears the mascot + edition title —
-                      // repeating it here read as a glitch.
-                      if (!(isDesktop &&
-                          MediaQuery.sizeOf(context).width >= 1240)) ...[
+                      // In the three-pane shell (desktop windows AND
+                      // wide tablets) the sidebar already wears the
+                      // mascot + edition title — repeating it here read
+                      // as a glitch.
+                      if (MediaQuery.sizeOf(context).width < 1240) ...[
                         Row(
                           children: [
                             // The mascot lives in the header too — she

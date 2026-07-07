@@ -270,7 +270,10 @@ class _AppShellState extends ConsumerState<AppShell>
     // Wide desktop windows trade the bottom nav for a left rail
     // (ARCHITECTURE-DESKTOP.md §5); a narrow window keeps the phone
     // layout, which maps cleanly onto it.
-    final wide = isDesktop && MediaQuery.sizeOf(context).width >= 880;
+    // Width decides, not platform: tablets and unfolded foldables get
+    // the same shell as a desktop window of that size (a stretched
+    // phone layout on a 1280dp tablet looked sparse and wrong).
+    final wide = MediaQuery.sizeOf(context).width >= 880;
 
     final content = AnimatedSwitcher(
       duration: Anim.tabSlide,
@@ -319,7 +322,7 @@ class _AppShellState extends ConsumerState<AppShell>
     // sidebar (folders + playlists driving the middle pane); the mini
     // player never exists on desktop — the panel IS the player.
     final width = MediaQuery.sizeOf(context).width;
-    final threePane = isDesktop && width >= 1240;
+    final threePane = width >= 1240;
     final contentIndex = _index == 1 ? 0 : _index;
 
     // The Now Playing panel, with the expand-to-immersive affordance.
