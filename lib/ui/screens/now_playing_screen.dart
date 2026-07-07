@@ -34,7 +34,12 @@ import '../modals/queue_sheet.dart';
 import '../modals/sleep_timer_modal.dart';
 
 class NowPlayingScreen extends ConsumerWidget {
-  const NowPlayingScreen({super.key});
+  const NowPlayingScreen({super.key, this.panel = false});
+
+  /// True when living as the desktop side panel: the blurred-art wash
+  /// dissolves into the app background at its left edge instead of
+  /// cutting a hard, glowing seam against the middle pane.
+  final bool panel;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -70,10 +75,26 @@ class NowPlayingScreen extends ConsumerWidget {
             ?.firstWhere((t) => t.id == track.id, orElse: () => track) ??
         track;
 
+    final background = _BlurredArtBackground(track: track, theme: theme);
     return Stack(
       fit: StackFit.expand,
       children: [
-        _BlurredArtBackground(track: track, theme: theme),
+        if (panel)
+          // The wash reads as light bleeding out of the ALBUM ART, not
+          // out of the pane split: a radial falloff centered where the
+          // art sits, dissolving well before the panel's left edge.
+          ShaderMask(
+            shaderCallback: (rect) => const RadialGradient(
+              center: Alignment(0.1, -0.55),
+              radius: 1.25,
+              colors: [Colors.white, Colors.white38, Colors.transparent],
+              stops: [0.2, 0.6, 0.95],
+            ).createShader(rect),
+            blendMode: BlendMode.dstIn,
+            child: background,
+          )
+        else
+          background,
         ParticleOverlay(
           theme: theme,
           fireflies: ref.watch(buddyEnabledProvider('fireflies')),

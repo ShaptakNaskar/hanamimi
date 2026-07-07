@@ -17,10 +17,12 @@ import '../theme/hanamimi_theme.dart';
 import '../theme/theme_tokens.dart';
 import '../utils/back_stack.dart';
 import '../utils/duration_ext.dart';
+import 'components/desktop/library_sidebar.dart';
 import 'components/mini_player.dart';
 import 'components/shared/bottom_nav.dart';
 import 'modals/import_playlist_sheet.dart';
 import 'modals/update_dialog.dart';
+import 'screens/desktop_immersive_screen.dart';
 import 'screens/downloads_screen.dart';
 import 'screens/library_screen.dart';
 import 'screens/now_playing_screen.dart';
@@ -143,7 +145,20 @@ class _AppShellState extends ConsumerState<AppShell>
         final target = engine.position - const Duration(seconds: 5);
         engine.seek(target.isNegative ? Duration.zero : target);
       case LogicalKeyboardKey.escape:
-        if (!BackStack.pop() && _index != 0) _onNavChanged(0);
+        // Immersive Now Playing (or any pushed route/dialog) first.
+        final navigator = Navigator.of(context, rootNavigator: true);
+        if (navigator.canPop()) {
+          navigator.pop();
+        } else if (!BackStack.pop() && _index != 0) {
+          _onNavChanged(0);
+        }
+      case LogicalKeyboardKey.keyF:
+        // Immersive full-window Now Playing (like Spotify's F11 view).
+        final nav = Navigator.of(context, rootNavigator: true);
+        if (!nav.canPop() &&
+            ref.read(audioStateProvider).value?.currentTrack != null) {
+          nav.push(DesktopImmersiveScreen.route());
+        }
       case LogicalKeyboardKey.digit1:
         _onNavChanged(0);
       case LogicalKeyboardKey.digit2:
@@ -280,45 +295,71 @@ class _AppShellState extends ConsumerState<AppShell>
       ],
     );
 
-    // Side-by-side desktop layout (ARCHITECTURE-DESKTOP.md §5): Now
-    // Playing is a permanent right-hand panel instead of a tab, so the
-    // wide window reads as a desktop music player, not a stretched
-    // phone. The rail drops the Playing destination and the mini player
-    // disappears (the panel IS the player); the resume ticker stays.
+    // Desktop layouts (ARCHITECTURE-DESKTOP.md §5): Now Playing is a
+    // permanent right-hand panel instead of a tab, so a wide window
+    // reads as a desktop music player, not a stretched phone. At full
+    // width the slim rail grows into the Spotify-style "Your Library"
+    // sidebar (folders + playlists driving the middle pane); the mini
+    // player never exists on desktop — the panel IS the player.
+    final width = MediaQuery.sizeOf(context).width;
+    final threePane = isDesktop && width >= 1240;
+    final contentIndex = _index == 1 ? 0 : _index;
+
+    // The Now Playing panel, with the expand-to-immersive affordance.
+    final nowPlayingPanel = SizedBox(
+      width: 400,
+      child: Stack(
+        children: [
+          const NowPlayingScreen(panel: true),
+          Positioned(
+            top: Space.s2,
+            right: Space.s2,
+            child: IconButton(
+              tooltip: 'Immersive view',
+              onPressed: () => Navigator.of(context, rootNavigator: true)
+                  .push(DesktopImmersiveScreen.route()),
+              icon: Icon(Icons.open_in_full_rounded,
+                  size: 18, color: theme.textMuted),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    final middlePane = Expanded(
+      child: Column(
+        children: [
+          Expanded(
+            child: KeyedSubtree(
+              key: ValueKey(contentIndex),
+              child: _screens[contentIndex],
+            ),
+          ),
+          _ResumeTicker(
+            session: _pendingResume,
+            theme: theme,
+            onPlay: _acceptResume,
+            onDismiss: _dismissResume,
+          ),
+        ],
+      ),
+    );
+
     final wideBody = Row(
       children: [
-        HanamimiSideRail(
-          // Coming back from a narrow window on the Playing tab: the
-          // panel already shows it, so the content pane falls back to
-          // the Library.
-          activeIndex: _index == 1 ? 0 : _index,
-          onChanged: _onNavChanged,
-          theme: theme,
-          showPlaying: false,
-        ),
-        Expanded(
-          child: Column(
-            children: [
-              Expanded(
-                child: KeyedSubtree(
-                  key: ValueKey(_index == 1 ? 0 : _index),
-                  child: _screens[_index == 1 ? 0 : _index],
-                ),
-              ),
-              _ResumeTicker(
-                session: _pendingResume,
-                theme: theme,
-                onPlay: _acceptResume,
-                onDismiss: _dismissResume,
-              ),
-            ],
+        if (threePane)
+          LibrarySidebar(activeIndex: contentIndex, onNav: _onNavChanged)
+        else
+          HanamimiSideRail(
+            activeIndex: contentIndex,
+            onChanged: _onNavChanged,
+            theme: theme,
+            showPlaying: false,
           ),
-        ),
-        Container(width: 0.5, color: theme.divider),
-        const SizedBox(
-          width: 400,
-          child: NowPlayingScreen(),
-        ),
+        middlePane,
+        // No divider: the panel's art wash fades out at its left edge,
+        // so the panes blend instead of splitting at a hard line.
+        nowPlayingPanel,
       ],
     );
 
