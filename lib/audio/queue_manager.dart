@@ -583,9 +583,17 @@ class QueueManager {
   /// Notifies the sleep timer that end-of-track mode completed.
   void Function()? onSleepTimerFired;
 
+  /// Bumped on every play request. A slow load that loses this race
+  /// (the user skipped again before it finished) must swallow its own
+  /// failure: spamming previous/next interrupts each in-flight
+  /// setAudioSource, and treating those aborts as unreadable files
+  /// caused spurious auto-skips (user-reported on plus).
+  int _playGeneration = 0;
+
   Future<void> _playCurrent() async {
     final track = _currentTrack;
     if (track == null) return;
+    final generation = ++_playGeneration;
     _state.add(state.copyWith(
       currentTrack: track,
       queue: [for (final i in _order) _source[i]],
@@ -593,11 +601,15 @@ class QueueManager {
     ));
     try {
       await _setSource(_primary, track);
+      if (generation != _playGeneration) return; // superseded mid-load
       await _primary.setVolume(1);
       await _activateFocus();
       await _primary.play();
       trackStarted.add(track);
     } catch (_) {
+      // A newer request interrupted this load — its failure is noise,
+      // not a broken track; the newer request owns the outcome.
+      if (generation != _playGeneration) return;
       // Unreadable file (deleted, moved) — skip forward.
       await next(byUser: false);
     }
