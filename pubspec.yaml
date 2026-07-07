@@ -53,6 +53,15 @@ dependencies:
   image_picker: ^1.2.1 # custom playlist covers (Android Photo Picker)
   share_plus: ^12.0.1 # lyrics cards
 
+  # --- Desktop (M31) — see ARCHITECTURE-DESKTOP.md ---
+  media_kit: ^1.1.11 # libmpv playback engine (Linux/Windows)
+  media_kit_libs_linux: ^1.2.1 # bundles libmpv into the Linux build
+  media_kit_libs_windows_audio: ^1.0.9 # …and the Windows build
+  sqflite_common_ffi: ^2.3.4 # same SQL, desktop-native SQLite backend
+  window_manager: ^0.4.3 # min size, remembered bounds, window title
+  file_selector: ^1.0.3 # folder picker (music folders) + cover picker stand-in
+  dbus: ^0.7.10 # MPRIS media keys / now-playing on Linux
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -71,6 +80,11 @@ dev_dependencies:
 # The following section is specific to Flutter packages.
 flutter:
   uses-material-design: true
+
+  assets:
+    # Bundled so the desktop runner can set the window icon at runtime
+    # (X11/dev runs; Wayland reads the .desktop file instead).
+    - assets/icon/icon.png
 
   fonts:
     - family: Nunito

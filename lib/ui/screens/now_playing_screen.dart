@@ -75,162 +75,199 @@ class NowPlayingScreen extends ConsumerWidget {
       children: [
         _BlurredArtBackground(track: track, theme: theme),
         ParticleOverlay(
-            theme: theme,
-            fireflies: ref.watch(buddyEnabledProvider('fireflies'))),
+          theme: theme,
+          fireflies: ref.watch(buddyEnabledProvider('fireflies')),
+        ),
         SafeArea(
           bottom: false,
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final artSize = constraints.maxWidth * 0.72;
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: Space.s4),
-                child: Column(
-                  children: [
-                    const Spacer(flex: 2),
-                    AlbumArtWidget(
-                      track: track,
-                      theme: theme,
-                      isPlaying: audio?.isPlaying ?? false,
-                      size: artSize,
-                    ),
-                    const Spacer(flex: 2),
-                    Row(
+              // Freeform windows (desktop) and short screens: the art
+              // yields to the height budget, the content column never
+              // stretches past phone width, and below ~620px the mascot
+              // strip bows out entirely (M31 — a clipped mascot or a
+              // floating half-hamster looks like a glitch, not a pet).
+              final artSize = math.min(
+                constraints.maxWidth * 0.72,
+                constraints.maxHeight * 0.38,
+              );
+              final showMascotStrip = constraints.maxHeight >= 620;
+              return Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 520),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: Space.s4),
+                    child: Column(
                       children: [
-                        Expanded(
+                        const Spacer(flex: 2),
+                        AlbumArtWidget(
+                          track: track,
+                          theme: theme,
+                          isPlaying: audio?.isPlaying ?? false,
+                          size: artSize,
+                        ),
+                        const Spacer(flex: 2),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    track.title,
+                                    style: AppText.npSongTitle(theme),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    track.artist,
+                                    style: AppText.npArtist(theme),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: Space.s3),
+                            if (!libraryTrack.isLocal)
+                              _DownloadButton(
+                                track: libraryTrack,
+                                theme: theme,
+                              ),
+                            _HeartButton(track: libraryTrack, theme: theme),
+                          ],
+                        ),
+                        const _NerdBar(),
+                        const SizedBox(height: Space.s4),
+                        _SeekBarSection(theme: theme),
+                        const SizedBox(height: Space.s6),
+                        PlaybackControls(
+                          onSleepTimer: () => showSleepTimerModal(context),
+                          onQueue: () => showQueueSheet(context),
+                          onAddToPlaylist:
+                              () => showPlaylistPicker(
+                                context,
+                                ref,
+                                theme,
+                                libraryTrack.id,
+                              ),
+                        ),
+                        const SizedBox(height: Space.s4),
+                        const VisualizerWidget(height: 56),
+                        const Spacer(flex: 1),
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => showLyricsSheet(context, track),
+                          onVerticalDragEnd: (d) {
+                            if ((d.primaryVelocity ?? 0) < -200) {
+                              showLyricsSheet(context, track);
+                            }
+                          },
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                track.title,
-                                style: AppText.npSongTitle(theme),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                              Icon(
+                                Icons.keyboard_arrow_up,
+                                color: theme.textMuted,
+                                size: 20,
                               ),
-                              const SizedBox(height: 2),
-                              Text(
-                                track.artist,
-                                style: AppText.npArtist(theme),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                              Text('Lyrics', style: AppText.caption(theme)),
                             ],
                           ),
                         ),
-                        const SizedBox(width: Space.s3),
-                        if (!libraryTrack.isLocal)
-                          _DownloadButton(track: libraryTrack, theme: theme),
-                        _HeartButton(track: libraryTrack, theme: theme),
+                        const SizedBox(height: Space.s2),
+                        // Flexible + scaleDown: on screens shorter than the
+                        // design height the mascot gives up the missing pixels
+                        // instead of overflowing the column (10px overflow on
+                        // 1080x2400 with taller system insets). flex 6 beats
+                        // the Spacers (2+2+1) so with any reasonable free
+                        // space the slot exceeds 90px and the mascot renders
+                        // full size — FittedBox.scaleDown never enlarges.
+                        if (showMascotStrip)
+                          Flexible(
+                            flex: 6,
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: Stack(
+                                children: [
+                                  // The pets' furniture flanks the mascot:
+                                  // hamster wheel bottom-left (spins with the
+                                  // music), koi fishbowl bottom-right. Real
+                                  // objects — free-roaming versions of these
+                                  // two read as glitches.
+                                  if (ref.watch(
+                                    buddyEnabledProvider('hamster'),
+                                  ))
+                                    Positioned(
+                                      left: 0,
+                                      bottom: 0,
+                                      child: HamsterWheel(
+                                        running: audio?.isPlaying ?? false,
+                                      ),
+                                    ),
+                                  if (ref.watch(buddyEnabledProvider('koi')))
+                                    const Positioned(
+                                      right: 0,
+                                      bottom: 0,
+                                      child: KoiBowl(),
+                                    ),
+                                  if (ref.watch(buddyEnabledProvider('beagle')))
+                                    Align(
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: HanamimiMascot(
+                                          state: ref.watch(mascotStateProvider),
+                                          amplitude: ref.watch(
+                                            amplitudeProvider,
+                                          ),
+                                          accessory:
+                                              ref.watch(catModeProvider).enabled
+                                                  ? Accessory.catEars
+                                                  : ref.watch(
+                                                    activeAccessoryProvider,
+                                                  ),
+                                          size: 90,
+                                          onTap: () {
+                                            final unlocked =
+                                                ref
+                                                    .read(
+                                                      catModeProvider.notifier,
+                                                    )
+                                                    .registerMascotTap();
+                                            if (unlocked) {
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                SnackBar(
+                                                  behavior:
+                                                      SnackBarBehavior.floating,
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          Radii.md,
+                                                        ),
+                                                  ),
+                                                  content: const Text(
+                                                    'Meow?! Cat Mode unlocked 🐱',
+                                                    style: TextStyle(
+                                                      fontFamily: 'Nunito',
+                                                    ),
+                                                  ),
+                                                ),
+                                              );
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        const SizedBox(height: Space.s2),
                       ],
                     ),
-                    const _NerdBar(),
-                    const SizedBox(height: Space.s4),
-                    _SeekBarSection(theme: theme),
-                    const SizedBox(height: Space.s6),
-                    PlaybackControls(
-                      onSleepTimer: () => showSleepTimerModal(context),
-                      onQueue: () => showQueueSheet(context),
-                      onAddToPlaylist: () => showPlaylistPicker(
-                          context, ref, theme, libraryTrack.id),
-                    ),
-                    const SizedBox(height: Space.s4),
-                    const VisualizerWidget(height: 56),
-                    const Spacer(flex: 1),
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => showLyricsSheet(context, track),
-                      onVerticalDragEnd: (d) {
-                        if ((d.primaryVelocity ?? 0) < -200) {
-                          showLyricsSheet(context, track);
-                        }
-                      },
-                      child: Column(
-                        children: [
-                          Icon(
-                            Icons.keyboard_arrow_up,
-                            color: theme.textMuted,
-                            size: 20,
-                          ),
-                          Text('Lyrics', style: AppText.caption(theme)),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: Space.s2),
-                    // Flexible + scaleDown: on screens shorter than the
-                    // design height the mascot gives up the missing pixels
-                    // instead of overflowing the column (10px overflow on
-                    // 1080x2400 with taller system insets). flex 6 beats
-                    // the Spacers (2+2+1) so with any reasonable free
-                    // space the slot exceeds 90px and the mascot renders
-                    // full size — FittedBox.scaleDown never enlarges.
-                    Flexible(
-                      flex: 6,
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: Stack(
-                          children: [
-                            // The pets' furniture flanks the mascot:
-                            // hamster wheel bottom-left (spins with the
-                            // music), koi fishbowl bottom-right. Real
-                            // objects — free-roaming versions of these
-                            // two read as glitches.
-                            if (ref.watch(buddyEnabledProvider('hamster')))
-                              Positioned(
-                                left: 0,
-                                bottom: 0,
-                                child: HamsterWheel(
-                                    running: audio?.isPlaying ?? false),
-                              ),
-                            if (ref.watch(buddyEnabledProvider('koi')))
-                              const Positioned(
-                                  right: 0, bottom: 0, child: KoiBowl()),
-                            if (ref.watch(buddyEnabledProvider('beagle')))
-                              Align(
-                                child: FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  child: HanamimiMascot(
-                                    state: ref.watch(mascotStateProvider),
-                                    amplitude: ref.watch(amplitudeProvider),
-                                    accessory:
-                                        ref.watch(catModeProvider).enabled
-                                            ? Accessory.catEars
-                                            : ref.watch(
-                                                activeAccessoryProvider),
-                                    size: 90,
-                                    onTap: () {
-                                      final unlocked =
-                                          ref
-                                              .read(catModeProvider.notifier)
-                                              .registerMascotTap();
-                                      if (unlocked) {
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(
-                                          SnackBar(
-                                            behavior:
-                                                SnackBarBehavior.floating,
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(
-                                                Radii.md,
-                                              ),
-                                            ),
-                                            content: const Text(
-                                              'Meow?! Cat Mode unlocked 🐱',
-                                              style: TextStyle(
-                                                  fontFamily: 'Nunito'),
-                                            ),
-                                          ),
-                                        );
-                                      }
-                                    },
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: Space.s2),
-                  ],
+                  ),
                 ),
               );
             },
@@ -418,10 +455,14 @@ class _DownloadButton extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final downloaded = track.isPlayableOffline;
-    final busy = ref.watch(downloadManagerProvider).any((t) =>
-        t.track.id == track.id &&
-        (t.status == DownloadStatus.queued ||
-            t.status == DownloadStatus.downloading));
+    final busy = ref
+        .watch(downloadManagerProvider)
+        .any(
+          (t) =>
+              t.track.id == track.id &&
+              (t.status == DownloadStatus.queued ||
+                  t.status == DownloadStatus.downloading),
+        );
     return InkResponse(
       radius: Sizes.minTouchTarget / 2,
       onTap: downloaded || busy ? null : () => _download(context, ref),
@@ -444,10 +485,7 @@ class _DownloadButton extends ConsumerWidget {
                         ? Icons.download_done
                         : Icons.download_for_offline_outlined,
                     size: 24,
-                    color:
-                        downloaded
-                            ? theme.primary
-                            : theme.textMuted,
+                    color: downloaded ? theme.primary : theme.textMuted,
                   ),
         ),
       ),

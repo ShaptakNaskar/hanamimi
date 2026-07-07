@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -1290,9 +1291,20 @@ class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
     }
     if (action != 'pick') return;
 
-    final picked = await ImagePicker()
-        .pickImage(source: ImageSource.gallery, maxWidth: 1024);
-    if (picked == null) return;
+    // Android Photo Picker on mobile; a plain file dialog on desktop.
+    final String? pickedPath;
+    if (Platform.isAndroid) {
+      final picked = await ImagePicker()
+          .pickImage(source: ImageSource.gallery, maxWidth: 1024);
+      pickedPath = picked?.path;
+    } else {
+      final picked = await openFile(acceptedTypeGroups: const [
+        XTypeGroup(
+            label: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp']),
+      ]);
+      pickedPath = picked?.path;
+    }
+    if (pickedPath == null) return;
     final dir = Directory(
         '${(await getApplicationDocumentsDirectory()).path}/playlist_covers');
     await dir.create(recursive: true);
@@ -1300,7 +1312,7 @@ class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
     // image from the decode cache.
     final dest =
         '${dir.path}/${playlist.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-    await File(picked.path).copy(dest);
+    await File(pickedPath).copy(dest);
     final old = playlist.coverImagePath;
     await ref.read(playlistsProvider.notifier).setCover(playlist.id, dest);
     if (old != null) {

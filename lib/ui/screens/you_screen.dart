@@ -1,9 +1,13 @@
+import 'dart:io';
+
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../library/media_store_channel.dart';
+import '../../platform/desktop/desktop_library.dart';
 import '../../online/models/resolved_stream.dart';
 import '../../online/ytdlp_channel.dart';
 import '../../providers/buddy_provider.dart';
@@ -334,6 +338,19 @@ class _MoreCard extends ConsumerWidget {
               ));
             },
           ),
+          // Desktop points at folders (no MediaStore to index for us).
+          if (!Platform.isAndroid) ...[
+            Divider(height: 0.5, color: theme.divider),
+            ListTile(
+              leading: Icon(Icons.create_new_folder_outlined,
+                  size: 20, color: theme.textMuted),
+              title: Text('Music folders',
+                  style: AppText.rowSongTitle(theme)),
+              subtitle: Text('Folders the library scans',
+                  style: AppText.caption(theme)),
+              onTap: () => _showMusicFoldersSheet(context, ref, theme),
+            ),
+          ],
           Divider(height: 0.5, color: theme.divider),
           ListTile(
             leading: Icon(Icons.folder_off_outlined,
@@ -511,6 +528,110 @@ void _showLicenseDialog(BuildContext context, HanamimiTheme theme) {
   );
 }
 
+/// Desktop: manage the folders the library scans. Rescans on close if
+/// the set changed.
+Future<void> _showMusicFoldersSheet(
+    BuildContext context, WidgetRef ref, HanamimiTheme theme) async {
+  final before = ref.read(musicFoldersProvider);
+  await showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => const FractionallySizedBox(
+      heightFactor: 0.7,
+      child: _MusicFoldersSheet(),
+    ),
+  );
+  if (!setEquals(before, ref.read(musicFoldersProvider))) {
+    ref.read(libraryProvider.notifier).rescan();
+  }
+}
+
+class _MusicFoldersSheet extends ConsumerWidget {
+  const _MusicFoldersSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    final folders = ref.watch(musicFoldersProvider).toList()..sort();
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(Space.s4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Music folders',
+                style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: theme.textPrimary)),
+            const SizedBox(height: Space.s1),
+            Text('Your library is built from the songs inside these folders',
+                style: AppText.caption(theme)),
+            const SizedBox(height: Space.s2),
+            Expanded(
+              child: folders.isEmpty
+                  ? Center(
+                      child: Text('No folders yet — add your music folder',
+                          style: AppText.body(theme)))
+                  : ListView.builder(
+                      itemCount: folders.length,
+                      itemBuilder: (context, i) {
+                        final path = folders[i];
+                        final name =
+                            path.substring(path.lastIndexOf('/') + 1);
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.folder_outlined,
+                              size: 20, color: theme.textMuted),
+                          title: Text(name.isEmpty ? path : name,
+                              style: AppText.rowSongTitle(theme),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                          subtitle: Text(path,
+                              style: AppText.caption(theme),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                          trailing: IconButton(
+                            icon: Icon(Icons.close,
+                                size: 18, color: theme.textMuted),
+                            onPressed: () => ref
+                                .read(musicFoldersProvider.notifier)
+                                .remove(path),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+            const SizedBox(height: Space.s2),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: theme.primary,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(Radii.md)),
+                ),
+                onPressed: () async {
+                  final dir = await getDirectoryPath();
+                  if (dir != null) {
+                    ref.read(musicFoldersProvider.notifier).add(dir);
+                  }
+                },
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add folder',
+                    style: TextStyle(
+                        fontFamily: 'Nunito', fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Opens the excluded-folders manager; rescans on close if the
 /// selection changed so the library reflects it right away.
 Future<void> _showExcludedFoldersSheet(
@@ -552,10 +673,17 @@ class _ExcludedFoldersSheetState
 
   Future<void> _load() async {
     try {
-      final scanned = await MediaStoreChannel.queryTracks();
+      // Fresh index query (not the DB) so already-excluded folders stay
+      // listed: MediaStore on Android, a plain walk on desktop.
+      final paths = Platform.isAndroid
+          ? [
+              for (final s in await MediaStoreChannel.queryTracks())
+                s['filePath'] as String? ?? '',
+            ]
+          : await DesktopLibrary.listAudioFiles(
+              ref.read(musicFoldersProvider));
       final counts = <String, int>{};
-      for (final s in scanned) {
-        final path = s['filePath'] as String? ?? '';
+      for (final path in paths) {
         final slash = path.lastIndexOf('/');
         final dir = slash <= 0 ? '/' : path.substring(0, slash);
         counts[dir] = (counts[dir] ?? 0) + 1;

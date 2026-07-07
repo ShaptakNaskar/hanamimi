@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Hanamimi+
+GenericName=Music Player
+Comment=Kawaii music player — local library, YouTube & JioSaavn
+Exec=hanamimi %f
+Icon=com.hanamimi.hanamimi
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Player;Music;
+MimeType=audio/mpeg;audio/mp4;audio/flac;audio/ogg;audio/opus;audio/x-wav;audio/aac;
+StartupWMClass=com.hanamimi.hanamimi

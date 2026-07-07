@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 
+import '../platform/desktop/desktop_ytdlp.dart';
 import 'models/resolved_stream.dart';
 
 /// Dart side of the embedded yt-dlp bridge (M28, plus-only). Mirrors the
@@ -9,6 +12,8 @@ import 'models/resolved_stream.dart';
 ///
 /// See android/.../YtDlpChannel.kt. We stay on no-PO-token player
 /// clients, so there's no Node.js/BotGuard companion to install.
+/// Desktop runs the real standalone yt-dlp as a subprocess instead
+/// (DesktopYtDlp) — same contract, more capable.
 class YtDlpChannel {
   static const _ch = MethodChannel('hanamimi/ytdlp');
 
@@ -17,6 +22,7 @@ class YtDlpChannel {
   /// `n` param itself, so the returned URL downloads at full speed.
   static Future<ResolvedStream?> resolve(
       String videoId, StreamQuality quality) async {
+    if (!Platform.isAndroid) return DesktopYtDlp.resolve(videoId, quality);
     try {
       final map = await _ch.invokeMapMethod<String, dynamic>('resolve', {
         'id': videoId,
@@ -50,6 +56,7 @@ class YtDlpChannel {
   /// Pulls a fresh yt-dlp at runtime (the "Update extractor" settings
   /// action). Returns the new version string, or null on failure.
   static Future<String?> update() async {
+    if (!Platform.isAndroid) return DesktopYtDlp.update();
     try {
       return await _ch.invokeMethod<String>('update');
     } catch (_) {
@@ -59,6 +66,7 @@ class YtDlpChannel {
 
   /// Current yt-dlp version (null if never initialized / unavailable).
   static Future<String?> version() async {
+    if (!Platform.isAndroid) return DesktopYtDlp.version();
     try {
       return await _ch.invokeMethod<String>('version');
     } catch (_) {

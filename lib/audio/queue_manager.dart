@@ -1,8 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:audio_session/audio_session.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:rxdart/rxdart.dart';
 
 import '../library/models/track.dart';
@@ -10,20 +10,19 @@ import '../online/stream_resolver.dart';
 import 'models/audio_state.dart';
 import 'models/playback_session.dart';
 import 'models/queue_mode.dart';
+import 'player_port.dart';
 
 /// Owns the players and the queue. Crossfade uses the two-player model
 /// from ARCHITECTURE.md §6.1: [_primary] is audible; [_incoming] exists
 /// only while a crossfade is running, then becomes the new primary.
+///
+/// M31: players are [AudioPlayerPort]s — just_audio/ExoPlayer on
+/// Android, media_kit/libmpv on desktop. The queue, crossfade and
+/// focus logic here is platform-agnostic.
 class QueueManager {
   QueueManager({StreamResolver? resolver})
       : _resolver = resolver ?? StreamResolver() {
-    // handleInterruptions:false — with the default (true), every player
-    // manages the shared audio_session singleton itself, and disposing a
-    // crossfade player deactivates the session, ABANDONING the app's
-    // audio focus while music still plays. From then on calls never
-    // paused us (the bug). The session must have exactly one owner: the
-    // engine.
-    _primary = AudioPlayer(handleInterruptions: false);
+    _primary = AudioPlayerPort.create();
     _wirePlayer(_primary);
     unawaited(_initAudioSession());
     _startPositionHeartbeat();
@@ -64,7 +63,11 @@ class QueueManager {
   /// One central audio-focus owner. audio_service activates the session
   /// when playback starts; we listen on the same singleton for the
   /// interruption events the OS sends the focus holder.
+  ///
+  /// Desktop has no mobile-style audio focus — no session at all. Media
+  /// keys arrive via MPRIS/SMTC instead (lib/platform/desktop/).
   Future<void> _initAudioSession() async {
+    if (!Platform.isAndroid) return;
     try {
       final session = await AudioSession.instance;
       _session = session;
@@ -120,8 +123,8 @@ class QueueManager {
   final StreamResolver _resolver;
   StreamResolver get resolver => _resolver;
 
-  late AudioPlayer _primary;
-  AudioPlayer? _incoming;
+  late AudioPlayerPort _primary;
+  AudioPlayerPort? _incoming;
 
   /// User setting; Duration.zero = crossfade off.
   Duration crossfadeDuration = Duration.zero;
@@ -165,13 +168,13 @@ class QueueManager {
 
   List<StreamSubscription> _subs = [];
 
-  void _wirePlayer(AudioPlayer player) {
+  void _wirePlayer(AudioPlayerPort player) {
     for (final s in _subs) {
       s.cancel();
     }
     _subs = [
       player.processingStateStream.listen((ps) {
-        if (ps == ProcessingState.completed) _onTrackCompleted();
+        if (ps == PortState.completed) _onTrackCompleted();
       }),
       // playerStateStream fires on BOTH playing and processingState
       // changes. playingStream alone misses track switches while already
@@ -180,8 +183,8 @@ class QueueManager {
       player.durationStream.listen((d) {
         if (d != null) _state.add(state.copyWith(duration: d));
       }),
-      player.androidAudioSessionIdStream.listen((id) {
-        if (id != null) _state.add(state.copyWith(audioSessionId: id));
+      player.audioSessionIdStream.listen((id) {
+        _state.add(state.copyWith(audioSessionId: id));
       }),
       player.positionStream.listen((pos) {
         _position.add(pos);
@@ -190,15 +193,12 @@ class QueueManager {
     ];
   }
 
-  void _emitStatus(AudioPlayer player) {
-    final ps = player.processingState;
-    final status = switch (ps) {
-      ProcessingState.idle => PlaybackStatus.idle,
-      ProcessingState.loading ||
-      ProcessingState.buffering =>
-        PlaybackStatus.loading,
-      ProcessingState.completed => PlaybackStatus.completed,
-      ProcessingState.ready =>
+  void _emitStatus(AudioPlayerPort player) {
+    final status = switch (player.processingState) {
+      PortState.idle => PlaybackStatus.idle,
+      PortState.loading || PortState.buffering => PlaybackStatus.loading,
+      PortState.completed => PlaybackStatus.completed,
+      PortState.ready =>
         player.playing ? PlaybackStatus.playing : PlaybackStatus.paused,
     };
     _state.add(state.copyWith(status: status));
@@ -498,7 +498,7 @@ class QueueManager {
 
   Future<void> _startCrossfade(int nextCursor) async {
     final track = _source[_order[nextCursor]];
-    final incoming = AudioPlayer(handleInterruptions: false);
+    final incoming = AudioPlayerPort.create();
     _incoming = incoming; // claims the crossfade slot immediately
     _pendingCursor = nextCursor;
     _pendingTrack = track;
@@ -652,13 +652,13 @@ class QueueManager {
   /// Resolves the track to an audio source and loads it. A cached
   /// stream URL can expire between resolution and load (HTTP 403) —
   /// invalidate and re-resolve once before giving up.
-  Future<void> _loadInto(AudioPlayer player, Track track) async {
+  Future<void> _loadInto(AudioPlayerPort player, Track track) async {
     try {
-      await player.setAudioSource(await _resolver.sourceFor(track));
+      await player.setSource(await _resolver.sourceFor(track));
     } catch (_) {
       if (track.source == TrackSource.local) rethrow;
       _resolver.invalidate(track);
-      await player.setAudioSource(await _resolver.sourceFor(track));
+      await player.setSource(await _resolver.sourceFor(track));
     }
   }
 }

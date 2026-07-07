@@ -1,7 +1,13 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
+
+import '../platform/desktop/desktop_fft.dart';
 
 /// Dart side of android/.../FftExtractorChannel.kt — visualizer band
 /// frames computed by decoding the audio file (no RECORD_AUDIO).
+/// Desktop decodes with ffmpeg and runs the same math in a Dart isolate
+/// (DesktopFft) — identical frames, same contract.
 class FftChannel {
   static const _method = MethodChannel('hanamimi/fft');
   static const _events = EventChannel('hanamimi/fft/frames');
@@ -10,12 +16,17 @@ class FftChannel {
   /// arrive on [frames] tagged with [key]; starting a new extraction
   /// cancels the previous one.
   static Future<void> start(String path, String key) =>
-      _method.invokeMethod('start', {'path': path, 'key': key});
+      Platform.isAndroid
+          ? _method.invokeMethod('start', {'path': path, 'key': key})
+          : DesktopFft.start(path, key);
 
-  static Future<void> cancel() => _method.invokeMethod('cancel');
+  static Future<void> cancel() => Platform.isAndroid
+      ? _method.invokeMethod('cancel')
+      : DesktopFft.cancel();
 
   /// Chunks: {key: String, offset: int (frame index), bands: Float64List
   /// (frames × 12, flattened), done: bool}.
-  static Stream<Map> get frames =>
-      _events.receiveBroadcastStream().map((e) => e as Map);
+  static Stream<Map> get frames => Platform.isAndroid
+      ? _events.receiveBroadcastStream().map((e) => e as Map)
+      : DesktopFft.frames;
 }

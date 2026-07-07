@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../online/models/online_search_result.dart';
@@ -15,8 +16,14 @@ class LibraryRepository {
   final Database _db;
 
   static Future<LibraryRepository> open() async {
+    // Android resolves the bare name to the app databases dir; the ffi
+    // backend on desktop wants an explicit per-OS location (the global
+    // databaseFactory is switched to ffi in the desktop bootstrap).
+    final dbPath = Platform.isAndroid
+        ? 'hanamimi.db'
+        : '${(await getApplicationSupportDirectory()).path}/hanamimi.db';
     final db = await openDatabase(
-      'hanamimi.db',
+      dbPath,
       version: 4,
       // v2 adds lyric quality (word/line/plain). Old rows predate the
       // word-synced provider, so wipe them and refetch on demand.

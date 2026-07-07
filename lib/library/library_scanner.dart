@@ -1,14 +1,25 @@
+import 'dart:io';
+
 import 'package:permission_handler/permission_handler.dart';
 
+import '../platform/desktop/desktop_library.dart';
 import 'library_repository.dart';
 import 'media_store_channel.dart';
 
 enum ScanResult { done, permissionDenied }
 
-/// Orchestrates a library scan: permission → MediaStore query → DB sync
+/// Orchestrates a library scan: permission → track query → DB sync
 /// → album art extraction for any albums still missing art.
+///
+/// The query is the platform seam (ARCHITECTURE-DESKTOP.md §4): Android
+/// asks MediaStore, desktop walks the user's music folders with ffprobe.
+/// Everything downstream (sync, prune, art) is shared.
 class LibraryScanner {
-  LibraryScanner(this._repo, {this.excludedDirs = const {}});
+  LibraryScanner(
+    this._repo, {
+    this.excludedDirs = const {},
+    this.musicFolders = const {},
+  });
 
   final LibraryRepository _repo;
 
@@ -19,6 +30,10 @@ class LibraryScanner {
   /// must not take Downloads/Music/Album with it.
   final Set<String> excludedDirs;
 
+  /// Desktop only: the folders the user pointed the library at (VLC-style
+  /// "add folder"). Ignored on Android, where MediaStore is the index.
+  final Set<String> musicFolders;
+
   bool _isExcluded(String filePath) {
     final slash = filePath.lastIndexOf('/');
     final dir = slash <= 0 ? '/' : filePath.substring(0, slash);
@@ -26,6 +41,8 @@ class LibraryScanner {
   }
 
   Future<bool> requestPermission() async {
+    // Desktop reads plain files the user pointed us at — nothing to ask.
+    if (!Platform.isAndroid) return true;
     // permission_handler maps Permission.audio to READ_MEDIA_AUDIO on
     // API 33+ and to READ_EXTERNAL_STORAGE below.
     final status = await Permission.audio.request();
@@ -35,17 +52,29 @@ class LibraryScanner {
   Future<ScanResult> scan() async {
     if (!await requestPermission()) return ScanResult.permissionDenied;
 
-    final scanned = await MediaStoreChannel.queryTracks();
+    final List<Map<String, Object?>> scanned;
+    if (Platform.isAndroid) {
+      scanned = await MediaStoreChannel.queryTracks();
+    } else {
+      // Files already in the DB skip the ffprobe (their row carries the
+      // metadata; sync only needs their id to keep them alive).
+      final known = <String>{
+        for (final t in await _repo.allTracks())
+          if (t.isLocal && t.filePath != null) t.filePath!,
+      };
+      scanned =
+          await DesktopLibrary.queryTracks(musicFolders, knownPaths: known);
+    }
     final kept = scanned
         .where((s) => !_isExcluded(s['filePath'] as String? ?? ''))
         .toList();
     await _repo.syncScannedTracks(kept);
-    // MediaStore can still list files the user deleted; drop any local
+    // The index can still list files the user deleted; drop any local
     // track whose file is actually gone from disk.
     await _repo.pruneMissingLocalFiles();
 
     // Fetch art once per album that has tracks without an art path. A
-    // local file from the album rides along so the channel can read the
+    // local file from the album rides along so the extractor can read the
     // embedded picture itself when the system thumbnailer fails.
     final tracks = await _repo.allTracks();
     final missingArt = <int, String?>{};
@@ -55,8 +84,9 @@ class LibraryScanner {
       if (t.isLocal && t.filePath != null) missingArt[t.albumId] = t.filePath;
     }
     for (final e in missingArt.entries) {
-      final path =
-          await MediaStoreChannel.getAlbumArt(e.key, filePath: e.value);
+      final path = Platform.isAndroid
+          ? await MediaStoreChannel.getAlbumArt(e.key, filePath: e.value)
+          : await DesktopLibrary.extractAlbumArt(e.key, filePath: e.value);
       if (path != null) await _repo.setAlbumArt(e.key, path);
     }
     return ScanResult.done;

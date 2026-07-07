@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../audio/models/playback_session.dart';
 import '../library/models/track.dart';
+import '../platform/desktop/desktop_bootstrap.dart';
 import '../providers/audio_provider.dart';
 import '../providers/import_job_provider.dart';
 import '../providers/session_provider.dart';
@@ -49,6 +50,10 @@ class _AppShellState extends ConsumerState<AppShell>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Desktop keyboard transport: global handler (not Shortcuts) so a
+    // focused search field keeps its spaces — _onKey bows out while an
+    // EditableText has focus.
+    if (isDesktop) HardwareKeyboard.instance.addHandler(_onKey);
     // Offer to resume the previous session once, after the first frame.
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeOfferResume());
     // One update check per launch; surfaces the changelog dialog when a
@@ -103,10 +108,54 @@ class _AppShellState extends ConsumerState<AppShell>
 
   @override
   void dispose() {
+    if (isDesktop) HardwareKeyboard.instance.removeHandler(_onKey);
     WidgetsBinding.instance.removeObserver(this);
     _errorSub?.cancel();
     _resumeTimer?.cancel();
     super.dispose();
+  }
+
+  /// Desktop shortcuts: space play/pause, ←/→ seek 5 s, Ctrl+←/→
+  /// prev/next, Esc backs out of overlays, 1–4 jump tabs.
+  bool _onKey(KeyEvent event) {
+    if (event is KeyUpEvent) return false;
+    // Typing wins — no transport hijack while a text field has focus.
+    if (FocusManager.instance.primaryFocus?.context
+            ?.findAncestorStateOfType<EditableTextState>() !=
+        null) {
+      return false;
+    }
+    final engine = ref.read(audioHandlerProvider).engine;
+    final ctrl = HardwareKeyboard.instance.isControlPressed;
+    switch (event.logicalKey) {
+      case LogicalKeyboardKey.space:
+      case LogicalKeyboardKey.mediaPlayPause:
+        engine.state.isPlaying ? engine.pause() : engine.play();
+      case LogicalKeyboardKey.arrowRight when ctrl:
+      case LogicalKeyboardKey.mediaTrackNext:
+        engine.next();
+      case LogicalKeyboardKey.arrowLeft when ctrl:
+      case LogicalKeyboardKey.mediaTrackPrevious:
+        engine.previous();
+      case LogicalKeyboardKey.arrowRight:
+        engine.seek(engine.position + const Duration(seconds: 5));
+      case LogicalKeyboardKey.arrowLeft:
+        final target = engine.position - const Duration(seconds: 5);
+        engine.seek(target.isNegative ? Duration.zero : target);
+      case LogicalKeyboardKey.escape:
+        if (!BackStack.pop() && _index != 0) _onNavChanged(0);
+      case LogicalKeyboardKey.digit1:
+        _onNavChanged(0);
+      case LogicalKeyboardKey.digit2:
+        _onNavChanged(1);
+      case LogicalKeyboardKey.digit3:
+        _onNavChanged(2);
+      case LogicalKeyboardKey.digit4:
+        _onNavChanged(3);
+      default:
+        return false;
+    }
+    return true;
   }
 
   @override
@@ -186,57 +235,114 @@ class _AppShellState extends ConsumerState<AppShell>
     final theme = ref.watch(currentThemeProvider);
     // Content slides in from the direction of travel (DESIGN.md §8).
     final slideFromRight = _index > _previousIndex;
+    // Wide desktop windows trade the bottom nav for a left rail
+    // (ARCHITECTURE-DESKTOP.md §5); a narrow window keeps the phone
+    // layout, which maps cleanly onto it.
+    final wide = isDesktop && MediaQuery.sizeOf(context).width >= 880;
+
+    final content = AnimatedSwitcher(
+      duration: Anim.tabSlide,
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeOut,
+      transitionBuilder: (child, animation) {
+        final isIncoming = child.key == ValueKey(_index);
+        final beginX = isIncoming
+            ? (slideFromRight ? 0.15 : -0.15)
+            : (slideFromRight ? -0.15 : 0.15);
+        return FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: Offset(beginX, 0),
+              end: Offset.zero,
+            ).animate(animation),
+            child: child,
+          ),
+        );
+      },
+      child: KeyedSubtree(
+        key: ValueKey(_index),
+        child: _screens[_index],
+      ),
+    );
+
+    final playerStrip = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _ResumeTicker(
+          session: _pendingResume,
+          theme: theme,
+          onPlay: _acceptResume,
+          onDismiss: _dismissResume,
+        ),
+        // Hidden on the Playing tab — the full screen is already there.
+        if (_index != 1) MiniPlayer(onOpen: () => _onNavChanged(1)),
+      ],
+    );
+
+    // Side-by-side desktop layout (ARCHITECTURE-DESKTOP.md §5): Now
+    // Playing is a permanent right-hand panel instead of a tab, so the
+    // wide window reads as a desktop music player, not a stretched
+    // phone. The rail drops the Playing destination and the mini player
+    // disappears (the panel IS the player); the resume ticker stays.
+    final wideBody = Row(
+      children: [
+        HanamimiSideRail(
+          // Coming back from a narrow window on the Playing tab: the
+          // panel already shows it, so the content pane falls back to
+          // the Library.
+          activeIndex: _index == 1 ? 0 : _index,
+          onChanged: _onNavChanged,
+          theme: theme,
+          showPlaying: false,
+        ),
+        Expanded(
+          child: Column(
+            children: [
+              Expanded(
+                child: KeyedSubtree(
+                  key: ValueKey(_index == 1 ? 0 : _index),
+                  child: _screens[_index == 1 ? 0 : _index],
+                ),
+              ),
+              _ResumeTicker(
+                session: _pendingResume,
+                theme: theme,
+                onPlay: _acceptResume,
+                onDismiss: _dismissResume,
+              ),
+            ],
+          ),
+        ),
+        Container(width: 0.5, color: theme.divider),
+        const SizedBox(
+          width: 400,
+          child: NowPlayingScreen(),
+        ),
+      ],
+    );
 
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _onSystemBack();
       },
-      child: Scaffold(
-        body: AnimatedSwitcher(
-          duration: Anim.tabSlide,
-          switchInCurve: Curves.easeOut,
-          switchOutCurve: Curves.easeOut,
-          transitionBuilder: (child, animation) {
-            final isIncoming = child.key == ValueKey(_index);
-            final beginX = isIncoming
-                ? (slideFromRight ? 0.15 : -0.15)
-                : (slideFromRight ? -0.15 : 0.15);
-            return FadeTransition(
-              opacity: animation,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: Offset(beginX, 0),
-                  end: Offset.zero,
-                ).animate(animation),
-                child: child,
+      child: wide
+          ? Scaffold(body: wideBody)
+          : Scaffold(
+              body: content,
+              bottomNavigationBar: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  playerStrip,
+                  HanamimiBottomNav(
+                    activeIndex: _index,
+                    onChanged: _onNavChanged,
+                    theme: theme,
+                  ),
+                ],
               ),
-            );
-          },
-          child: KeyedSubtree(
-            key: ValueKey(_index),
-            child: _screens[_index],
-          ),
-        ),
-        bottomNavigationBar: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _ResumeTicker(
-              session: _pendingResume,
-              theme: theme,
-              onPlay: _acceptResume,
-              onDismiss: _dismissResume,
             ),
-            // Hidden on the Playing tab — the full screen is already there.
-            if (_index != 1) MiniPlayer(onOpen: () => _onNavChanged(1)),
-            HanamimiBottomNav(
-              activeIndex: _index,
-              onChanged: _onNavChanged,
-              theme: theme,
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

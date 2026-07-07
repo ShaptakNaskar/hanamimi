@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:file_selector/file_selector.dart' show getSaveLocation;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:path_provider/path_provider.dart';
@@ -80,10 +81,30 @@ class _ShareLyricsBodyState extends State<_ShareLyricsBody> {
       final file = File(
           '${(await getTemporaryDirectory()).path}/hanamimi_lyrics.png');
       await file.writeAsBytes(data!.buffer.asUint8List());
-      await SharePlus.instance.share(ShareParams(
-        files: [XFile(file.path)],
-        text: '${widget.track.title} — ${widget.track.artist}',
-      ));
+      if (Platform.isAndroid) {
+        await SharePlus.instance.share(ShareParams(
+          files: [XFile(file.path)],
+          text: '${widget.track.title} — ${widget.track.artist}',
+        ));
+      } else {
+        // No share sheet on desktop — save the card where the user says.
+        final location = await getSaveLocation(
+          suggestedName:
+              'hanamimi ${widget.track.title} lyrics.png'.replaceAll('/', '·'),
+        );
+        if (location != null) {
+          await file.copy(location.path);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(Radii.md)),
+              content: const Text('Lyrics card saved 🌸',
+                  style: TextStyle(fontFamily: 'Nunito')),
+            ));
+          }
+        }
+      }
     } catch (_) {
       // Sharing is best-effort; the sheet just stays open.
     } finally {

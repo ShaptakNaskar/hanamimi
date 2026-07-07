@@ -7,7 +7,15 @@ import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../platform/desktop/desktop_updater.dart';
+
 const _repo = 'ShaptakNaskar/hanamimi';
+
+/// Desktop is plus by definition (EDITIONS.md: the base edition is the
+/// Play-Store lineage; only + ships as a desktop app), and its
+/// packageName isn't a reliable edition signal anyway.
+bool get _isPlusEdition =>
+    !Platform.isAndroid; // Android decides below, per package id
 
 /// The version string to show in About — read live from the built
 /// package, so it always reflects what CI stamped and never needs a
@@ -16,8 +24,9 @@ const _repo = 'ShaptakNaskar/hanamimi';
 final appVersionLabelProvider = FutureProvider<String>((ref) async {
   try {
     final info = await PackageInfo.fromPlatform();
-    final edition =
-        info.packageName.endsWith('.plus') ? 'Hanamimi+' : 'Hanamimi';
+    final edition = _isPlusEdition || info.packageName.endsWith('.plus')
+        ? 'Hanamimi+'
+        : 'Hanamimi';
     return '$edition 花耳 · ${info.version}';
   } catch (_) {
     return 'Hanamimi 花耳';
@@ -29,7 +38,9 @@ final appVersionLabelProvider = FutureProvider<String>((ref) async {
 final editionNameProvider = FutureProvider<String>((ref) async {
   try {
     final info = await PackageInfo.fromPlatform();
-    return info.packageName.endsWith('.plus') ? 'Hanamimi+' : 'Hanamimi';
+    return _isPlusEdition || info.packageName.endsWith('.plus')
+        ? 'Hanamimi+'
+        : 'Hanamimi';
   } catch (_) {
     return 'Hanamimi';
   }
@@ -38,9 +49,9 @@ final editionNameProvider = FutureProvider<String>((ref) async {
 /// The release channel THIS build follows, derived from its own package
 /// id so main and plus never cross-update: `com.hanamimi.app.plus` →
 /// `plus-v…` tags, `com.hanamimi.app` → `main-v…`. Same source on both
-/// branches; the installed edition decides.
+/// branches; the installed edition decides. Desktop always follows plus.
 String _tagPrefixFor(String packageName) =>
-    packageName.endsWith('.plus') ? 'plus-v' : 'main-v';
+    _isPlusEdition || packageName.endsWith('.plus') ? 'plus-v' : 'main-v';
 
 /// A newer build published by the CI pipeline (GitHub Releases).
 class AppUpdate {
@@ -121,19 +132,28 @@ final updateCheckProvider = FutureProvider<AppUpdate?>((ref) async {
         if (bestCmp < 0 || (bestCmp == 0 && run <= best.runNumber)) continue;
       }
 
-      // Match the device ABI (e.g. hanamimi-plus-arm64-v8a.apk); fall back
-      // to the universal APK, then any split as a last resort.
+      // Android: match the device ABI (e.g. hanamimi-plus-arm64-v8a.apk),
+      // fall back to the universal APK, then any split as a last resort.
+      // Desktop: the platform's package (AppImage / Windows installer).
       final assets = (r['assets'] as List? ?? []).cast<Map<String, dynamic>>();
       Map<String, dynamic>? pick(String needle) {
         for (final a in assets) {
-          if ((a['name'] as String? ?? '').contains(needle)) return a;
+          if ((a['name'] as String? ?? '')
+              .toLowerCase()
+              .contains(needle.toLowerCase())) {
+            return a;
+          }
         }
         return null;
       }
 
-      final asset = (abi != null ? pick(abi) : null) ??
-          pick('universal') ??
-          pick('arm64-v8a');
+      final asset = Platform.isAndroid
+          ? (abi != null ? pick(abi) : null) ??
+              pick('universal') ??
+              pick('arm64-v8a')
+          : Platform.isLinux
+              ? pick('.AppImage') ?? pick('linux')
+              : pick('setup.exe') ?? pick('.msix') ?? pick('windows');
       if (asset == null) continue;
 
       best = AppUpdate(
@@ -151,11 +171,13 @@ final updateCheckProvider = FutureProvider<AppUpdate?>((ref) async {
   }
 });
 
-/// Thin wrapper over the native installer channel.
+/// Thin wrapper over the native installer channel (Android) or the
+/// desktop self-updater (AppImage swap / installer launch).
 class UpdaterChannel {
   static const _ch = MethodChannel('hanamimi/updater');
 
   static Future<bool> canInstall() async {
+    if (!Platform.isAndroid) return DesktopUpdater.canInstall();
     try {
       return (await _ch.invokeMethod<bool>('canInstall')) ?? false;
     } catch (_) {
@@ -164,14 +186,17 @@ class UpdaterChannel {
   }
 
   static Future<void> openInstallPerm() async {
+    if (!Platform.isAndroid) return;
     try {
       await _ch.invokeMethod('openInstallPerm');
     } catch (_) {}
   }
 
   /// The device's preferred ABI (e.g. "arm64-v8a", "x86_64"), for picking
-  /// the matching split APK. Null if unavailable.
+  /// the matching split APK. Null if unavailable (and on desktop, where
+  /// assets are picked by platform instead).
   static Future<String?> deviceAbi() async {
+    if (!Platform.isAndroid) return null;
     try {
       return await _ch.invokeMethod<String>('abi');
     } catch (_) {
@@ -180,6 +205,7 @@ class UpdaterChannel {
   }
 
   static Future<bool> install(String path) async {
+    if (!Platform.isAndroid) return DesktopUpdater.install(path);
     try {
       return (await _ch.invokeMethod<bool>('install', {'path': path})) ??
           false;
@@ -193,7 +219,10 @@ class UpdaterChannel {
 /// path. Throws on failure (the dialog shows the error state).
 Stream<double> downloadUpdate(AppUpdate update, void Function(String) onDone) async* {
   final dir = await getTemporaryDirectory();
-  final file = File('${dir.path}/hanamimi-update-${update.runNumber}.apk');
+  // Keep the asset's own extension — the desktop installer step cares
+  // (.AppImage / .exe), and Android expects .apk either way.
+  final ext = update.apkUrl.substring(update.apkUrl.lastIndexOf('.'));
+  final file = File('${dir.path}/hanamimi-update-${update.runNumber}$ext');
 
   final client = http.Client();
   try {

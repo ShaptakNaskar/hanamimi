@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
-import 'package:just_audio/just_audio.dart';
 
+import '../audio/player_port.dart';
 import '../library/models/track.dart';
 import 'models/resolved_stream.dart';
 import 'music_provider.dart';
@@ -21,7 +21,7 @@ class StreamResolutionException implements Exception {
       'StreamResolutionException(${track.source.name}:${track.sourceId})';
 }
 
-/// The single gate between a [Track] and a playable [AudioSource]
+/// The single gate between a [Track] and a playable [PlaybackSource]
 /// (ARCHITECTURE-ONLINE.md §5). Local files short-circuit; online
 /// tracks resolve through their provider with an in-memory TTL cache.
 class StreamResolver {
@@ -40,25 +40,24 @@ class StreamResolver {
   bool enabled = true;
   int cacheCapBytes = 512 * 1024 * 1024;
 
-  Future<AudioSource> sourceFor(Track track) async {
+  Future<PlaybackSource> sourceFor(Track track) async {
     final path = track.filePath;
     if (path != null) {
       // Downloaded/local: zero network. Tracks opened from other apps
-      // carry a content:// uri instead of a filesystem path.
-      return path.startsWith('content://')
-          ? AudioSource.uri(Uri.parse(path))
-          : AudioSource.file(path);
+      // carry a content:// uri instead of a filesystem path (the
+      // just_audio backend handles that split).
+      return PlaybackSource.file(path);
     }
     final resolved = await _resolve(track);
     if (resolved == null) throw StreamResolutionException(track);
 
-    // Cache-as-you-play: LockCachingAudioSource writes the stream to
-    // disk while playing, so a replay within the cache window costs no
-    // data. It also serves through just_audio's proxy (Dart HTTP),
-    // which is what lets YouTube URLs past ExoPlayer's 403.
+    // Cache-as-you-play (Android backend): the cacheFile makes
+    // just_audio write the stream to disk while playing, and serves it
+    // through its proxy (Dart HTTP) — which is what lets YouTube URLs
+    // past ExoPlayer's 403. The media_kit backend ignores the file.
     final cacheFile = await _streamCache.fileFor(track);
     unawaited(_streamCache.trim(cacheCapBytes));
-    return LockCachingAudioSource(
+    return PlaybackSource.remote(
       resolved.url,
       headers: resolved.headers.isEmpty
           // A non-empty header map is what forces the proxy path;

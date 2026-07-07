@@ -36,6 +36,42 @@ final excludedFoldersProvider =
     NotifierProvider<ExcludedFoldersNotifier, Set<String>>(
         ExcludedFoldersNotifier.new);
 
+/// Desktop only: the folders the library scans (VLC-style "add folder"
+/// — desktop users point at directories, there's no MediaStore). Seeded
+/// with the OS music dir on first run. Persisted; edits apply on the
+/// next (re)scan.
+class MusicFoldersNotifier extends Notifier<Set<String>> {
+  static const _key = 'music_folders';
+
+  @override
+  Set<String> build() {
+    final saved = ref.watch(sharedPrefsProvider).getStringList(_key);
+    if (saved != null) return saved.toSet();
+    final home = Platform.environment['HOME'] ??
+        Platform.environment['USERPROFILE'];
+    if (home == null) return {};
+    final music = Directory('$home/Music');
+    return music.existsSync() ? {music.path} : {};
+  }
+
+  void add(String path) {
+    state = {...state, path};
+    _persist();
+  }
+
+  void remove(String path) {
+    state = {...state}..remove(path);
+    _persist();
+  }
+
+  void _persist() =>
+      ref.read(sharedPrefsProvider).setStringList(_key, state.toList());
+}
+
+final musicFoldersProvider =
+    NotifierProvider<MusicFoldersNotifier, Set<String>>(
+        MusicFoldersNotifier.new);
+
 /// All tracks in the library. First read triggers a device scan if the
 /// DB is empty; `rescan()` is the user-facing refresh.
 class LibraryNotifier extends AsyncNotifier<List<Track>> {
@@ -45,6 +81,7 @@ class LibraryNotifier extends AsyncNotifier<List<Track>> {
   LibraryScanner _scanner(LibraryRepository repo) => LibraryScanner(
         repo,
         excludedDirs: ref.read(excludedFoldersProvider),
+        musicFolders: ref.read(musicFoldersProvider),
       );
 
   @override

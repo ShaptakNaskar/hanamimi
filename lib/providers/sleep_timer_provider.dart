@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:screen_brightness/screen_brightness.dart';
@@ -102,7 +103,9 @@ class SleepTimerNotifier extends Notifier<SleepTimerState> {
 
   // App-level brightness only — never touches the system setting.
   // Best-effort: some ROMs deny it, and that shouldn't break the fade.
+  // Desktop monitors aren't ours to dim — the volume fade carries it.
   Future<void> _setBrightness(double value) async {
+    if (!Platform.isAndroid) return;
     try {
       await ScreenBrightness.instance
           .setApplicationScreenBrightness(value.clamp(0.05, 1.0));
@@ -110,6 +113,7 @@ class SleepTimerNotifier extends Notifier<SleepTimerState> {
   }
 
   Future<void> _resetBrightness() async {
+    if (!Platform.isAndroid) return;
     try {
       await ScreenBrightness.instance.resetApplicationScreenBrightness();
     } catch (_) {}
