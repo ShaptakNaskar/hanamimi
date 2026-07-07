@@ -40,8 +40,11 @@ class HanamimiSideRail extends StatelessWidget {
     return Container(
       width: 76,
       decoration: BoxDecoration(
-        color: theme.surface,
-        border: Border(right: BorderSide(color: theme.divider, width: 0.5)),
+        // Translucent over the shell-wide art glow, like the sidebar.
+        color: theme.surface.withValues(alpha: 0.35),
+        border: Border(
+            right: BorderSide(
+                color: theme.divider.withValues(alpha: 0.4), width: 0.5)),
       ),
       child: SafeArea(
         child: Column(

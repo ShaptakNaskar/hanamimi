@@ -47,8 +47,12 @@ class LibrarySidebar extends ConsumerWidget {
     return Container(
       width: 280,
       decoration: BoxDecoration(
-        color: theme.surface,
-        border: Border(right: BorderSide(color: theme.divider, width: 0.5)),
+        // Translucent over the shell-wide art glow (BackdropWash): the
+        // pane reads as a soft layer, not a hard block of another color.
+        color: theme.surface.withValues(alpha: 0.35),
+        border: Border(
+            right: BorderSide(
+                color: theme.divider.withValues(alpha: 0.4), width: 0.5)),
       ),
       child: SafeArea(
         child: Column(

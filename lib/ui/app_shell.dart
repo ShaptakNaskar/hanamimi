@@ -17,6 +17,7 @@ import '../theme/hanamimi_theme.dart';
 import '../theme/theme_tokens.dart';
 import '../utils/back_stack.dart';
 import '../utils/duration_ext.dart';
+import 'components/desktop/backdrop_wash.dart';
 import 'components/desktop/library_sidebar.dart';
 import 'components/mini_player.dart';
 import 'components/shared/bottom_nav.dart';
@@ -369,7 +370,14 @@ class _AppShellState extends ConsumerState<AppShell>
         if (!didPop) _onSystemBack();
       },
       child: wide
-          ? Scaffold(body: wideBody)
+          ? Scaffold(
+              // One uniform art glow under every pane; the panes float
+              // on it translucently so no boundary jumps color.
+              body: Stack(
+                fit: StackFit.expand,
+                children: [const BackdropWash(), wideBody],
+              ),
+            )
           : Scaffold(
               body: content,
               bottomNavigationBar: Column(

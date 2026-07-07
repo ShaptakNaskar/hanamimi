@@ -75,26 +75,14 @@ class NowPlayingScreen extends ConsumerWidget {
             ?.firstWhere((t) => t.id == track.id, orElse: () => track) ??
         track;
 
-    final background = _BlurredArtBackground(track: track, theme: theme);
     return Stack(
       fit: StackFit.expand,
       children: [
-        if (panel)
-          // The wash reads as light bleeding out of the ALBUM ART, not
-          // out of the pane split: a radial falloff centered where the
-          // art sits, dissolving well before the panel's left edge.
-          ShaderMask(
-            shaderCallback: (rect) => const RadialGradient(
-              center: Alignment(0.1, -0.55),
-              radius: 1.25,
-              colors: [Colors.white, Colors.white38, Colors.transparent],
-              stops: [0.2, 0.6, 0.95],
-            ).createShader(rect),
-            blendMode: BlendMode.dstIn,
-            child: background,
-          )
-        else
-          background,
+        // As the desktop side panel the shell paints ONE art glow under
+        // all three panes (BackdropWash) — a private wash here would
+        // make the panel glow while the rest of the app doesn't, and
+        // the boundary reads as a harsh color change.
+        if (!panel) _BlurredArtBackground(track: track, theme: theme),
         ParticleOverlay(
           theme: theme,
           fireflies: ref.watch(buddyEnabledProvider('fireflies')),
