@@ -27,19 +27,9 @@ cp "$HERE/com.hanamimi.hanamimi.desktop" "$APPDIR/com.hanamimi.hanamimi.desktop"
 cp "$ROOT/assets/icon/icon.png" "$APPDIR/com.hanamimi.hanamimi.png"
 ln -sf usr/bin/hanamimi "$APPDIR/AppRun"
 
-# Helper binaries land next to the executable — first place
-# DesktopBinaries.find() looks.
-echo "· fetching yt-dlp"
-curl -fsSL -o "$APPDIR/usr/bin/yt-dlp" \
-  https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp
-chmod +x "$APPDIR/usr/bin/yt-dlp"
-
-echo "· fetching static ffmpeg"
-FF="$WORK/ffmpeg.tar.xz"
-curl -fsSL -o "$FF" \
-  https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz
-tar -xJf "$FF" -C "$WORK"
-cp "$WORK"/ffmpeg-master-latest-linux64-gpl/bin/{ffmpeg,ffprobe} "$APPDIR/usr/bin/"
+# Slim bundle: yt-dlp and ffmpeg are NOT packed in — the app
+# self-fetches both on first run (DesktopBinaries), which keeps the
+# AppImage under Telegram's 50 MB bot upload cap.
 
 # appimagetool (continuous build, x86_64).
 TOOL="$WORK/appimagetool"

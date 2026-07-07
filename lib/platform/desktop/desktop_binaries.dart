@@ -47,35 +47,54 @@ class DesktopBinaries {
     }
   }
 
-  /// Windows self-setup: ffmpeg/ffprobe power the library scan, album
-  /// art and the visualizer, but Windows has no system ffmpeg — fetch
-  /// the static build once into the support dir (the same lazy-init
-  /// yt-dlp already does). Linux gets ffmpeg from the AppImage/distro.
-  /// Fire-and-forget from the bootstrap; scans just find no tags until
-  /// it lands, then the next rescan fills in.
-  static Future<void> ensureMediaToolsWindows() async {
-    if (!Platform.isWindows) return;
+  /// Desktop self-setup: ffmpeg/ffprobe power the library scan, album
+  /// art and the visualizer. When neither a bundled nor a system copy
+  /// exists (slim installer / AppImage — kept under Telegram's 50 MB
+  /// bot limit), fetch the static build once into the support dir,
+  /// exactly like yt-dlp's lazy init. Fire-and-forget from the
+  /// bootstrap; scans just find no tags until it lands, then the next
+  /// rescan fills in.
+  static Future<void> ensureMediaTools() async {
+    if (Platform.isAndroid) return;
     if (await works('ffmpeg') && await works('ffprobe')) return;
     final dir = _supportBin;
     if (dir == null) return;
     try {
-      final zip = File('$dir/ffmpeg-download.zip');
       await Directory(dir).create(recursive: true);
-      final res = await http
-          .get(Uri.parse(
-              'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'))
-          .timeout(const Duration(minutes: 10));
-      if (res.statusCode != 200 || res.bodyBytes.isEmpty) return;
-      await zip.writeAsBytes(res.bodyBytes, flush: true);
-      // Windows always has PowerShell — no archive dependency needed.
-      await Process.run('powershell', [
-        '-NoProfile',
-        '-Command',
-        'Expand-Archive -Force "${zip.path}" "$dir/ffmpeg-tmp"; '
-            'Copy-Item "$dir/ffmpeg-tmp/*/bin/ffmpeg.exe" "$dir/"; '
-            'Copy-Item "$dir/ffmpeg-tmp/*/bin/ffprobe.exe" "$dir/"; '
-            'Remove-Item -Recurse -Force "$dir/ffmpeg-tmp", "${zip.path}"',
-      ]);
+      if (Platform.isWindows) {
+        final zip = File('$dir/ffmpeg-download.zip');
+        final res = await http
+            .get(Uri.parse(
+                'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'))
+            .timeout(const Duration(minutes: 10));
+        if (res.statusCode != 200 || res.bodyBytes.isEmpty) return;
+        await zip.writeAsBytes(res.bodyBytes, flush: true);
+        // Windows always has PowerShell — no archive dependency needed.
+        await Process.run('powershell', [
+          '-NoProfile',
+          '-Command',
+          'Expand-Archive -Force "${zip.path}" "$dir/ffmpeg-tmp"; '
+              'Copy-Item "$dir/ffmpeg-tmp/*/bin/ffmpeg.exe" "$dir/"; '
+              'Copy-Item "$dir/ffmpeg-tmp/*/bin/ffprobe.exe" "$dir/"; '
+              'Remove-Item -Recurse -Force "$dir/ffmpeg-tmp", "${zip.path}"',
+        ]);
+      } else if (Platform.isLinux) {
+        final tarball = File('$dir/ffmpeg-download.tar.xz');
+        final res = await http
+            .get(Uri.parse(
+                'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz'))
+            .timeout(const Duration(minutes: 10));
+        if (res.statusCode != 200 || res.bodyBytes.isEmpty) return;
+        await tarball.writeAsBytes(res.bodyBytes, flush: true);
+        // GNU tar is part of every desktop distro base.
+        await Process.run('tar', [
+          '-xJf', tarball.path,
+          '-C', dir,
+          '--strip-components=2',
+          '--wildcards', '*/bin/ffmpeg', '*/bin/ffprobe',
+        ]);
+        await tarball.delete();
+      }
       _cache.clear(); // re-resolve now that the binaries exist
     } catch (_) {}
   }

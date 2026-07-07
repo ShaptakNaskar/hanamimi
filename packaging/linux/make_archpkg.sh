@@ -25,16 +25,8 @@ install -dm755 "$PKGDIR/opt/$PKGNAME" "$PKGDIR/usr/bin" \
   "$PKGDIR/usr/share/licenses/$PKGNAME"
 cp -r "$BUNDLE"/. "$PKGDIR/opt/$PKGNAME/"
 
-# Bundle yt-dlp + static ffmpeg like the AppImage (fully self-contained;
-# the app prefers binaries next to the executable).
-curl -fsSL -o "$PKGDIR/opt/$PKGNAME/yt-dlp" \
-  https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp
-chmod 755 "$PKGDIR/opt/$PKGNAME/yt-dlp"
-curl -fsSL -o "$WORK/ffmpeg.tar.xz" \
-  https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz
-tar -xJf "$WORK/ffmpeg.tar.xz" -C "$WORK"
-cp "$WORK"/ffmpeg-master-latest-linux64-gpl/bin/{ffmpeg,ffprobe} \
-  "$PKGDIR/opt/$PKGNAME/"
+# No bundled helpers: ffmpeg and yt-dlp come from the repos like a
+# proper Arch package (see depend lines below).
 
 ln -s "/opt/$PKGNAME/hanamimi" "$PKGDIR/usr/bin/hanamimi"
 cp "$HERE/com.hanamimi.hanamimi.desktop" \
@@ -56,6 +48,8 @@ size = $SIZE
 arch = x86_64
 license = GPL3
 depend = gtk3
+depend = ffmpeg
+depend = yt-dlp
 EOF
 
 cat > "$PKGDIR/.MTREE.tmp" <<'EOF'

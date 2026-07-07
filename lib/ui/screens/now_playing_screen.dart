@@ -20,7 +20,6 @@ import '../../providers/visualizer_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
-import '../components/mascot/buddies.dart';
 import '../components/mascot/hanamimi_widget.dart';
 import '../components/mascot/mascot_painter.dart';
 import '../components/now_playing/album_art_widget.dart';
@@ -218,27 +217,6 @@ class NowPlayingScreen extends ConsumerWidget {
                               width: double.infinity,
                               child: Stack(
                                 children: [
-                                  // The pets' furniture flanks the mascot:
-                                  // hamster wheel bottom-left (spins with the
-                                  // music), koi fishbowl bottom-right. Real
-                                  // objects — free-roaming versions of these
-                                  // two read as glitches.
-                                  if (ref.watch(
-                                    buddyEnabledProvider('hamster'),
-                                  ))
-                                    Positioned(
-                                      left: 0,
-                                      bottom: 0,
-                                      child: HamsterWheel(
-                                        running: audio?.isPlaying ?? false,
-                                      ),
-                                    ),
-                                  if (ref.watch(buddyEnabledProvider('koi')))
-                                    const Positioned(
-                                      right: 0,
-                                      bottom: 0,
-                                      child: KoiBowl(),
-                                    ),
                                   if (ref.watch(buddyEnabledProvider('beagle')))
                                     Align(
                                       child: FittedBox(

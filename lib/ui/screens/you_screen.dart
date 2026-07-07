@@ -199,14 +199,8 @@ class _BuddiesCard extends ConsumerWidget {
         return CustomPaint(painter: ParrotPainter(0.75));
       case 'cat':
         return CustomPaint(painter: CatPainter(0.25));
-      case 'hamster':
-        return CustomPaint(
-            painter:
-                HamsterWheelPainter(rot: 0.6, phase: 0.1, running: false));
       case 'duck':
         return CustomPaint(painter: DuckPainter(0));
-      case 'koi':
-        return CustomPaint(painter: KoiBowlPainter(2.0));
       case 'fireflies':
         return CustomPaint(painter: FireflyPreviewPainter(0));
       case 'rabbit':
