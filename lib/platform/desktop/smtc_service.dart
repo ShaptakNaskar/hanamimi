@@ -1,11 +1,28 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:path_provider/path_provider.dart';
 // The package's PlaybackStatus clashes with the app's own — prefixed.
 import 'package:smtc_windows/smtc_windows.dart' as smtc;
 
 import '../../audio/audio_handler.dart';
 import '../../audio/models/audio_state.dart';
+
+/// Release desktop builds have no console — SMTC init failures were
+/// invisible. Appends to <app-support>/logs/smtc.log; the Windows test
+/// checklist points testers here.
+Future<void> _log(String message) async {
+  try {
+    final dir = await getApplicationSupportDirectory();
+    final file = File('${dir.path}/logs/smtc.log');
+    await file.parent.create(recursive: true);
+    await file.writeAsString(
+      '${DateTime.now().toIso8601String()} $message\n',
+      mode: FileMode.append,
+      flush: true,
+    );
+  } catch (_) {}
+}
 
 /// Windows "now playing" integration (ARCHITECTURE-DESKTOP.md §2):
 /// System Media Transport Controls — the media flyout next to the
@@ -18,7 +35,9 @@ import '../../audio/models/audio_state.dart';
 Future<void> initWindowsSmtc(HanamimiAudioHandler handler) async {
   if (!Platform.isWindows) return;
   try {
+    await _log('init: loading rust lib');
     await smtc.SMTCWindows.initialize();
+    await _log('init: rust lib up, creating session');
     final controls = smtc.SMTCWindows(
       config: const smtc.SMTCConfig(
         playEnabled: true,
@@ -31,6 +50,7 @@ Future<void> initWindowsSmtc(HanamimiAudioHandler handler) async {
       ),
       enabled: true,
     );
+    await _log('init: session created OK');
     final engine = handler.engine;
 
     controls.buttonPressStream.listen((button) {
@@ -106,5 +126,7 @@ Future<void> initWindowsSmtc(HanamimiAudioHandler handler) async {
         positionMs: ms,
       ));
     });
-  } catch (_) {}
+  } catch (e, st) {
+    await _log('init FAILED: $e\n$st');
+  }
 }

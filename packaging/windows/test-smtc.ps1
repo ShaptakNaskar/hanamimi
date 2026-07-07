@@ -64,6 +64,10 @@ function Check($name, $ok, $detail) {
   Write-Host ("[{0}] {1}  {2}" -f $tag, $name, $detail) -ForegroundColor $color
 }
 
+# --- 0. Plugin DLL bundled ---
+$dll = Join-Path $PSScriptRoot 'smtc_windows.dll'
+Check 'smtc_windows.dll bundled' (Test-Path $dll) $dll
+
 # --- 1. App running ---
 if (-not (Get-Process hanamimi -ErrorAction SilentlyContinue)) {
   Write-Host 'Starting hanamimi.exe...'
@@ -81,9 +85,32 @@ $state = Get-State
 if ($state) {
   Check 'SMTC session registered' $true "now playing: $($state.Title) - $($state.Artist) [$($state.Status)]"
 } else {
-  Check 'SMTC session registered' $false 'no session found - SMTC init failed'
+  Check 'SMTC session registered' $false 'no hanamimi session found'
   Write-Host ''
-  Write-Host 'Remaining checks need the session - aborting.' -ForegroundColor Red
+  Write-Host 'All SMTC sessions Windows can see right now:' -ForegroundColor Yellow
+  $mgr = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) `
+    ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
+  $all = $mgr.GetSessions()
+  if ($all.Count -eq 0) {
+    Write-Host '  (none at all)'
+  } else {
+    $all | ForEach-Object { Write-Host ("  - AUMID: '{0}'  status: {1}" -f $_.SourceAppUserModelId, $_.GetPlaybackInfo().PlaybackStatus) }
+  }
+  Write-Host ''
+  Write-Host 'App-side SMTC log (last 20 lines):' -ForegroundColor Yellow
+  $log = Join-Path $env:APPDATA 'com.hanamimi\hanamimi\logs\smtc.log'
+  if (-not (Test-Path $log)) {
+    # path_provider layout can vary; search for it.
+    $log = Get-ChildItem -Path $env:APPDATA -Recurse -Filter smtc.log -ErrorAction SilentlyContinue |
+      Select-Object -First 1 -ExpandProperty FullName
+  }
+  if ($log -and (Test-Path $log)) {
+    Get-Content $log -Tail 20 | ForEach-Object { Write-Host "  $_" }
+  } else {
+    Write-Host '  (no smtc.log found under %APPDATA% - init may not have run at all)'
+  }
+  Write-Host ''
+  Write-Host 'Remaining checks need the session - aborting. Send the output above.' -ForegroundColor Red
   exit 1
 }
 Check 'metadata (title present)' (-not [string]::IsNullOrWhiteSpace($state.Title)) "'$($state.Title)'"
