@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   windows-installer:
-    runs-on: windows-latest
+    runs-on: windows-2022 # windows-latest (2025 image) breaks Flutter 3.29 VS detection
     steps:
       - uses: actions/checkout@v4
 
