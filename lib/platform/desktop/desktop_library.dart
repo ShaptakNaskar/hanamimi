@@ -30,8 +30,13 @@ class DesktopLibrary {
     for (final root in folders) {
       final dir = Directory(root);
       if (!await dir.exists()) continue;
-      await for (final entry
-          in dir.list(recursive: true, followLinks: false)) {
+      // handleError: an unreadable subdirectory (or one deleted while
+      // the walk runs — exactly what happens right after the user
+      // reorganizes their music) raises mid-stream and killed the whole
+      // rescan, leaving stale rows behind. Skip and keep walking.
+      await for (final entry in dir
+          .list(recursive: true, followLinks: false)
+          .handleError((_) {})) {
         if (entry is! File) continue;
         final path = entry.path;
         final name = path.substring(path.lastIndexOf('/') + 1);

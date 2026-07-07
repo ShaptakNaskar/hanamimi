@@ -612,9 +612,18 @@ class QueueManager {
   /// Notifies the sleep timer that end-of-track mode completed.
   void Function()? onSleepTimerFired;
 
+  /// Bumped on every play request. A slow load that loses this race
+  /// (the user skipped again before it finished) must swallow its own
+  /// failure: spamming previous/next interrupts each in-flight
+  /// setAudioSource, and counting those aborts as real failures walked
+  /// _loadFailures up to the cap and killed playback with "Can't play
+  /// these tracks" on a perfectly healthy queue (user-reported).
+  int _playGeneration = 0;
+
   Future<void> _playCurrent() async {
     final track = _currentTrack;
     if (track == null) return;
+    final generation = ++_playGeneration;
     // Silence the outgoing track immediately. Resolving an online
     // stream takes seconds, and setAudioSource only interrupts the old
     // audio once the NEW source is ready — without this the UI shows
@@ -629,12 +638,16 @@ class QueueManager {
     ));
     try {
       await _loadInto(_primary, track);
+      if (generation != _playGeneration) return; // superseded mid-load
       await _primary.setVolume(1);
       await _activateFocus();
       await _primary.play();
       _loadFailures = 0;
       trackStarted.add(track);
     } catch (_) {
+      // A newer request interrupted this load — its failure is noise,
+      // not a broken track; the newer request owns the outcome.
+      if (generation != _playGeneration) return;
       // Unreadable file (deleted, moved) or stream resolution failed
       // (offline, geo-blocked, extraction broke) — skip forward, but
       // stop once the whole queue (capped at 5) has failed in a row.

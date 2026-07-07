@@ -84,10 +84,15 @@ class LibraryScanner {
       if (t.isLocal && t.filePath != null) missingArt[t.albumId] = t.filePath;
     }
     for (final e in missingArt.entries) {
-      final path = Platform.isAndroid
-          ? await MediaStoreChannel.getAlbumArt(e.key, filePath: e.value)
-          : await DesktopLibrary.extractAlbumArt(e.key, filePath: e.value);
-      if (path != null) await _repo.setAlbumArt(e.key, path);
+      try {
+        final path = Platform.isAndroid
+            ? await MediaStoreChannel.getAlbumArt(e.key, filePath: e.value)
+            : await DesktopLibrary.extractAlbumArt(e.key, filePath: e.value);
+        if (path != null) await _repo.setAlbumArt(e.key, path);
+      } catch (_) {
+        // One album's art must never abort the scan — the track sync
+        // above is already committed; art fills in on the next pass.
+      }
     }
     return ScanResult.done;
   }

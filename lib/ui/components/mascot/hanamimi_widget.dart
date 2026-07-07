@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -9,20 +10,38 @@ enum MascotState { idle, playing, paused, changing, sleeping, loading }
 
 const _poses = {
   MascotState.idle: MascotPose(
-      eyes: EyeKind.open, brow: BrowKind.none, mouth: MouthKind.neutral),
+    eyes: EyeKind.open,
+    brow: BrowKind.none,
+    mouth: MouthKind.neutral,
+  ),
   MascotState.playing: MascotPose(
-      eyes: EyeKind.smile, brow: BrowKind.happy, mouth: MouthKind.open),
+    eyes: EyeKind.smile,
+    brow: BrowKind.happy,
+    mouth: MouthKind.open,
+  ),
   MascotState.paused: MascotPose(
-      eyes: EyeKind.half, brow: BrowKind.flat, mouth: MouthKind.neutral,
-      tilt: 4),
+    eyes: EyeKind.half,
+    brow: BrowKind.flat,
+    mouth: MouthKind.neutral,
+    tilt: 4,
+  ),
   MascotState.changing: MascotPose(
-      eyes: EyeKind.wide, brow: BrowKind.up, mouth: MouthKind.small,
-      tilt: 14),
+    eyes: EyeKind.wide,
+    brow: BrowKind.up,
+    mouth: MouthKind.small,
+    tilt: 14,
+  ),
   MascotState.sleeping: MascotPose(
-      eyes: EyeKind.closed, brow: BrowKind.flat, mouth: MouthKind.neutral,
-      tilt: 6),
+    eyes: EyeKind.closed,
+    brow: BrowKind.flat,
+    mouth: MouthKind.neutral,
+    tilt: 6,
+  ),
   MascotState.loading: MascotPose(
-      eyes: EyeKind.open, brow: BrowKind.happy, mouth: MouthKind.tongue),
+    eyes: EyeKind.open,
+    brow: BrowKind.happy,
+    mouth: MouthKind.tongue,
+  ),
 };
 
 /// The living mascot. Rive is replaced by a code-driven animation layer:
@@ -84,6 +103,7 @@ class _HanamimiMascotState extends State<HanamimiMascot>
     _bobEnvelope += (bobTarget - _bobEnvelope) * math.min(1, dt * 3);
 
     // Blink.
+    final wasBlinking = _blink > 0;
     if (_time >= _nextBlinkAt) {
       _blink = 1;
       _nextBlinkAt = _time + 4 + _rng.nextDouble() * 3;
@@ -91,11 +111,51 @@ class _HanamimiMascotState extends State<HanamimiMascot>
       _blink = math.max(0, _blink - dt * 8); // reopen over ~120ms
     }
 
+    // Fully at rest (idle pose settled, no bob, eyes done reopening,
+    // not sleeping/loading which animate continuously): STOP the
+    // ticker. An active ticker forces the engine to produce a frame
+    // every vsync even when nothing repaints — with several mascots
+    // on screen at once, that was the bulk of the desktop idle-CPU
+    // report. A one-shot timer wakes us for the next blink.
+    final settled =
+        !wasBlinking &&
+        _blink == 0 &&
+        _bobEnvelope < 0.005 &&
+        (targetTilt - _tilt).abs() < 0.05 &&
+        widget.state != MascotState.sleeping &&
+        widget.state != MascotState.loading;
+    if (settled) {
+      _ticker.stop();
+      _last = Duration.zero;
+      final untilBlink = Duration(
+          milliseconds:
+              math.max(50, ((_nextBlinkAt - _time) * 1000).round()));
+      _wake?.cancel();
+      _wake = Timer(untilBlink, () {
+        if (mounted && !_ticker.isActive) _ticker.start();
+      });
+      return;
+    }
+
     setState(() {});
+  }
+
+  Timer? _wake;
+
+  /// Any prop change (play state, amplitude pulse) can demand motion —
+  /// make sure the ticker is running to pick it up.
+  @override
+  void didUpdateWidget(HanamimiMascot old) {
+    super.didUpdateWidget(old);
+    if (!_ticker.isActive) {
+      _last = Duration.zero;
+      _ticker.start();
+    }
   }
 
   @override
   void dispose() {
+    _wake?.cancel();
     _ticker.dispose();
     super.dispose();
   }
@@ -107,28 +167,32 @@ class _HanamimiMascotState extends State<HanamimiMascot>
     final amp = reduceMotion ? 0.0 : 0.3 + widget.amplitude * 0.7;
     final bob = math.sin(_time * 4.0) * amp * 0.18 * _bobEnvelope;
     // Ears lag behind the head — sampled slightly in the past, smaller.
-    final earSwing =
-        math.sin(_time * 4.0 - 0.6) * amp * 0.12 * _bobEnvelope;
-    final bounce = widget.state == MascotState.loading
-        ? math.sin(_time * 6) * 2.0
-        : 0.0;
+    final earSwing = math.sin(_time * 4.0 - 0.6) * amp * 0.12 * _bobEnvelope;
+    final bounce =
+        widget.state == MascotState.loading ? math.sin(_time * 6) * 2.0 : 0.0;
 
     final h = widget.fullBody ? 158.0 : 132.0;
     return GestureDetector(
       onTap: widget.onTap,
-      child: CustomPaint(
-        size: Size(widget.size, widget.size * (h / 120)),
-        painter: MascotPainter(
-          pose: _poses[widget.state]!,
-          blink: _blink,
-          bob: bob + (_tilt - _poses[widget.state]!.tilt) * math.pi / 180,
-          earSwing: earSwing,
-          bodyBounce: bounce,
-          fullBody: widget.fullBody,
-          sleepPhase: widget.state == MascotState.sleeping
-              ? (_time * 0.4) % 1.0
-              : null,
-          accessory: widget.accessory,
+      // Confine the 60 fps animation to this painter's own layer —
+      // un-isolated, a bobbing mascot dragged its whole host surface
+      // (translucent sidebar over the desktop wash) into every frame.
+      child: RepaintBoundary(
+        child: CustomPaint(
+          size: Size(widget.size, widget.size * (h / 120)),
+          painter: MascotPainter(
+            pose: _poses[widget.state]!,
+            blink: _blink,
+            bob: bob + (_tilt - _poses[widget.state]!.tilt) * math.pi / 180,
+            earSwing: earSwing,
+            bodyBounce: bounce,
+            fullBody: widget.fullBody,
+            sleepPhase:
+                widget.state == MascotState.sleeping
+                    ? (_time * 0.4) % 1.0
+                    : null,
+            accessory: widget.accessory,
+          ),
         ),
       ),
     );

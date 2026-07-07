@@ -511,8 +511,10 @@ class _AlbumsTab extends ConsumerWidget {
     }
     return GridView.builder(
       padding: const EdgeInsets.all(Space.s4),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
+      // Max-extent so album covers stay album-sized on a wide desktop
+      // pane (2 fixed columns blew them up to half the pane each).
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 220,
         mainAxisSpacing: Space.s3,
         crossAxisSpacing: Space.s3,
       ),

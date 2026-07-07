@@ -50,8 +50,11 @@ class YouScreen extends ConsumerWidget {
           const SizedBox(height: Space.s6),
           Text('MOOD', style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
-          GridView.count(
-            crossAxisCount: 2,
+          // Max-extent, not fixed-count: a 2-column grid across a wide
+          // desktop pane inflated each theme card to phone-screen size
+          // (user: "why is the theme selection so big wtf").
+          GridView.extent(
+            maxCrossAxisExtent: 280,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             mainAxisSpacing: Space.s3,

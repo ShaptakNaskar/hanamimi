@@ -80,10 +80,34 @@ class _ParticleOverlayState extends State<ParticleOverlay>
     for (var i = 0; i < _fireflyCount; i++) {
       _fireflies.add(_Firefly(_rng));
     }
-    _ticker = createTicker(_tick)..start();
+    _ticker = createTicker(_tick);
+    // Only tick when there's something to animate — an idle active
+    // ticker still forces an engine frame every vsync.
+    _syncTicker();
+  }
+
+  @override
+  void didUpdateWidget(ParticleOverlay old) {
+    super.didUpdateWidget(old);
+    _syncTicker();
+  }
+
+  void _syncTicker() {
+    if (!mounted) return;
+    if (widget._enabled && !_ticker.isActive) {
+      _last = Duration.zero;
+      _ticker.start();
+    } else if (!widget._enabled && _ticker.isActive) {
+      _ticker.stop();
+      _last = Duration.zero;
+    }
   }
 
   void _tick(Duration elapsed) {
+    // Ambient drift doesn't need 60 fps — repaint at ~30. On desktop
+    // this overlay covers the whole window and every saved frame is a
+    // full-layer paint (part of the high-CPU report).
+    if ((elapsed - _last).inMilliseconds < 32) return;
     // Clamp dt: it spans the whole disabled/backgrounded stretch after
     // a theme switch or app resume, which would teleport every particle.
     final dt =

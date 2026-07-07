@@ -297,9 +297,18 @@ jobs:
             build/linux/x64/release/bundle \
             Hanamimi-plus-x86_64.AppImage
 
+      - name: Package pacman tar.zst
+        run: |
+          sudo apt-get install -y libarchive-tools zstd
+          packaging/linux/make_archpkg.sh \
+            build/linux/x64/release/bundle \
+            ${{ needs.build-release.outputs.semver }} dist
+
       - name: Attach to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.build-release.outputs.tag }}
-          files: Hanamimi-plus-x86_64.AppImage
+          files: |
+            Hanamimi-plus-x86_64.AppImage
+            dist/*.pkg.tar.zst
 

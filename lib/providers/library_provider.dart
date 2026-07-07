@@ -98,9 +98,15 @@ class LibraryNotifier extends AsyncNotifier<List<Track>> {
 
   Future<void> rescan() async {
     final repo = await ref.read(libraryRepositoryProvider.future);
-    final result = await _scanner(repo).scan();
-    _permissionDenied = result == ScanResult.permissionDenied;
-    state = AsyncData(await repo.allTracks());
+    try {
+      final result = await _scanner(repo).scan();
+      _permissionDenied = result == ScanResult.permissionDenied;
+    } finally {
+      // Even a scan that died partway has usually synced the DB —
+      // reflect whatever landed instead of freezing the stale list
+      // (the desktop "rescan keeps old entries" bug).
+      state = AsyncData(await repo.allTracks());
+    }
   }
 
   /// Materializes an online search result into a real library row

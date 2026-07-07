@@ -8,6 +8,8 @@ import '../audio/models/playback_session.dart';
 import '../library/models/track.dart';
 import '../platform/desktop/desktop_bootstrap.dart';
 import '../providers/audio_provider.dart';
+import '../providers/buddy_provider.dart';
+import '../providers/desktop_shell_provider.dart';
 import '../providers/import_job_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/theme_provider.dart';
@@ -21,7 +23,9 @@ import 'components/desktop/backdrop_wash.dart';
 import 'components/desktop/library_sidebar.dart';
 import 'components/mini_player.dart';
 import 'components/shared/bottom_nav.dart';
+import 'components/shared/particle_overlay.dart';
 import 'modals/import_playlist_sheet.dart';
+import 'modals/lyrics_sheet.dart';
 import 'modals/update_dialog.dart';
 import 'screens/desktop_immersive_screen.dart';
 import 'screens/downloads_screen.dart';
@@ -146,10 +150,13 @@ class _AppShellState extends ConsumerState<AppShell>
         final target = engine.position - const Duration(seconds: 5);
         engine.seek(target.isNegative ? Duration.zero : target);
       case LogicalKeyboardKey.escape:
-        // Immersive Now Playing (or any pushed route/dialog) first.
+        // Immersive Now Playing (or any pushed route/dialog) first,
+        // then the middle-pane lyrics, then in-screen overlays.
         final navigator = Navigator.of(context, rootNavigator: true);
         if (navigator.canPop()) {
           navigator.pop();
+        } else if (ref.read(desktopLyricsOpenProvider)) {
+          ref.read(desktopLyricsOpenProvider.notifier).close();
         } else if (!BackStack.pop() && _index != 0) {
           _onNavChanged(0);
         }
@@ -159,6 +166,11 @@ class _AppShellState extends ConsumerState<AppShell>
         if (!nav.canPop() &&
             ref.read(audioStateProvider).value?.currentTrack != null) {
           nav.push(DesktopImmersiveScreen.route());
+        }
+      case LogicalKeyboardKey.keyL:
+        // Middle-pane lyrics (the Now Playing panel's chevron).
+        if (ref.read(audioStateProvider).value?.currentTrack != null) {
+          ref.read(desktopLyricsOpenProvider.notifier).toggle();
         }
       case LogicalKeyboardKey.digit1:
         _onNavChanged(0);
@@ -192,6 +204,10 @@ class _AppShellState extends ConsumerState<AppShell>
   ];
 
   void _onNavChanged(int i) {
+    // Navigating anywhere dismisses the middle-pane lyrics — otherwise
+    // the sidebar switched the pane underneath while the lyrics kept
+    // covering it, so You/Albums/folders looked dead (user-reported).
+    ref.read(desktopLyricsOpenProvider.notifier).close();
     if (i == _index) return;
     setState(() {
       _previousIndex = _index;
@@ -327,14 +343,29 @@ class _AppShellState extends ConsumerState<AppShell>
       ),
     );
 
+    // Lyrics take over the middle pane (Spotify-style) when the Now
+    // Playing panel's chevron opens them; the karaoke view is the same
+    // widget the phone sheet uses — full word-sync, source, offset.
+    final lyricsTrack = ref.watch(audioStateProvider).value?.currentTrack;
+    final lyricsOpen =
+        ref.watch(desktopLyricsOpenProvider) && lyricsTrack != null;
+
     final middlePane = Expanded(
       child: Column(
         children: [
           Expanded(
-            child: KeyedSubtree(
-              key: ValueKey(contentIndex),
-              child: _screens[contentIndex],
-            ),
+            child: lyricsOpen
+                ? LyricsView(
+                    key: const ValueKey('desktop-lyrics'),
+                    track: lyricsTrack,
+                    sheetChrome: false,
+                    onClose: () =>
+                        ref.read(desktopLyricsOpenProvider.notifier).close(),
+                  )
+                : KeyedSubtree(
+                    key: ValueKey(contentIndex),
+                    child: _screens[contentIndex],
+                  ),
           ),
           _ResumeTicker(
             session: _pendingResume,
@@ -371,11 +402,25 @@ class _AppShellState extends ConsumerState<AppShell>
       },
       child: wide
           ? Scaffold(
-              // One uniform art glow under every pane; the panes float
-              // on it translucently so no boundary jumps color.
+              // One uniform art glow under every pane — and one
+              // whole-window particle field over the wash (fireflies
+              // confined to the panel looked like a local effect, not
+              // an atmosphere).
               body: Stack(
                 fit: StackFit.expand,
-                children: [const BackdropWash(), wideBody],
+                children: [
+                  const BackdropWash(),
+                  // Isolated so its 60 fps ticker repaints only its own
+                  // layer, not the blur below or the panes above.
+                  RepaintBoundary(
+                    child: ParticleOverlay(
+                      theme: theme,
+                      fireflies:
+                          ref.watch(buddyEnabledProvider('fireflies')),
+                    ),
+                  ),
+                  wideBody,
+                ],
               ),
             )
           : Scaffold(

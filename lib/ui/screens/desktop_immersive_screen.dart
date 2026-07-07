@@ -1,13 +1,11 @@
-import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../lyrics/lrc_parser.dart';
 import '../../providers/audio_provider.dart';
-import '../../providers/lyrics_provider.dart';
+import '../../providers/buddy_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
@@ -15,6 +13,8 @@ import '../../theme/theme_tokens.dart';
 import '../components/now_playing/playback_controls.dart';
 import '../components/now_playing/seek_bar_widget.dart';
 import '../components/now_playing/visualizer_widget.dart';
+import '../components/shared/particle_overlay.dart';
+import '../modals/lyrics_sheet.dart';
 import '../modals/queue_sheet.dart';
 import '../modals/sleep_timer_modal.dart';
 
@@ -56,6 +56,10 @@ class DesktopImmersiveScreen extends ConsumerWidget {
         fit: StackFit.expand,
         children: [
           _ImmersiveBackground(track: track, theme: theme),
+          ParticleOverlay(
+            theme: theme,
+            fireflies: ref.watch(buddyEnabledProvider('fireflies')),
+          ),
           SafeArea(
             child: Row(
               children: [
@@ -77,7 +81,17 @@ class DesktopImmersiveScreen extends ConsumerWidget {
                   flex: 6,
                   child: Padding(
                     padding: const EdgeInsets.only(right: Space.s6),
-                    child: _ImmersiveLyrics(track: track, theme: theme),
+                    // The SAME karaoke machinery as the phone sheet —
+                    // word-synced fill, interludes, source picker and
+                    // offset (auto-hiding, spicy-lyrics style), scaled
+                    // up with distance-blurred neighbor lines.
+                    child: LyricsView(
+                      track: track,
+                      sheetChrome: false,
+                      autoHideHeader: true,
+                      textScale: 1.5,
+                      blurLines: true,
+                    ),
                   ),
                 ),
               ],
@@ -118,16 +132,29 @@ class _ImmersiveBackground extends StatelessWidget {
     } else if (artUrl != null) {
       image = NetworkImage(artUrl);
     }
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        if (image != null)
-          ImageFiltered(
-            imageFilter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
-            child: Image(image: image, fit: BoxFit.cover),
-          ),
-        Container(color: theme.background.withValues(alpha: 0.72)),
-      ],
+    // Small decode — it's blurred to a wash anyway.
+    if (image != null) image = ResizeImage(image, width: 200);
+    // Cross-fade on track change, like the shell's BackdropWash — a
+    // hard swap here made immersive track changes jump between colors
+    // while the three-pane view glided (user-reported). RepaintBoundary
+    // keeps the big blur out of the 60 fps visualizer/lyrics frames.
+    return RepaintBoundary(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 600),
+        switchInCurve: Curves.easeOut,
+        child: Stack(
+          key: ValueKey(artPath ?? artUrl ?? 'no-art'),
+          fit: StackFit.expand,
+          children: [
+            if (image != null)
+              ImageFiltered(
+                imageFilter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
+                child: Image(image: image, fit: BoxFit.cover),
+              ),
+            Container(color: theme.background.withValues(alpha: 0.72)),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -223,182 +250,3 @@ class _LeftColumnState extends ConsumerState<_LeftColumn> {
   }
 }
 
-/// Oversized synced lyrics, active line lit, neighbors dimmed by
-/// distance; tap a line to seek (honoring the per-track sync offset).
-class _ImmersiveLyrics extends ConsumerStatefulWidget {
-  const _ImmersiveLyrics({required this.track, required this.theme});
-
-  final dynamic track;
-  final HanamimiTheme theme;
-
-  @override
-  ConsumerState<_ImmersiveLyrics> createState() => _ImmersiveLyricsState();
-}
-
-class _ImmersiveLyricsState extends ConsumerState<_ImmersiveLyrics> {
-  final _scroll = ScrollController();
-  final _lineKeys = <int, GlobalKey>{};
-  int _active = -1;
-  Timer? _clock;
-  Duration _lastReported = Duration.zero;
-  final _sinceReport = Stopwatch();
-
-  @override
-  void initState() {
-    super.initState();
-    // Extrapolated position clock (the lyrics-sheet pattern) so the
-    // highlight glides between the player's position reports.
-    _clock = Timer.periodic(const Duration(milliseconds: 120), (_) {
-      _tick();
-    });
-  }
-
-  @override
-  void dispose() {
-    _clock?.cancel();
-    _scroll.dispose();
-    super.dispose();
-  }
-
-  Duration get _offset => Duration(
-      milliseconds: ref
-              .read(sharedPrefsProvider)
-              .getInt('lyrics_offset_${widget.track.id}') ??
-          0);
-
-  void _tick() {
-    final lyrics = ref
-        .read(lyricsProvider(widget.track.id as int))
-        .value;
-    if (lyrics == null || !lyrics.isSynced || !mounted) return;
-    final playing =
-        ref.read(audioStateProvider).value?.isPlaying ?? false;
-    final position = playing
-        ? _lastReported + _sinceReport.elapsed
-        : _lastReported;
-    final active =
-        LrcParser.activeLine(lyrics.lines, position + _offset);
-    if (active != _active) {
-      setState(() => _active = active);
-      final key = _lineKeys[active];
-      final ctx = key?.currentContext;
-      if (ctx != null) {
-        Scrollable.ensureVisible(
-          ctx,
-          alignment: 0.38,
-          duration: const Duration(milliseconds: 550),
-          curve: Curves.easeInOutCubic,
-        );
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = widget.theme;
-    ref.listen(positionProvider, (_, next) {
-      final pos = next.value;
-      if (pos != null) {
-        _lastReported = pos;
-        _sinceReport
-          ..reset()
-          ..start();
-      }
-    });
-    final lyricsAsync = ref.watch(lyricsProvider(widget.track.id as int));
-
-    return lyricsAsync.when(
-      loading: () => Center(
-          child: CircularProgressIndicator(color: theme.primary)),
-      error: (_, __) => _empty(theme),
-      data: (lyrics) {
-        if (lyrics == null || lyrics.lines.isEmpty) return _empty(theme);
-        final engine = ref.read(audioHandlerProvider).engine;
-        return ShaderMask(
-          // Feather the top/bottom so lines dissolve instead of clipping.
-          shaderCallback: (rect) => const LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.transparent,
-              Colors.white,
-              Colors.white,
-              Colors.transparent,
-            ],
-            stops: [0.0, 0.12, 0.85, 1.0],
-          ).createShader(rect),
-          blendMode: BlendMode.dstIn,
-          child: ListView.builder(
-            controller: _scroll,
-            padding: EdgeInsets.symmetric(
-              vertical: MediaQuery.sizeOf(context).height * 0.35,
-            ),
-            itemCount: lyrics.lines.length,
-            itemBuilder: (context, i) {
-              final line = lyrics.lines[i];
-              final isActive = lyrics.isSynced && i == _active;
-              final distance = _active < 0 ? 1 : (i - _active).abs();
-              final opacity = !lyrics.isSynced
-                  ? 0.8
-                  : isActive
-                      ? 1.0
-                      : (0.55 - distance * 0.07).clamp(0.18, 0.55);
-              _lineKeys[i] ??= GlobalKey();
-              return InkWell(
-                key: _lineKeys[i],
-                onTap: lyrics.isSynced
-                    ? () {
-                        final target = line.timestamp - _offset;
-                        engine.seek(
-                            target.isNegative ? Duration.zero : target);
-                      }
-                    : null,
-                borderRadius: BorderRadius.circular(Radii.md),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      vertical: Space.s3, horizontal: Space.s3),
-                  child: AnimatedScale(
-                    scale: isActive ? 1.0 : 0.97,
-                    alignment: Alignment.centerLeft,
-                    duration: const Duration(milliseconds: 350),
-                    curve: Curves.easeOut,
-                    child: AnimatedOpacity(
-                      opacity: opacity,
-                      duration: const Duration(milliseconds: 350),
-                      child: Text(
-                        line.text.isEmpty ? '· · ·' : line.text,
-                        style: TextStyle(
-                          fontFamily: 'Nunito',
-                          fontSize: 34,
-                          height: 1.25,
-                          fontWeight: FontWeight.w800,
-                          color: isActive
-                              ? theme.textPrimary
-                              : theme.textPrimary,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _empty(HanamimiTheme theme) => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.lyrics_outlined, size: 42, color: theme.textMuted),
-            const SizedBox(height: Space.s3),
-            Text('No lyrics found', style: AppText.body(theme)),
-            const SizedBox(height: Space.s1),
-            Text('Enjoy the visualizer instead 🌸',
-                style: AppText.caption(theme)),
-          ],
-        ),
-      );
-}

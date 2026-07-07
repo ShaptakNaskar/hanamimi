@@ -166,6 +166,10 @@ class _DownloadRabbitState extends State<DownloadRabbit> {
           .clamp(0.0, _maxX);
 
   void _tick(Duration elapsed) {
+    // Ambient pets read the same at 30 fps, and every skipped frame is
+    // a skipped buffer swap (NVIDIA's GL swap busy-waits on CPU — the
+    // desktop idle-CPU report).
+    if ((elapsed - _last).inMilliseconds < 32) return;
     final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 0.05);
     _last = elapsed;
     if (!_started) return;
@@ -314,6 +318,10 @@ class _RoamingBuddyState extends State<RoamingBuddy> {
   double get _maxX => math.max(0, _w - widget.size);
 
   void _tick(Duration elapsed) {
+    // Ambient pets read the same at 30 fps, and every skipped frame is
+    // a skipped buffer swap (NVIDIA's GL swap busy-waits on CPU — the
+    // desktop idle-CPU report).
+    if ((elapsed - _last).inMilliseconds < 32) return;
     final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 0.05);
     _last = elapsed;
     if (!_started) return;
@@ -740,6 +748,10 @@ class _CatBuddyState extends State<CatBuddy> {
   }
 
   void _tick(Duration elapsed) {
+    // Ambient pets read the same at 30 fps, and every skipped frame is
+    // a skipped buffer swap (NVIDIA's GL swap busy-waits on CPU — the
+    // desktop idle-CPU report).
+    if ((elapsed - _last).inMilliseconds < 32) return;
     final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 0.05);
     _last = elapsed;
     _phase += dt / (widget.sleeping ? 3.4 : 1.5);
@@ -1150,6 +1162,10 @@ class _HamsterWheelState extends State<HamsterWheel> {
   }
 
   void _tick(Duration elapsed) {
+    // Ambient pets read the same at 30 fps, and every skipped frame is
+    // a skipped buffer swap (NVIDIA's GL swap busy-waits on CPU — the
+    // desktop idle-CPU report).
+    if ((elapsed - _last).inMilliseconds < 32) return;
     final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 0.05);
     _last = elapsed;
     if (widget.running) {
@@ -1299,6 +1315,10 @@ class _KoiBowlState extends State<KoiBowl> {
   }
 
   void _tick(Duration elapsed) {
+    // Ambient pets read the same at 30 fps, and every skipped frame is
+    // a skipped buffer swap (NVIDIA's GL swap busy-waits on CPU — the
+    // desktop idle-CPU report).
+    if ((elapsed - _last).inMilliseconds < 32) return;
     final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 0.05);
     _last = elapsed;
     _t += dt;

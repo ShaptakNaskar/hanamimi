@@ -22,29 +22,40 @@ class BackdropWash extends ConsumerWidget {
 
     final artPath = track?.albumArtPath;
     final artUrl = track?.artUrl;
-    final ImageProvider? image = artPath != null
+    ImageProvider? image = artPath != null
         ? FileImage(File(artPath))
         : artUrl != null
             ? NetworkImage(artUrl)
             : null;
+    // The wash is blurred to mush anyway — a 200px decode blurs in a
+    // fraction of the time of full-res art (same lesson as the lyrics
+    // sheet backdrop on Android).
+    if (image != null) image = ResizeImage(image, width: 200);
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 600),
-      switchInCurve: Curves.easeOut,
-      child: image == null
-          ? const SizedBox.expand()
-          : Stack(
-              key: ValueKey(artPath ?? artUrl),
-              fit: StackFit.expand,
-              children: [
-                ImageFiltered(
-                  imageFilter: ImageFilter.blur(sigmaX: 100, sigmaY: 100),
-                  child: Image(image: image, fit: BoxFit.cover),
-                ),
-                Container(
-                    color: theme.background.withValues(alpha: 0.82)),
-              ],
-            ),
+    // RepaintBoundary: a sigma-100 blur over the whole window is the
+    // most expensive paint in the app. Isolated, it rasterizes once
+    // per track change; un-isolated, the 60 fps siblings (visualizer,
+    // particles) dragged it into every frame — the desktop
+    // high-CPU-while-idle bug.
+    return RepaintBoundary(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 600),
+        switchInCurve: Curves.easeOut,
+        child: image == null
+            ? const SizedBox.expand()
+            : Stack(
+                key: ValueKey(artPath ?? artUrl),
+                fit: StackFit.expand,
+                children: [
+                  ImageFiltered(
+                    imageFilter: ImageFilter.blur(sigmaX: 100, sigmaY: 100),
+                    child: Image(image: image, fit: BoxFit.cover),
+                  ),
+                  Container(
+                      color: theme.background.withValues(alpha: 0.82)),
+                ],
+              ),
+      ),
     );
   }
 }

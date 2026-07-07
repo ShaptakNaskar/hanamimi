@@ -41,20 +41,31 @@ class DesktopAudioInfo {
   static Future<AudioOutput?> output() async {
     if (!Platform.isLinux) return const AudioOutput(route: 'Speaker');
     try {
-      // Default sink name, then its row in the short list for the rate:
-      // "55  alsa_output.pci-0000.analog-stereo  ...  s32le 2ch 48000Hz ..."
       final def = await Process.run('pactl', ['get-default-sink']);
       if (def.exitCode != 0) return const AudioOutput(route: 'Speaker');
       final sink = (def.stdout as String).trim();
 
+      // The raw sink id ("alsa_output.pci-0000_06_00.6.HiFi__Speaker__sink")
+      // is plumbing, not a name (user: "wtf is alsa output pci"). The
+      // sink's Description is the human string the OS volume UI shows —
+      // walk `pactl list sinks` to the default sink's block and read it.
       int? rateHz;
-      final list = await Process.run('pactl', ['list', 'short', 'sinks']);
+      String? description;
+      final list = await Process.run('pactl', ['list', 'sinks']);
       if (list.exitCode == 0) {
-        for (final line in const LineSplitter().convert(list.stdout as String)) {
-          if (!line.contains(sink)) continue;
-          final match = RegExp(r'(\d+)Hz').firstMatch(line);
-          rateHz = int.tryParse(match?.group(1) ?? '');
-          break;
+        var inOurSink = false;
+        for (final raw
+            in const LineSplitter().convert(list.stdout as String)) {
+          final line = raw.trim();
+          if (line.startsWith('Name:')) {
+            inOurSink = line.substring(5).trim() == sink;
+          } else if (inOurSink && line.startsWith('Description:')) {
+            description = line.substring(12).trim();
+          } else if (inOurSink && line.startsWith('Sample Specification:')) {
+            final match = RegExp(r'(\d+)Hz').firstMatch(line);
+            rateHz = int.tryParse(match?.group(1) ?? '');
+            break; // got everything we need
+          }
         }
       }
 
@@ -66,7 +77,8 @@ class DesktopAudioInfo {
               : lower.contains('hdmi')
                   ? 'HDMI'
                   : 'Speaker';
-      return AudioOutput(route: route, name: sink, sampleRateHz: rateHz);
+      return AudioOutput(
+          route: route, name: description, sampleRateHz: rateHz);
     } catch (_) {
       return const AudioOutput(route: 'Speaker');
     }

@@ -90,7 +90,18 @@ jobs:
             build/linux/x64/release/bundle \
             Hanamimi-plus-x86_64.AppImage
 
+      - name: Package pacman tar.zst
+        run: |
+          sudo apt-get install -y libarchive-tools zstd
+          packaging/linux/make_archpkg.sh \
+            build/linux/x64/release/bundle 0.1.0 dist
+
       - uses: actions/upload-artifact@v4
         with:
           name: hanamimi-plus-appimage
           path: Hanamimi-plus-x86_64.AppImage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hanamimi-plus-pacman
+          path: dist/*.pkg.tar.zst

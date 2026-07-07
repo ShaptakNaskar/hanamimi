@@ -10,6 +10,7 @@ import '../../providers/audio_provider.dart';
 import '../../providers/buddy_provider.dart';
 import '../../providers/cat_mode_provider.dart';
 import '../../providers/companion_provider.dart';
+import '../../providers/desktop_shell_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
@@ -78,15 +79,16 @@ class NowPlayingScreen extends ConsumerWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // As the desktop side panel the shell paints ONE art glow under
-        // all three panes (BackdropWash) — a private wash here would
-        // make the panel glow while the rest of the app doesn't, and
-        // the boundary reads as a harsh color change.
+        // As the desktop side panel the shell paints ONE art glow and
+        // ONE particle field under/over all three panes — private
+        // copies here would confine them to the panel and make the
+        // pane boundary read as a different world.
         if (!panel) _BlurredArtBackground(track: track, theme: theme),
-        ParticleOverlay(
-          theme: theme,
-          fireflies: ref.watch(buddyEnabledProvider('fireflies')),
-        ),
+        if (!panel)
+          ParticleOverlay(
+            theme: theme,
+            fireflies: ref.watch(buddyEnabledProvider('fireflies')),
+          ),
         SafeArea(
           bottom: false,
           child: LayoutBuilder(
@@ -167,10 +169,27 @@ class NowPlayingScreen extends ConsumerWidget {
                         const Spacer(flex: 1),
                         GestureDetector(
                           behavior: HitTestBehavior.opaque,
-                          onTap: () => showLyricsSheet(context, track),
+                          // Desktop panel: lyrics live in the middle
+                          // pane (Spotify-style), not a bottom sheet
+                          // rising through the middle of a big window.
+                          onTap:
+                              () =>
+                                  panel
+                                      ? ref
+                                          .read(
+                                            desktopLyricsOpenProvider.notifier,
+                                          )
+                                          .toggle()
+                                      : showLyricsSheet(context, track),
                           onVerticalDragEnd: (d) {
                             if ((d.primaryVelocity ?? 0) < -200) {
-                              showLyricsSheet(context, track);
+                              if (panel) {
+                                ref
+                                    .read(desktopLyricsOpenProvider.notifier)
+                                    .toggle();
+                              } else {
+                                showLyricsSheet(context, track);
+                              }
                             }
                           },
                           child: Column(

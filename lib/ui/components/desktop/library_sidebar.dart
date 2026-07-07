@@ -31,7 +31,9 @@ class LibrarySidebar extends ConsumerWidget {
 
   void _openCollection(WidgetRef ref, void Function() open) {
     open();
-    // The collection lives in the Library pane — make sure it's showing.
+    // The collection lives in the Library pane — make sure it's showing
+    // and not buried under the middle-pane lyrics.
+    ref.read(desktopLyricsOpenProvider.notifier).close();
     if (activeIndex != 0) onNav(0);
   }
 

@@ -38,3 +38,16 @@ class DesktopCollectionNotifier extends Notifier<DesktopCollectionRequest?> {
 final desktopCollectionProvider =
     NotifierProvider<DesktopCollectionNotifier, DesktopCollectionRequest?>(
         DesktopCollectionNotifier.new);
+
+/// Whether the desktop middle pane is showing lyrics (Spotify-style —
+/// the Now Playing panel's "Lyrics" chevron swaps the middle pane
+/// instead of raising a bottom sheet in a desktop window).
+class DesktopLyricsNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+  void toggle() => state = !state;
+  void close() => state = false;
+}
+
+final desktopLyricsOpenProvider =
+    NotifierProvider<DesktopLyricsNotifier, bool>(DesktopLyricsNotifier.new);
