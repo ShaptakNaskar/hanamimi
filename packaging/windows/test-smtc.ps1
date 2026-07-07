@@ -1,4 +1,4 @@
-# Hanamimi+ — SMTC / media-key test suite for the Windows box.
+# Hanamimi+ -- SMTC / media-key test suite for the Windows box.
 #
 # Run next to hanamimi.exe:   .\test-smtc.ps1
 #
@@ -6,11 +6,13 @@
 #  1. Launches the app if it isn't running.
 #  2. Reads Windows' own SMTC session list (the same source the media
 #     flyout and lock screen use) and verifies Hanamimi registered.
-#  3. Synthesizes hardware media keys ON THIS MACHINE (keybd_event) —
+#  3. Synthesizes hardware media keys ON THIS MACHINE (keybd_event),
 #     so it works over Parsec even though Parsec may not forward your
-#     real media keys — and checks the SMTC playback state flips.
+#     real media keys, and checks the SMTC playback state flips.
 #
 # PASS/FAIL prints per step; manual checks are listed in TESTING.md.
+#
+# NOTE: ASCII-only on purpose (PowerShell 5.1 ANSI parsing).
 $ErrorActionPreference = 'SilentlyContinue'
 
 # --- WinRT async helper (PowerShell 5-compatible) ---
@@ -65,19 +67,23 @@ function Check($name, $ok, $detail) {
 # --- 1. App running ---
 if (-not (Get-Process hanamimi -ErrorAction SilentlyContinue)) {
   Write-Host 'Starting hanamimi.exe...'
-  Start-Process "$PSScriptRoot\hanamimi.exe"
+  Start-Process (Join-Path $PSScriptRoot 'hanamimi.exe')
   Start-Sleep 8
 }
 Check 'app process' ([bool](Get-Process hanamimi -ErrorAction SilentlyContinue)) ''
 
-Write-Host "`n>> In the app: click a song so playback starts, then press Enter here." -ForegroundColor Yellow
+Write-Host ''
+Write-Host '>> In the app: click a song so playback starts, then press Enter here.' -ForegroundColor Yellow
 Read-Host | Out-Null
 
 # --- 2. SMTC session registered ---
 $state = Get-State
-Check 'SMTC session registered' ($null -ne $state) $(if ($state) { "now playing: $($state.Title) — $($state.Artist) [$($state.Status)]" } else { 'no session found — SMTC init failed' })
-if (-not $state) {
-  Write-Host "`nRemaining checks need the session — aborting." -ForegroundColor Red
+if ($state) {
+  Check 'SMTC session registered' $true "now playing: $($state.Title) - $($state.Artist) [$($state.Status)]"
+} else {
+  Check 'SMTC session registered' $false 'no session found - SMTC init failed'
+  Write-Host ''
+  Write-Host 'Remaining checks need the session - aborting.' -ForegroundColor Red
   exit 1
 }
 Check 'metadata (title present)' (-not [string]::IsNullOrWhiteSpace($state.Title)) "'$($state.Title)'"
@@ -96,14 +102,16 @@ Check 'media key resumes' ($resumed.Status -eq 'Playing') "$($resumed.Status)"
 $before = (Get-State).Title
 Press-MediaKey $VK_NEXT; Start-Sleep 3
 $afterNext = Get-State
-Check 'next key changes track' ($afterNext.Title -ne $before) "'$before' → '$($afterNext.Title)'"
+Check 'next key changes track' ($afterNext.Title -ne $before) "'$before' -> '$($afterNext.Title)'"
 
 Press-MediaKey $VK_PREV; Start-Sleep 1; Press-MediaKey $VK_PREV; Start-Sleep 3
 $afterPrev = Get-State
 Check 'previous key returns' ($afterPrev.Title -eq $before) "'$($afterPrev.Title)'"
 
 # --- Summary ---
-$failed = ($results.Values | Where-Object { -not $_ }).Count
-Write-Host ("`n{0}/{1} checks passed." -f ($results.Count - $failed), $results.Count) `
-  -ForegroundColor $(if ($failed -eq 0) { 'Green' } else { 'Red' })
+$failed = @($results.Values | Where-Object { -not $_ }).Count
+$passed = $results.Count - $failed
+$color = if ($failed -eq 0) { 'Green' } else { 'Red' }
+Write-Host ''
+Write-Host ("{0}/{1} checks passed." -f $passed, $results.Count) -ForegroundColor $color
 Write-Host 'Manual checks (flyout art, lock screen, seek bar): see TESTING.md'
