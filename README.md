@@ -3,13 +3,15 @@
 > A kawaii, offline-first music player for Android with a beagle mascot that vibes to your music.
 > Built with Flutter. Named after a real dog. 🐶
 
-Hanamimi plays the music already on your phone — no accounts, no streaming, no ads — and wraps it in a soft, living interface: four mood themes, a real FFT visualizer, word-synced karaoke lyrics, and a little beagle who bops her head to the beat.
+Hanamimi plays the music already on your phone — no accounts, no streaming, no ads — and wraps it in a soft, living interface: mood themes, a real FFT visualizer, word-synced karaoke lyrics, a Home page that learns what you like, and a little beagle who bops her head to the beat.
+
+> Want online streaming and desktop apps? See **Hanamimi+** (the `plus` branch) — [docs/EDITIONS.md](docs/EDITIONS.md) explains the difference. Base Hanamimi stays fully local and Play-Store-safe.
 
 ## Screenshots
 
-| Library | Now Playing | Starry Night |
+| Home (recommendations) | Now Playing | Adaptive theme |
 |:---:|:---:|:---:|
-| ![Library](docs/screenshots/library.png) | ![Now Playing](docs/screenshots/now-playing.png) | ![Starry Night](docs/screenshots/starry-night.png) |
+| ![Home](docs/screenshots/home.png) | ![Now Playing](docs/screenshots/now-playing.png) | ![Adaptive](docs/screenshots/adaptive.png) |
 
 | Karaoke lyrics | Instrumental breaks | Folders | You | Sleep timer |
 |:---:|:---:|:---:|:---:|:---:|
@@ -17,16 +19,23 @@ Hanamimi plays the music already on your phone — no accounts, no streaming, no
 
 ## Features
 
+**Home & recommendations** *(new in 2.0)*
+- A **Home** start page with a **Jump back in** shelf (your recents) and a **For you** shelf of on-device picks
+- Everything is computed **on the device**, airplane-mode safe — recency-weighted plays, a co-play/Markov matrix ("after this, you usually play that"), a skip signal, and audio-feature similarity extracted for free during the visualizer decode
+- **Song radio** (seed any track into a station) and **smart shuffle** (weighted toward your favorites)
+- No accounts, no network, nothing uploaded — the whole thing runs from your own library
+
 **Player**
 - Local playback via MediaStore scan — songs, albums, **folders** (VLC-style directory browsing), playlists
 - Background audio with lock-screen / notification controls and media buttons
 - True two-player **crossfade** (2–12 s, smoothstep ramp), shuffle / repeat / repeat-one
 - Queue sheet with tap-to-jump, swipe a track right to queue it, left to add to a playlist
-- Playlists with pastel covers: play all, swipe-left to remove a song, delete with confirm
+- Playlists with pastel or custom covers: play all, reorder, swipe-left to remove, delete with confirm
 - Library-wide search across songs, albums, folders and playlists
 - **Excluded folders** — hide any directory from the scan (You → More → Excluded folders)
 - Registers as an audio handler — "open with Hanamimi" works from file managers and other apps
-- Sleep timer with moon-phase presets: countdown or end-of-track, 30 s volume fade with screen dimming
+- Sleep timer with moon-phase presets; **caffeine** toggle to keep the screen awake
+- **Controller + touch friendly** — finger/stylus drag-scroll and gamepad navigation for handhelds
 
 **Lyrics (the fun part)**
 - **Word-by-word karaoke highlighting** in the style of [beautiful-lyrics](https://github.com/surfbryce/beautiful-lyrics) — per-word glow, scale and lift, feathered fill edge, smooth centered scrolling
@@ -37,17 +46,18 @@ Hanamimi plays the music already on your phone — no accounts, no streaming, no
 - Filling dot indicators during intros and instrumental breaks
 - Tap any line to seek there; per-track sync offset (±0.5 s nudges) for files that are a different master than the timing source
 - Source picker on the quality badge — force embedded / Musixmatch / LRCLIB per track; sources are probed on open, and ones with nothing for the song are greyed out
+- Share a lyric snippet as a card
 
 **Visualizer & mascot**
-- Real FFT computed from the decoded audio itself (60 fps, 12 log-spaced bands, per-track disk cache, **no microphone permission**), styled per theme: pastel bars, falling raindrops, radial starburst, waveform — with a sensitivity control for quiet songs
+- Real FFT computed from the decoded audio itself (60 fps, 12 log-spaced bands, per-track disk cache, **no microphone permission**), styled per theme: pastel bars, radial starburst, waveform — with a sensitivity control for quiet songs
 - Hanamimi the beagle is drawn and animated entirely in code (`CustomPainter`): blink scheduler, amplitude-driven head bop with lagging-ear physics, head-tilt on track change, snoring with floating z's
+- A flock of optional **buddies**, each individually toggleable — parrot, cat, duck, fireflies (dark themes) — anchored to furniture around the UI
 - Accessories unlocked by listen time (bow → headphones → flower → crown)
 
 **Design**
-- Four themes: Cherry Blossom 🌸, Rainy Day 🌧️, Starry Night 🌙, Matcha 🍵
+- Four themes: **Cherry Blossom 🌸**, **Adaptive Light**, **Starry Night 🌙**, **Adaptive Dark** — the Adaptive palettes are drawn live from the current album art (Material You–style) and follow the art's brightness; first launch follows your system light/dark setting
 - Sakura petals / drifting stars, caterpillar seek bar with eyes, heart-burst likes
 - Nunito everywhere, nothing has a hard corner, reduce-motion aware
-- A couple of easter eggs — try tapping the mascot a few times 🐱
 
 ## Building
 
@@ -82,20 +92,24 @@ The launcher icon is rendered from the mascot painter itself:
 ```
 lib/
 ├── audio/        QueueManager (two-player crossfade), audio_service handler, sleep timer
+├── reco/         on-device recommender — co-play + skip logging, audio-feature
+│                 vectors, blended scoring, song radio
 ├── library/      sqflite repository, Kotlin MediaStore scanner channel
 ├── lyrics/       LRC + enhanced-LRC parser, richsync parser, embedded-tag readers,
 │                 Musixmatch/LRCLIB providers, quality-priority resolution
 ├── visualizer/   FFT band processor + per-theme painters
-├── providers/    Riverpod state (audio, library, lyrics, theme, mascot, …)
-├── theme/        design tokens + the four HanamimiTheme palettes
-└── ui/           screens, mascot painter/animator, lyrics sheet, modals
+├── platform/     gamepad input
+├── providers/    Riverpod state (audio, library, reco, lyrics, theme, mascot, …)
+├── theme/        design tokens + the HanamimiTheme palettes (incl. adaptive)
+└── ui/           screens (Home, Library, Now Playing, You), mascot, lyrics sheet, modals
 
 android/…/app/    MainActivity + MediaStoreChannel.kt + FftExtractorChannel.kt
 ```
 
 ## Notes
 
-- **Android only** (v1). The visualizer decodes each track itself (`MediaExtractor`/`MediaCodec` → FFT at 60 fps, disk-cached per track) — **no microphone / RECORD_AUDIO permission**, and it stays accurate regardless of the output mix.
+- **Android only.** The visualizer decodes each track itself (`MediaExtractor`/`MediaCodec` → FFT at 60 fps, disk-cached per track) — **no microphone / RECORD_AUDIO permission**, and it stays accurate regardless of the output mix.
+- Recommendations are computed entirely on-device from your own listening — nothing is ever uploaded.
 - Musixmatch is accessed through its unofficial desktop-app API, best-effort with graceful fallback — intended for personal use.
 - Word timings come keyed to specific releases; local files that are a different master can drift, which is what the per-track sync offset is for.
 
