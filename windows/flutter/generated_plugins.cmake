@@ -5,6 +5,8 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   connectivity_plus
   file_selector_windows
+  flutter_inappwebview_windows
+  gamepads_windows
   media_kit_libs_windows_audio
   permission_handler_windows
   screen_brightness_windows

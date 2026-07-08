@@ -63,6 +63,48 @@ class DesktopYtDlp {
     }
   }
 
+  /// Desktop Tier 3 sign-in (M41): extract the YT Music session cookies
+  /// straight out of an installed browser's profile via yt-dlp's
+  /// `--cookies-from-browser`, no WebView needed. Prefer **Firefox** —
+  /// Chrome ≥127 on Windows added App-Bound Encryption that breaks
+  /// Chromium cookie extraction. Returns a `Cookie:` header string
+  /// (name=value; …) scoped to youtube domains, or null when the
+  /// browser has no logged-in session.
+  static Future<String?> cookiesFromBrowser(String browser) async {
+    final bin = await _ensureBinary(allowDownload: true);
+    if (bin == null) return null;
+    try {
+      final res = await Process.run(bin, [
+        '--cookies-from-browser', browser,
+        '--cookies', '-', // write Netscape cookies.txt to stdout
+        '--skip-download',
+        '--no-warnings',
+        // A cheap page that forces the cookie jar to be read/emitted.
+        'https://music.youtube.com/',
+      ]).timeout(const Duration(seconds: 45));
+      if (res.exitCode != 0) return null;
+      return _cookieHeaderFromNetscape(res.stdout as String);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Netscape cookies.txt → `name=value; …` for youtube/google domains.
+  static String? _cookieHeaderFromNetscape(String text) {
+    final pairs = <String>[];
+    for (final line in const LineSplitter().convert(text)) {
+      if (line.startsWith('#') || line.trim().isEmpty) continue;
+      final cols = line.split('\t');
+      if (cols.length < 7) continue;
+      final domain = cols[0];
+      if (!domain.contains('youtube.com') && !domain.contains('google.com')) {
+        continue;
+      }
+      pairs.add('${cols[5]}=${cols[6]}');
+    }
+    return pairs.isEmpty ? null : pairs.join('; ');
+  }
+
   /// The "Update extractor" settings action. The standalone binary
   /// self-updates with -U; a distro-packaged one can't, so the fallback
   /// is a fresh download into the support dir (which then shadows PATH).

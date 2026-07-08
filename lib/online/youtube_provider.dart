@@ -124,6 +124,98 @@ class YouTubeProvider implements MusicProvider {
     }
   }
 
+  /// YT Music's radio queue for a seed video — the `next` endpoint with
+  /// the seed's RDAMVM radio playlist. This is Google's production
+  /// recommender answering **anonymously** (no account, no cookies):
+  /// the strongest similarity signal available without a profile
+  /// (ARCHITECTURE-RECOMMENDATIONS.md §4, Tier 1). Best-effort: empty
+  /// on any failure.
+  Future<List<OnlineSearchResult>> relatedSongs(String videoId) async {
+    try {
+      final res = await http
+          .post(
+            Uri.parse(
+                'https://music.youtube.com/youtubei/v1/next?prettyPrint=false'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Origin': 'https://music.youtube.com',
+            },
+            body: jsonEncode({
+              'context': {
+                'client': {
+                  'clientName': 'WEB_REMIX',
+                  'clientVersion': '1.20250101.01.00',
+                  'hl': 'en',
+                },
+              },
+              'videoId': videoId,
+              'playlistId': 'RDAMVM$videoId',
+              'isAudioOnly': true,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) return const [];
+
+      // The radio queue lists items as playlistPanelVideoRenderer
+      // (sometimes wrapped) — collect them wherever they sit.
+      final items = <Map<String, dynamic>>[];
+      void walk(Object? node) {
+        if (node is Map<String, dynamic>) {
+          final it = node['playlistPanelVideoRenderer'];
+          if (it is Map<String, dynamic>) items.add(it);
+          node.values.forEach(walk);
+        } else if (node is List) {
+          node.forEach(walk);
+        }
+      }
+
+      walk(jsonDecode(res.body));
+
+      final seen = <String>{videoId}; // drop the seed itself
+      final out = <OnlineSearchResult>[];
+      for (final it in items) {
+        final r = _toPanelResult(it);
+        if (r != null && seen.add(r.sourceId)) out.add(r);
+      }
+      return out;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  OnlineSearchResult? _toPanelResult(Map<String, dynamic> it) {
+    try {
+      final id = it['videoId'] as String? ?? _findVideoId(it);
+      if (id == null) return null;
+      final title =
+          (it['title']?['runs'] as List?)?.first?['text'] as String?;
+      if (title == null || title.isEmpty) return null;
+
+      // longBylineText: "Artist • Album • Year" — first run is the artist.
+      final byline = (it['longBylineText']?['runs'] as List?) ??
+          (it['shortBylineText']?['runs'] as List?) ??
+          const [];
+      final artist =
+          byline.isEmpty ? null : (byline.first['text'] as String?)?.trim();
+
+      final length =
+          (it['lengthText']?['runs'] as List?)?.first?['text'] as String?;
+      return OnlineSearchResult(
+        source: TrackSource.youtube,
+        sourceId: id,
+        title: title,
+        artist: (artist == null || artist.isEmpty)
+            ? 'Unknown artist'
+            : artist,
+        duration: (length == null ? null : _parseLength(length)) ??
+            Duration.zero,
+        artUrl: _findThumbs(it),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   OnlineSearchResult? _toMusicResult(Map<String, dynamic> it) {
     try {
       // videoId lives on a watchEndpoint somewhere inside the item.

@@ -47,4 +47,36 @@ void main() {
     print('resolved: ${stream.codec} ${stream.bitrateKbps}kbps '
         '→ HTTP ${head.statusCode}, ${head.headers['content-length']} bytes');
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('YT Music radio (Tier 1 relatedSongs) returns fresh songs',
+      () async {
+    final provider = YouTubeProvider();
+    final hits = await provider.searchMusic('daft punk get lucky');
+    expect(hits, isNotEmpty);
+    final seed = hits.first.sourceId;
+
+    final related = await provider.relatedSongs(seed);
+    expect(related.length, greaterThanOrEqualTo(5),
+        reason: 'radio queue should carry a real set of songs');
+    expect(related.map((r) => r.sourceId), isNot(contains(seed)));
+    expect(related.first.title, isNotEmpty);
+    // ignore: avoid_print
+    print('radio: ${related.take(5).map((r) => '${r.title} — ${r.artist}')}');
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('JioSaavn reco.getreco (Tier 1 similarSongs) returns playable rows',
+      () async {
+    final provider = SaavnProvider();
+    final hits = await provider.search('tum hi ho');
+    expect(hits, isNotEmpty);
+    final seed = hits.first.sourceId;
+
+    final similar = await provider.similarSongs(seed);
+    expect(similar, isNotEmpty,
+        reason: 'Saavn recommender should answer for a mainstream seed');
+    expect(similar.first.duration.inSeconds, greaterThan(0),
+        reason: 'rows come through song.getDetails, so durations exist');
+    // ignore: avoid_print
+    print('reco: ${similar.take(5).map((r) => '${r.title} — ${r.artist}')}');
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }

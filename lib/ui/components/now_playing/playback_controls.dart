@@ -13,11 +13,19 @@ import '../../../theme/theme_tokens.dart';
 /// per DESIGN.md §9.6.
 class PlaybackControls extends ConsumerStatefulWidget {
   const PlaybackControls(
-      {super.key, this.onSleepTimer, this.onQueue, this.onAddToPlaylist});
+      {super.key,
+      this.onSleepTimer,
+      this.onQueue,
+      this.onAddToPlaylist,
+      this.onStartRadio});
 
   final VoidCallback? onSleepTimer;
   final VoidCallback? onQueue;
   final VoidCallback? onAddToPlaylist;
+
+  /// Song radio (M38c): rebuild the queue as a station flowing out of
+  /// the current track.
+  final VoidCallback? onStartRadio;
 
   @override
   ConsumerState<PlaybackControls> createState() => _PlaybackControlsState();
@@ -176,6 +184,13 @@ class _PlaybackControlsState extends ConsumerState<PlaybackControls>
               color: theme.textMuted,
               onTap: widget.onAddToPlaylist ?? () {},
             ),
+            if (widget.onStartRadio != null)
+              _IconOnly(
+                icon: Icons.radio_outlined,
+                size: 20,
+                color: theme.textMuted,
+                onTap: widget.onStartRadio!,
+              ),
             // Caffeine: keep the screen on while enjoying the visualizer.
             _IconOnly(
               icon: Icons.coffee_outlined,

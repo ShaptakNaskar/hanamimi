@@ -15,6 +15,7 @@ import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
 import '../../providers/nerd_provider.dart';
+import '../../providers/reco_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/visualizer_provider.dart';
 import '../../theme/app_theme.dart';
@@ -162,6 +163,7 @@ class NowPlayingScreen extends ConsumerWidget {
                                 theme,
                                 libraryTrack.id,
                               ),
+                          onStartRadio: () => startRadio(ref, libraryTrack),
                         ),
                         const SizedBox(height: Space.s4),
                         const VisualizerWidget(height: 56),

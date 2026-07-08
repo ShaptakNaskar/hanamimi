@@ -64,6 +64,14 @@ class YtDlpChannel {
     }
   }
 
+  /// Desktop-only (M41): read the YT session cookies from an installed
+  /// browser via yt-dlp `--cookies-from-browser`. Android uses the
+  /// in-app WebView instead, so this returns null there.
+  static Future<String?> cookiesFromBrowser(String browser) async {
+    if (Platform.isAndroid) return null;
+    return DesktopYtDlp.cookiesFromBrowser(browser);
+  }
+
   /// Current yt-dlp version (null if never initialized / unavailable).
   static Future<String?> version() async {
     if (!Platform.isAndroid) return DesktopYtDlp.version();

@@ -11,6 +11,7 @@ class NavItem {
 }
 
 const _items = [
+  NavItem('Home', Icons.home_outlined, Icons.home_rounded),
   NavItem('Library', Icons.music_note_outlined, Icons.music_note_outlined),
   NavItem('Playing', Icons.play_circle_outline, Icons.play_circle),
   NavItem('Downloads', Icons.download_outlined, Icons.download),
@@ -51,7 +52,7 @@ class HanamimiSideRail extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             for (var i = 0; i < _items.length; i++)
-              if (showPlaying || i != 1)
+              if (showPlaying || i != 2)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: Space.s3),
                 child: InkResponse(

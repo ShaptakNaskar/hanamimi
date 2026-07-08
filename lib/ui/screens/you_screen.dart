@@ -17,7 +17,10 @@ import '../../providers/dev_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
+import '../../providers/listenbrainz_provider.dart';
 import '../../providers/nerd_provider.dart';
+import '../../providers/reco_provider.dart';
+import '../../providers/yt_account_provider.dart';
 import '../../providers/online_settings_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
@@ -30,7 +33,9 @@ import '../../theme/theme_tokens.dart';
 import '../../theme/themes.dart';
 import '../components/mascot/buddies.dart';
 import '../components/mascot/hanamimi_widget.dart';
+import '../modals/listenbrainz_dialog.dart';
 import '../modals/update_dialog.dart';
+import '../modals/yt_signin_dialog.dart';
 import '../components/mascot/mascot_painter.dart';
 
 class YouScreen extends ConsumerWidget {
@@ -417,8 +422,12 @@ class _MoreCard extends ConsumerWidget {
               }
             },
           ),
-          Divider(height: 0.5, color: theme.divider),
-          const _KeepPlayingRow(),
+          // Battery optimization is an Android concept — desktop has no
+          // Doze/App-Standby, so the row is meaningless noise there.
+          if (Platform.isAndroid) ...[
+            Divider(height: 0.5, color: theme.divider),
+            const _KeepPlayingRow(),
+          ],
           Divider(height: 0.5, color: theme.divider),
           ListTile(
             leading: Icon(Icons.description_outlined,
@@ -979,6 +988,10 @@ class _OnlineSettings extends ConsumerWidget {
                       ),
                       Divider(height: Space.s6, color: theme.divider),
                       const _UpdateExtractorTile(),
+                      Divider(height: Space.s6, color: theme.divider),
+                      const _ListenBrainzTile(),
+                      Divider(height: Space.s6, color: theme.divider),
+                      const _YtMusicTile(),
                     ],
                   ),
           ),
@@ -1052,6 +1065,152 @@ class _UpdateExtractorTileState extends ConsumerState<_UpdateExtractorTile> {
                   size: 20, color: theme.primary),
         ],
       ),
+    );
+  }
+}
+
+/// Tier 2 (ARCHITECTURE-RECOMMENDATIONS.md §4): opt-in ListenBrainz.
+/// Connect walks through the consent dialog; disconnect is one tap and
+/// wipes the token.
+class _ListenBrainzTile extends ConsumerWidget {
+  const _ListenBrainzTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    final account = ref.watch(listenBrainzProvider);
+    return InkWell(
+      onTap: () async {
+        if (!account.connected) {
+          await showListenBrainzDialog(context);
+          return;
+        }
+        await ref.read(listenBrainzProvider.notifier).disconnect();
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(Radii.md)),
+            content: const Text('ListenBrainz disconnected — token wiped',
+                style: TextStyle(fontFamily: 'Nunito')),
+          ));
+        }
+      },
+      borderRadius: BorderRadius.circular(Radii.sm),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('ListenBrainz', style: AppText.rowSongTitle(theme)),
+                Text(
+                  account.connected
+                      ? 'Scrobbling as ${account.user} — tap to disconnect'
+                      : 'Opt-in: share listens, get Weekly Jams back',
+                  style: AppText.caption(theme),
+                ),
+              ],
+            ),
+          ),
+          Icon(
+            account.connected
+                ? Icons.link_off
+                : Icons.podcasts_outlined,
+            size: 20,
+            color: account.connected ? theme.primary : theme.textMuted,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Tier 3 (ARCHITECTURE-RECOMMENDATIONS.md §4): YT Music sign-in.
+/// Connected state exposes the read-only feedback-loop toggle; sign-out
+/// wipes the encrypted cookie.
+class _YtMusicTile extends ConsumerWidget {
+  const _YtMusicTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    final account = ref.watch(ytAccountProvider).value ?? YtAccount.none;
+    return Column(
+      children: [
+        InkWell(
+          onTap: () async {
+            if (!account.connected) {
+              await showYtSignInDialog(context);
+              return;
+            }
+            await ref.read(ytAccountProvider.notifier).disconnect();
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(Radii.md)),
+                content: const Text('YT Music signed out — cookie wiped',
+                    style: TextStyle(fontFamily: 'Nunito')),
+              ));
+            }
+          },
+          borderRadius: BorderRadius.circular(Radii.sm),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('YT Music account',
+                        style: AppText.rowSongTitle(theme)),
+                    Text(
+                      account.connected
+                          ? 'Signed in — personalized picks on Home. '
+                              'Tap to sign out'
+                          : 'Opt-in: your real feed (a burner account '
+                              'is wise)',
+                      style: AppText.caption(theme),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                account.connected ? Icons.link_off : Icons.smart_display_outlined,
+                size: 20,
+                color: account.connected ? theme.primary : theme.textMuted,
+              ),
+            ],
+          ),
+        ),
+        if (account.connected) ...[
+          const SizedBox(height: Space.s3),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Report plays to YT history',
+                        style: AppText.caption(theme)
+                            .copyWith(fontWeight: FontWeight.w700)),
+                    Text(
+                        'Off = read-only (playback stays anonymous). '
+                        'On trains your YT recommendations.',
+                        style: AppText.caption(theme)),
+                  ],
+                ),
+              ),
+              Switch(
+                value: account.reportPlays,
+                onChanged: (on) => ref
+                    .read(ytAccountProvider.notifier)
+                    .setReportPlays(on),
+              ),
+            ],
+          ),
+        ],
+      ],
     );
   }
 }
@@ -1200,6 +1359,50 @@ class _SoundSettings extends ConsumerWidget {
                     ),
                   ),
                 ],
+              ),
+            ],
+          ),
+          Divider(height: Space.s6, color: theme.divider),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Autoplay', style: AppText.rowSongTitle(theme)),
+                    Text(
+                        'When the queue ends, keep going with '
+                        'similar songs',
+                        style: AppText.caption(theme)),
+                  ],
+                ),
+              ),
+              Switch(
+                value: ref.watch(autoplayProvider),
+                onChanged: (_) =>
+                    ref.read(autoplayProvider.notifier).toggle(),
+              ),
+            ],
+          ),
+          Divider(height: Space.s6, color: theme.divider),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Smart shuffle', style: AppText.rowSongTitle(theme)),
+                    Text(
+                        'Shuffle leans toward your favorites — '
+                        'computed on this device',
+                        style: AppText.caption(theme)),
+                  ],
+                ),
+              ),
+              Switch(
+                value: ref.watch(smartShuffleProvider),
+                onChanged: (_) =>
+                    ref.read(smartShuffleProvider.notifier).toggle(),
               ),
             ],
           ),

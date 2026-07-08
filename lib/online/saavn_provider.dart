@@ -78,6 +78,44 @@ class SaavnProvider implements MusicProvider {
     );
   }
 
+  /// Saavn's own recommender for a seed song (`reco.getreco`) —
+  /// anonymous, no account, the Tier 1 regional lane
+  /// (ARCHITECTURE-RECOMMENDATIONS.md §4: Saavn seeds stay in-catalog).
+  /// The reco response's song shape varies by api_version, so only ids
+  /// are taken from it; a batched getDetails fills the rest through the
+  /// same parser as search. Best-effort: empty on any failure.
+  Future<List<OnlineSearchResult>> similarSongs(String pid) async {
+    try {
+      final reco = await _apiRaw({
+        '__call': 'reco.getreco',
+        'api_version': '4',
+        'pid': pid,
+      });
+      // Answers as {pid: [songs]} (observed live) — but tolerate a bare
+      // array too, since api.php shapes drift.
+      final unwrapped = reco is Map<String, dynamic> ? reco[pid] : reco;
+      final items = unwrapped is List ? unwrapped : const [];
+      final ids = <String>[
+        for (final item in items)
+          if (item is Map && item['id'] is String) item['id'] as String,
+      ];
+      if (ids.isEmpty) return const [];
+
+      final details = await _api({
+        '__call': 'song.getDetails',
+        'pids': ids.take(25).join(','),
+      });
+      if (details == null) return const [];
+      return [
+        for (final id in ids)
+          if (details[id] case final Map<String, dynamic> d)
+            if (_toResult(id, d) case final result?) result,
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
   @override
   Future<ResolvedStream?> resolveStream(
       String sourceId, StreamQuality quality) async {
@@ -119,6 +157,12 @@ class SaavnProvider implements MusicProvider {
   }
 
   Future<Map<String, dynamic>?> _api(Map<String, String> params) async {
+    final body = await _apiRaw(params);
+    return body is Map<String, dynamic> ? body : null;
+  }
+
+  /// Some calls (reco.getreco) answer with a JSON array, not an object.
+  Future<Object?> _apiRaw(Map<String, String> params) async {
     final uri = Uri.https(_host, '/api.php', {
       '_format': 'json',
       '_marker': '0',
@@ -130,8 +174,7 @@ class SaavnProvider implements MusicProvider {
       'User-Agent': 'Mozilla/5.0 (Linux; Android 14) Hanamimi/1.0',
     }).timeout(const Duration(seconds: 15));
     if (res.statusCode != 200) return null;
-    final body = jsonDecode(res.body);
-    return body is Map<String, dynamic> ? body : null;
+    return jsonDecode(res.body);
   }
 
   /// Base64 → DES/ECB decrypt → PKCS5 unpad → URL.

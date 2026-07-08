@@ -89,17 +89,20 @@ jobs:
           BRANCH="${{ github.ref_name }}"
           RUN="${{ github.run_number }}"
           # major.minor is the ONLY part you edit by hand in pubspec.yaml.
-          # The patch auto-increments per release of that minor: pushes go
-          # 1.0.1, 1.0.2, … and start again at x.y.1 when you bump the
-          # major/minor (e.g. to 1.1.0). versionCode stays the global run
-          # number so the in-app updater's "newer" check is monotonic.
+          # The patch auto-increments per release of that minor: the first
+          # push of a new major/minor releases exactly x.y.0 (a 2.0.0 bump
+          # releases as 2.0.0, not 2.0.1), then x.y.1, x.y.2, …
+          # versionCode stays the global run number so the in-app updater's
+          # "newer" check is monotonic.
           MM=$(grep '^version:' pubspec.yaml | sed 's/version: *//; s/+.*//' | cut -d. -f1,2)
-          # Count TAGS, not releases: old releases get pruned (below) and can
+          # Scan TAGS, not releases: old releases get pruned (below) and can
           # be deleted by hand, which would reset the count and hand out an
-          # already-used version. Tags are permanent.
-          COUNT=$(gh api "repos/${{ github.repository }}/tags?per_page=100" --paginate \
-            --jq "[.[] | select(.name | startswith(\"${BRANCH}-v${MM}.\"))] | length" 2>/dev/null || echo 0)
-          PATCH=$((COUNT + 1))
+          # already-used version. Tags are permanent. Use max(patch)+1 rather
+          # than count+1 so pre-2.0 tags minted under the old count scheme
+          # (which started at .1) can never collide.
+          MAXP=$(gh api "repos/${{ github.repository }}/tags?per_page=100" --paginate \
+            --jq "[.[] | select(.name | startswith(\"${BRANCH}-v${MM}.\")) | .name | ltrimstr(\"${BRANCH}-v${MM}.\") | split(\"-\")[0] | tonumber] | max // -1" 2>/dev/null || echo -1)
+          PATCH=$((MAXP + 1))
           SEMVER="${MM}.${PATCH}"
           EDITION=$([ "$BRANCH" = "plus" ] && echo "Hanamimi+" || echo "Hanamimi")
           echo "semver=${SEMVER}" >> "$GITHUB_OUTPUT"

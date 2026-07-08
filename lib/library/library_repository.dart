@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -24,11 +25,13 @@ class LibraryRepository {
         : '${(await getApplicationSupportDirectory()).path}/hanamimi.db';
     final db = await openDatabase(
       dbPath,
-      version: 4,
+      version: 5,
       // v2 adds lyric quality (word/line/plain). Old rows predate the
       // word-synced provider, so wipe them and refetch on demand.
       // v3 adds online sources (ARCHITECTURE-ONLINE.md §7).
       // v4 adds user-picked playlist cover images.
+      // v5 adds the recommendation signals (ARCHITECTURE-RECOMMENDATIONS.md
+      // M38a): co_play transitions, per-track audio features, skip counts.
       onUpgrade: (db, oldVersion, _) async {
         if (oldVersion < 2) {
           await db.execute('DROP TABLE IF EXISTS lyric_cache');
@@ -39,10 +42,21 @@ class LibraryRepository {
           await db.execute(
               'ALTER TABLE playlists ADD COLUMN cover_image_path TEXT');
         }
+        if (oldVersion < 5) {
+          // A pre-v3 DB just got its tracks table rebuilt from
+          // _tracksSchema, which already carries skip_count — only a
+          // v3/v4 table needs the column added.
+          if (oldVersion >= 3) {
+            await db.execute(
+                'ALTER TABLE tracks ADD COLUMN skip_count INTEGER NOT NULL DEFAULT 0');
+          }
+          await _createRecoTables(db);
+        }
       },
       onCreate: (db, _) async {
         await db.execute(_tracksSchema('tracks'));
         await db.execute(_onlineIndex);
+        await _createRecoTables(db);
         await db.execute('''
           CREATE TABLE playlists (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,7 +99,8 @@ class LibraryRepository {
         liked INTEGER NOT NULL DEFAULT 0,
         source TEXT NOT NULL DEFAULT 'local',
         source_id TEXT,
-        art_url TEXT
+        art_url TEXT,
+        skip_count INTEGER NOT NULL DEFAULT 0
       )
     ''';
 
@@ -111,6 +126,29 @@ class LibraryRepository {
     await db.execute('DROP TABLE tracks');
     await db.execute('ALTER TABLE tracks_v3 RENAME TO tracks');
     await db.execute(_onlineIndex);
+  }
+
+  /// M38a recommendation signals. co_play counts "B started after A
+  /// played through" transitions (the Markov/co-occurrence source);
+  /// track_features holds the per-track audio summary vector extracted
+  /// during the visualizer decode.
+  static Future<void> _createRecoTables(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS co_play (
+        from_id INTEGER NOT NULL,
+        to_id INTEGER NOT NULL,
+        count INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (from_id, to_id)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS track_features (
+        track_id INTEGER PRIMARY KEY,
+        version INTEGER NOT NULL,
+        vector BLOB NOT NULL,
+        computed_at INTEGER NOT NULL
+      )
+    ''');
   }
 
   static Future<void> _createLyricCache(DatabaseExecutor db) async {
@@ -253,6 +291,83 @@ class LibraryRepository {
   Future<void> recordPlay(int trackId) => _db.rawUpdate(
       'UPDATE tracks SET play_count = play_count + 1, last_played = ? WHERE id = ?',
       [DateTime.now().millisecondsSinceEpoch, trackId]);
+
+  /// Most recently played tracks, newest first — the Home "Jump back
+  /// in" shelf.
+  Future<List<Track>> recentlyPlayed({int limit = 20}) async {
+    final rows = await _db.query('tracks',
+        where: 'last_played IS NOT NULL',
+        orderBy: 'last_played DESC',
+        limit: limit);
+    return rows.map(Track.fromRow).toList();
+  }
+
+  // --- Recommendation signals (M38a) ---
+
+  /// A track abandoned within the first ~20 s — a negative vote.
+  Future<void> recordSkip(int trackId) => _db.rawUpdate(
+      'UPDATE tracks SET skip_count = skip_count + 1 WHERE id = ?',
+      [trackId]);
+
+  /// One observed transition "listened to [fromId], then started [toId]".
+  Future<void> recordCoPlay(int fromId, int toId) => _db.rawInsert('''
+      INSERT INTO co_play (from_id, to_id, count) VALUES (?, ?, 1)
+      ON CONFLICT(from_id, to_id) DO UPDATE SET count = count + 1
+    ''', [fromId, toId]);
+
+  /// Every observed transition out of [fromId]: {to_id: count}.
+  Future<Map<int, int>> coPlaysFrom(int fromId) async {
+    final rows = await _db
+        .query('co_play', where: 'from_id = ?', whereArgs: [fromId]);
+    return {
+      for (final r in rows) r['to_id'] as int: r['count'] as int,
+    };
+  }
+
+  /// The full transition matrix, for the recommender's batch scoring.
+  Future<List<Map<String, Object?>>> allCoPlays() => _db.query('co_play');
+
+  Future<void> saveTrackFeatures(
+          int trackId, int version, Uint8List vector) =>
+      _db.insert(
+        'track_features',
+        {
+          'track_id': trackId,
+          'version': version,
+          'vector': vector,
+          'computed_at': DateTime.now().millisecondsSinceEpoch,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+
+  Future<bool> hasTrackFeatures(int trackId, int version) async {
+    final rows = await _db.query('track_features',
+        columns: ['track_id'],
+        where: 'track_id = ? AND version = ?',
+        whereArgs: [trackId, version],
+        limit: 1);
+    return rows.isNotEmpty;
+  }
+
+  /// All feature vectors of [version]: {track_id: raw float32 bytes}.
+  Future<Map<int, Uint8List>> allTrackFeatures(int version) async {
+    final rows = await _db.query('track_features',
+        where: 'version = ?', whereArgs: [version]);
+    return {
+      for (final r in rows)
+        r['track_id'] as int: r['vector'] as Uint8List,
+    };
+  }
+
+  /// skip_count per track (kept out of the Track model — only the
+  /// recommender cares).
+  Future<Map<int, int>> skipCounts() async {
+    final rows = await _db.query('tracks',
+        columns: ['id', 'skip_count'], where: 'skip_count > 0');
+    return {
+      for (final r in rows) r['id'] as int: r['skip_count'] as int,
+    };
+  }
 
   // --- Playlists ---
 

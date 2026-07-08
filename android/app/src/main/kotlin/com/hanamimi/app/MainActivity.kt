@@ -1,17 +1,57 @@
 package com.hanamimi.app
 
+import android.content.Context
 import android.content.Intent
+import android.hardware.input.InputManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
 import android.provider.MediaStore
+import android.view.KeyEvent
+import android.view.MotionEvent
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import org.flame_engine.gamepads_android.GamepadsCompatibleActivity
 
-class MainActivity : AudioServiceActivity() {
+// AudioServiceActivity is our base (audio_service needs it); we also
+// implement GamepadsCompatibleActivity so the `gamepads` plugin can
+// receive controller input — without it the plugin ClassCasts the
+// activity and crashes on launch. The handlers are forwarded from the
+// standard dispatch overrides below.
+class MainActivity : AudioServiceActivity(), GamepadsCompatibleActivity {
     private var openWith: MethodChannel? = null
     private var pendingMedia: Map<String, String?>? = null
+
+    private var gamepadKeyHandler: ((KeyEvent) -> Boolean)? = null
+    private var gamepadMotionHandler: ((MotionEvent) -> Boolean)? = null
+
+    override fun registerInputDeviceListener(
+        listener: InputManager.InputDeviceListener,
+        handler: Handler?,
+    ) {
+        (getSystemService(Context.INPUT_SERVICE) as InputManager)
+            .registerInputDeviceListener(listener, handler)
+    }
+
+    override fun registerKeyEventHandler(handler: (KeyEvent) -> Boolean) {
+        gamepadKeyHandler = handler
+    }
+
+    override fun registerMotionEventHandler(handler: (MotionEvent) -> Boolean) {
+        gamepadMotionHandler = handler
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (gamepadKeyHandler?.invoke(event) == true) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (gamepadMotionHandler?.invoke(event) == true) return true
+        return super.dispatchGenericMotionEvent(event)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)

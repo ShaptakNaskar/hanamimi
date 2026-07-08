@@ -26,7 +26,8 @@ class LibrarySidebar extends ConsumerWidget {
     required this.onNav,
   });
 
-  /// AppShell tab index of the middle pane (0 Library, 2 Downloads, 3 You).
+  /// AppShell tab index of the middle pane
+  /// (0 Home, 1 Library, 3 Downloads, 4 You).
   final int activeIndex;
   final ValueChanged<int> onNav;
 
@@ -35,7 +36,7 @@ class LibrarySidebar extends ConsumerWidget {
     // The collection lives in the Library pane — make sure it's showing
     // and not buried under the middle-pane lyrics.
     ref.read(desktopLyricsOpenProvider.notifier).close();
-    if (activeIndex != 0) onNav(0);
+    if (activeIndex != 1) onNav(1);
   }
 
   @override
@@ -102,31 +103,42 @@ class LibrarySidebar extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.symmetric(
                   horizontal: Space.s3, vertical: Space.s1),
-              child: Row(
+              // Wrap, not Row: four chips overflow the sidebar on the
+              // narrower three-pane widths.
+              child: Wrap(
+                spacing: Space.s1,
+                runSpacing: Space.s1,
                 children: [
+                  _NavChip(
+                    icon: Icons.home_outlined,
+                    label: 'Home',
+                    active: activeIndex == 0,
+                    theme: theme,
+                    onTap: () => onNav(0),
+                  ),
                   _NavChip(
                     icon: Icons.music_note_outlined,
                     label: 'Songs',
-                    active: activeIndex == 0 && request == null,
+                    active: activeIndex == 1 && request == null,
                     theme: theme,
                     onTap: () {
                       ref.read(desktopCollectionProvider.notifier).clear();
-                      onNav(0);
+                      onNav(1);
                     },
                   ),
                   _NavChip(
                     icon: Icons.download_outlined,
                     label: 'Downloads',
-                    active: activeIndex == 2,
+                    active: activeIndex == 3,
                     theme: theme,
-                    onTap: () => onNav(2),
+                    onTap: () => onNav(3),
                   ),
                   _NavChip(
                     icon: Icons.pets_outlined,
                     label: 'You',
-                    active: activeIndex == 3,
+                    active: activeIndex == 4,
                     theme: theme,
-                    onTap: () => onNav(3),
+                    onTap: () => onNav(4),
                   ),
                 ],
               ),

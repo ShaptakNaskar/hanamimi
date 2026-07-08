@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.4.0 # only major.minor matters — CI auto-increments the patch per release
+version: 2.0.0 # only major.minor matters — CI auto-increments the patch per release
 
 environment:
   sdk: ^3.7.2
@@ -53,6 +53,13 @@ dependencies:
   image_picker: ^1.2.1 # custom playlist covers (Android Photo Picker)
   share_plus: ^12.0.1 # lyrics cards
 
+  # --- Tier 3 YT Music sign-in (M41) — see ARCHITECTURE-RECOMMENDATIONS.md ---
+  flutter_inappwebview: ^6.1.5 # cookie login WebView (Android); tweaked UA
+  crypto: ^3.0.6 # SAPISIDHASH (SHA-1) for authenticated Innertube
+  # Cookie is encrypted at rest with pointycastle AES (already a dep) —
+  # flutter_secure_storage's Linux plugin bundles a json.hpp that newer
+  # clang rejects, breaking the desktop build.
+
   # --- Desktop (M31) — see ARCHITECTURE-DESKTOP.md ---
   media_kit: ^1.1.11 # libmpv playback engine (Linux/Windows)
   media_kit_libs_linux: ^1.2.1 # bundles libmpv into the Linux build
@@ -62,6 +69,7 @@ dependencies:
   file_selector: ^1.0.3 # folder picker (music folders) + cover picker stand-in
   dbus: ^0.7.10 # MPRIS media keys / now-playing on Linux
   smtc_windows: ^1.1.0
+  gamepads: ^0.1.7
 
 # smtc_windows 1.1.0 ships Rust code generated with flutter_rust_bridge
 # 2.11.1 but allows ^2.11.1, and the 2.12.0 runtime pub picks refuses a

@@ -8,6 +8,7 @@ import 'package:window_manager/window_manager.dart';
 import '../audio/models/playback_session.dart';
 import '../library/models/track.dart';
 import '../platform/desktop/desktop_bootstrap.dart';
+import '../platform/gamepad_service.dart';
 import '../providers/audio_provider.dart';
 import '../providers/buddy_provider.dart';
 import '../providers/desktop_shell_provider.dart';
@@ -26,11 +27,13 @@ import 'components/mascot/oneko.dart';
 import 'components/mini_player.dart';
 import 'components/shared/bottom_nav.dart';
 import 'components/shared/particle_overlay.dart';
+import 'modals/battery_prompt_dialog.dart';
 import 'modals/import_playlist_sheet.dart';
 import 'modals/lyrics_sheet.dart';
 import 'modals/update_dialog.dart';
 import 'screens/desktop_immersive_screen.dart';
 import 'screens/downloads_screen.dart';
+import 'screens/home_screen.dart';
 import 'screens/library_screen.dart';
 import 'screens/now_playing_screen.dart';
 import 'screens/you_screen.dart';
@@ -55,6 +58,9 @@ class _AppShellState extends ConsumerState<AppShell>
   PlaybackSession? _pendingResume;
   Timer? _resumeTimer;
 
+  // Couch-mode gamepad → focus/transport.
+  GamepadService? _gamepad;
+
   @override
   void initState() {
     super.initState();
@@ -71,8 +77,30 @@ class _AppShellState extends ConsumerState<AppShell>
       windowManager.setPreventClose(true);
       windowManager.addListener(this);
     }
+    // Couch mode: a gamepad drives focus + transport (ROG Ally etc.).
+    // Directional events move the Flutter focus; face buttons activate /
+    // go back; shoulders and start map to transport.
+    _gamepad = GamepadService(
+      onDirection: (dir) =>
+          FocusManager.instance.primaryFocus?.focusInDirection(dir),
+      onActivate: () {
+        final ctx = FocusManager.instance.primaryFocus?.context;
+        if (ctx != null) Actions.maybeInvoke(ctx, const ActivateIntent());
+      },
+      onBack: _onSystemBack,
+      onPlayPause: () {
+        final engine = ref.read(audioHandlerProvider).engine;
+        engine.state.isPlaying ? engine.pause() : engine.play();
+      },
+      onNext: () => ref.read(audioHandlerProvider).engine.next(),
+      onPrevious: () => ref.read(audioHandlerProvider).engine.previous(),
+    )..start();
     // Offer to resume the previous session once, after the first frame.
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeOfferResume());
+    // First launch: ask for the battery-optimization exemption up front —
+    // users only found the You-screen row after playback already died.
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => maybeShowBatteryPrompt(context, ref));
     // One update check per launch; surfaces the changelog dialog when a
     // newer CI release exists.
     ref.listenManual(updateCheckProvider, (_, next) {
@@ -132,6 +160,7 @@ class _AppShellState extends ConsumerState<AppShell>
     WidgetsBinding.instance.removeObserver(this);
     _errorSub?.cancel();
     _resumeTimer?.cancel();
+    _gamepad?.dispose();
     super.dispose();
   }
 
@@ -150,7 +179,7 @@ class _AppShellState extends ConsumerState<AppShell>
   }
 
   /// Desktop shortcuts: space play/pause, ←/→ seek 5 s, Ctrl+←/→
-  /// prev/next, Esc backs out of overlays, 1–4 jump tabs.
+  /// prev/next, Esc backs out of overlays, 1–5 jump tabs.
   bool _onKey(KeyEvent event) {
     if (event is KeyUpEvent) return false;
     // Typing wins — no transport hijack while a text field has focus.
@@ -207,6 +236,8 @@ class _AppShellState extends ConsumerState<AppShell>
         _onNavChanged(2);
       case LogicalKeyboardKey.digit4:
         _onNavChanged(3);
+      case LogicalKeyboardKey.digit5:
+        _onNavChanged(4);
       default:
         return false;
     }
@@ -223,12 +254,18 @@ class _AppShellState extends ConsumerState<AppShell>
     ref.read(appResumeTickProvider.notifier).bump();
   }
 
+  // Home is the start page (index 0, ARCHITECTURE-RECOMMENDATIONS.md §5);
+  // Library stays a pure list one tab away.
   static const _screens = [
+    HomeScreen(),
     LibraryScreen(),
     NowPlayingScreen(),
     DownloadsScreen(),
     YouScreen(),
   ];
+
+  /// The Now Playing tab index (panel on desktop, tab on phone).
+  static const _playingIndex = 2;
 
   void _onNavChanged(int i) {
     // Navigating anywhere dismisses the middle-pane lyrics — otherwise
@@ -244,7 +281,7 @@ class _AppShellState extends ConsumerState<AppShell>
 
   /// System back: first give any open in-app view (search overlay, inline
   /// folder/playlist detail) the chance to close, then step back to the
-  /// Library tab, and only exit once back is pressed there.
+  /// Home tab, and only exit once back is pressed there.
   void _onSystemBack() {
     if (BackStack.pop()) return;
     if (_index != 0) {
@@ -278,7 +315,7 @@ class _AppShellState extends ConsumerState<AppShell>
         .read(audioHandlerProvider)
         .engine
         .restoreSession(session, autoPlay: true);
-    if (mounted) _onNavChanged(1); // jump to Now Playing
+    if (mounted) _onNavChanged(_playingIndex); // jump to Now Playing
   }
 
   void _dismissResume() {
@@ -338,7 +375,8 @@ class _AppShellState extends ConsumerState<AppShell>
           onDismiss: _dismissResume,
         ),
         // Hidden on the Playing tab — the full screen is already there.
-        if (_index != 1) MiniPlayer(onOpen: () => _onNavChanged(1)),
+        if (_index != _playingIndex)
+          MiniPlayer(onOpen: () => _onNavChanged(_playingIndex)),
       ],
     );
 
@@ -350,7 +388,9 @@ class _AppShellState extends ConsumerState<AppShell>
     // player never exists on desktop — the panel IS the player.
     final width = MediaQuery.sizeOf(context).width;
     final threePane = width >= 1240;
-    final contentIndex = _index == 1 ? 0 : _index;
+    // Playing is a permanent panel on desktop — its tab shows Home in
+    // the middle pane instead.
+    final contentIndex = _index == _playingIndex ? 0 : _index;
 
     // The Now Playing panel, with the expand-to-immersive affordance.
     final nowPlayingPanel = SizedBox(

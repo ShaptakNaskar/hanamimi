@@ -129,6 +129,20 @@ class QueueManager {
   /// User setting; Duration.zero = crossfade off.
   Duration crossfadeDuration = Duration.zero;
 
+  /// Smart shuffle (M38c): when set, shuffle orders are sampled with
+  /// probability ∝ weight(track) instead of uniformly — favorites come
+  /// up sooner, skipped tracks later, nothing is excluded. Pushed by
+  /// the reco provider; null = classic uniform shuffle.
+  double Function(Track track)? shuffleWeight;
+
+  /// Autoplay / radio continuation (M39): when the sequential queue
+  /// runs out naturally, fetch "more like the last track" and keep
+  /// going instead of stopping (YTM-style autoplay). Pushed by the reco
+  /// provider — it routes by the seed's source (Saavn→Saavn, YT→YT,
+  /// local→on-device station). Null = classic stop-at-end.
+  Future<List<Track>> Function(Track last)? autoplayFetcher;
+  bool _autoplayFetching = false;
+
   /// Sleep timer "end of track" mode: finish the current song, then
   /// pause instead of advancing.
   bool pauseAtTrackEnd = false;
@@ -309,6 +323,7 @@ class QueueManager {
       switch (_mode) {
         case QueueMode.sequential:
           if (!byUser) {
+            if (await _tryAutoplayContinuation()) return;
             _state.add(state.copyWith(status: PlaybackStatus.completed));
             return;
           }
@@ -323,6 +338,38 @@ class QueueManager {
       _cursor++;
     }
     await _playCurrent();
+  }
+
+  /// The queue just ran out naturally — ask the fetcher for more like
+  /// the last track, append what's genuinely new, and keep playing.
+  /// Returns true when playback continued. Any failure (offline,
+  /// providers down, nothing fresh) falls back to the normal
+  /// stop-at-end, never an error.
+  Future<bool> _tryAutoplayContinuation() async {
+    final fetch = autoplayFetcher;
+    final last = _currentTrack;
+    if (fetch == null || last == null || _autoplayFetching) return false;
+    _autoplayFetching = true;
+    try {
+      final more = await fetch(last);
+      final queued = {for (final t in _source) t.id};
+      final fresh = [
+        for (final t in more)
+          if (queued.add(t.id)) t,
+      ];
+      if (fresh.isEmpty) return false;
+      for (final t in fresh) {
+        _source.add(t);
+        _order.add(_source.length - 1);
+      }
+      _cursor++;
+      await _playCurrent();
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      _autoplayFetching = false;
+    }
   }
 
   /// Restarts the track when it's more than 3 seconds in. Otherwise:
@@ -577,9 +624,14 @@ class QueueManager {
   /// Builds [_order]. [anchor] is an index into [_source] that must end
   /// up at the cursor (the track the user tapped).
   void _rebuildOrder({int? anchor}) {
-    final indices = List.generate(_source.length, (i) => i);
+    var indices = List.generate(_source.length, (i) => i);
     if (_mode == QueueMode.shuffle) {
-      indices.shuffle(Random());
+      final weigh = shuffleWeight;
+      if (weigh == null) {
+        indices.shuffle(Random());
+      } else {
+        indices = _weightedOrder(indices, weigh);
+      }
       if (anchor != null) {
         indices.remove(anchor);
         indices.insert(0, anchor);
@@ -589,6 +641,33 @@ class QueueManager {
       _cursor = anchor ?? 0;
     }
     _order = indices;
+  }
+
+  /// Weighted sample without replacement: each draw picks a remaining
+  /// index with probability ∝ its track's weight.
+  List<int> _weightedOrder(
+      List<int> indices, double Function(Track) weigh) {
+    final rng = Random();
+    final remaining = List.of(indices);
+    final weights = [
+      for (final i in remaining) max(weigh(_source[i]), 1e-6),
+    ];
+    final out = <int>[];
+    var total = weights.fold(0.0, (a, b) => a + b);
+    while (remaining.isNotEmpty) {
+      var roll = rng.nextDouble() * total;
+      var pick = remaining.length - 1;
+      for (var j = 0; j < remaining.length; j++) {
+        roll -= weights[j];
+        if (roll <= 0) {
+          pick = j;
+          break;
+        }
+      }
+      out.add(remaining.removeAt(pick));
+      total -= weights.removeAt(pick);
+    }
+    return out;
   }
 
   Future<void> _onTrackCompleted() async {

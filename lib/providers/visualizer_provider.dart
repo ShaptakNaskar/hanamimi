@@ -4,9 +4,11 @@ import 'dart:math' as math;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../library/models/track.dart';
+import '../reco/feature_extractor.dart';
 import '../visualizer/fft_channel.dart';
 import '../visualizer/fft_processor.dart';
 import 'audio_provider.dart';
+import 'library_provider.dart';
 import 'theme_provider.dart';
 
 /// User gain for the visualizer (soft songs barely register at 1×).
@@ -45,6 +47,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   const bandCount = BandShaper.bandCount;
 
   String? currentKey;
+  int? currentTrackId; // DB row id, for the M38a feature store
   var frames = <double>[]; // flattened frames × 12
   var extractionDone = false;
 
@@ -81,6 +84,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
         : 'v2_${track.mediaId ?? track.sourceId}_${path.hashCode}_${track.duration.inMilliseconds}';
     if (key == currentKey) return;
     currentKey = key;
+    currentTrackId = track.id;
     frames = <double>[];
     extractionDone = false;
     if (key != retryKey) {
@@ -113,7 +117,26 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
       frames.addAll(List.filled(offset - frames.length, 0.0));
     }
     frames.addAll(bands);
-    if (event['done'] == true) extractionDone = true;
+    if (event['done'] == true) {
+      extractionDone = true;
+      // M38a: the decode we just paid for doubles as the content-
+      // similarity source — summarize the full frame run into the
+      // track's feature vector (once per track per layout version).
+      final tid = currentTrackId;
+      if (tid != null && frames.isNotEmpty) {
+        final snapshot = List<double>.from(frames);
+        Future(() async {
+          final repo = await ref.read(libraryRepositoryProvider.future);
+          if (await repo.hasTrackFeatures(tid, trackFeaturesVersion)) {
+            return;
+          }
+          final vector = summarizeFrames(snapshot);
+          if (vector.isEmpty) return;
+          await repo.saveTrackFeatures(
+              tid, trackFeaturesVersion, vector.buffer.asUint8List());
+        });
+      }
+    }
   });
 
   ref.listen(audioStateProvider, (_, next) {
