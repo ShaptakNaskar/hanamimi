@@ -27,6 +27,7 @@ on:
     # Don't spend a full signed build on doc/ignore-only pushes.
     paths-ignore:
       - '**.md'
+      - 'docs/**'
       - '.gitignore'
       - 'LICENSE'
 
