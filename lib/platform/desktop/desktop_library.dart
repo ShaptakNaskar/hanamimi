@@ -23,6 +23,16 @@ class DesktopLibrary {
   /// read on insert, and their membership is what keeps them alive).
   static const _probeConcurrency = 8;
 
+  /// Index of the last path separator, handling both POSIX '/' and
+  /// Windows '\'. Directory.list returns native separators, so a
+  /// hardcoded '/' finds nothing on Windows (and substring(0, -1)
+  /// throws) — which silently emptied the library there.
+  static int _lastSep(String path) {
+    final slash = path.lastIndexOf('/');
+    final back = path.lastIndexOf('\\');
+    return slash > back ? slash : back;
+  }
+
   /// Every audio file under [folders] — the walk without the probe
   /// (folder pickers and the excluded-folders sheet only need paths).
   static Future<List<String>> listAudioFiles(Set<String> folders) async {
@@ -39,7 +49,7 @@ class DesktopLibrary {
           .handleError((_) {})) {
         if (entry is! File) continue;
         final path = entry.path;
-        final name = path.substring(path.lastIndexOf('/') + 1);
+        final name = path.substring(_lastSep(path) + 1);
         if (name.startsWith('.')) continue;
         final dot = name.lastIndexOf('.');
         if (dot < 0) continue;
@@ -128,9 +138,10 @@ class DesktopLibrary {
               double.tryParse(audio['duration'] as String? ?? '') ??
               0.0;
 
-      final dir = path.substring(0, path.lastIndexOf('/'));
-      final fileName = path.substring(
-          path.lastIndexOf('/') + 1, path.lastIndexOf('.'));
+      final sep = _lastSep(path);
+      final dir = path.substring(0, sep);
+      final dot = path.lastIndexOf('.');
+      final fileName = path.substring(sep + 1, dot > sep ? dot : path.length);
       final album = tags['album'];
       // Album identity: name + album-artist (so two different
       // "Greatest Hits" don't merge); untagged files group per-folder.
@@ -183,7 +194,7 @@ class DesktopLibrary {
     // -frames:v 1 + scale handles any source format/size.
     if (await _ffmpegThumb(filePath, out.path)) return out.path;
 
-    final dir = filePath.substring(0, filePath.lastIndexOf('/'));
+    final dir = filePath.substring(0, _lastSep(filePath));
     for (final name in [
       'cover.jpg', 'cover.png', 'folder.jpg', 'folder.png',
       'front.jpg', 'front.png', 'album.jpg', 'AlbumArt.jpg',

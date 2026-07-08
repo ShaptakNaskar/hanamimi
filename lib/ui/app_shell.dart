@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../audio/models/playback_session.dart';
 import '../library/models/track.dart';
@@ -21,6 +22,7 @@ import '../utils/back_stack.dart';
 import '../utils/duration_ext.dart';
 import 'components/desktop/backdrop_wash.dart';
 import 'components/desktop/library_sidebar.dart';
+import 'components/mascot/oneko.dart';
 import 'components/mini_player.dart';
 import 'components/shared/bottom_nav.dart';
 import 'components/shared/particle_overlay.dart';
@@ -41,7 +43,7 @@ class AppShell extends ConsumerStatefulWidget {
 }
 
 class _AppShellState extends ConsumerState<AppShell>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, WindowListener {
   int _index = 0;
   int _previousIndex = 0;
 
@@ -60,7 +62,15 @@ class _AppShellState extends ConsumerState<AppShell>
     // Desktop keyboard transport: global handler (not Shortcuts) so a
     // focused search field keeps its spaces — _onKey bows out while an
     // EditableText has focus.
-    if (isDesktop) HardwareKeyboard.instance.addHandler(_onKey);
+    if (isDesktop) {
+      HardwareKeyboard.instance.addHandler(_onKey);
+      // Intercept the window close (title-bar X, taskbar "Close",
+      // Alt+F4) so we tear down libmpv before the process dies —
+      // otherwise its audio thread keeps looping the last buffer and
+      // screeches on the way out.
+      windowManager.setPreventClose(true);
+      windowManager.addListener(this);
+    }
     // Offer to resume the previous session once, after the first frame.
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeOfferResume());
     // One update check per launch; surfaces the changelog dialog when a
@@ -115,11 +125,28 @@ class _AppShellState extends ConsumerState<AppShell>
 
   @override
   void dispose() {
-    if (isDesktop) HardwareKeyboard.instance.removeHandler(_onKey);
+    if (isDesktop) {
+      HardwareKeyboard.instance.removeHandler(_onKey);
+      windowManager.removeListener(this);
+    }
     WidgetsBinding.instance.removeObserver(this);
     _errorSub?.cancel();
     _resumeTimer?.cancel();
     super.dispose();
+  }
+
+  /// Close requested (X, taskbar Close, Alt+F4). Because we set
+  /// preventClose, the window stays up until we destroy it — so stop and
+  /// dispose the engine first, releasing the libmpv audio device
+  /// cleanly, then let the window (and process) go.
+  @override
+  void onWindowClose() async {
+    try {
+      await ref.read(audioHandlerProvider).engine.dispose();
+    } catch (_) {
+      // Never let a teardown hiccup wedge the window open.
+    }
+    await windowManager.destroy();
   }
 
   /// Desktop shortcuts: space play/pause, ←/→ seek 5 s, Ctrl+←/→
@@ -398,34 +425,36 @@ class _AppShellState extends ConsumerState<AppShell>
       ],
     );
 
+    // One uniform art glow under every pane, one whole-window particle
+    // field over it, then the panes.
+    Widget wideBackground = Stack(
+      fit: StackFit.expand,
+      children: [
+        const BackdropWash(),
+        // Isolated so its 60 fps ticker repaints only its own layer,
+        // not the blur below or the panes above.
+        RepaintBoundary(
+          child: ParticleOverlay(
+            theme: theme,
+            fireflies: ref.watch(buddyEnabledProvider('fireflies')),
+          ),
+        ),
+        wideBody,
+      ],
+    );
+    // The "cat" buddy has no mini player to nap on here, so on desktop it
+    // wakes up as oneko and chases the pointer across the whole window.
+    if (isDesktop && ref.watch(buddyEnabledProvider('cat'))) {
+      wideBackground = OnekoLayer(child: wideBackground);
+    }
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _onSystemBack();
       },
       child: wide
-          ? Scaffold(
-              // One uniform art glow under every pane — and one
-              // whole-window particle field over the wash (fireflies
-              // confined to the panel looked like a local effect, not
-              // an atmosphere).
-              body: Stack(
-                fit: StackFit.expand,
-                children: [
-                  const BackdropWash(),
-                  // Isolated so its 60 fps ticker repaints only its own
-                  // layer, not the blur below or the panes above.
-                  RepaintBoundary(
-                    child: ParticleOverlay(
-                      theme: theme,
-                      fireflies:
-                          ref.watch(buddyEnabledProvider('fireflies')),
-                    ),
-                  ),
-                  wideBody,
-                ],
-              ),
-            )
+          ? Scaffold(body: wideBackground)
           : Scaffold(
               body: content,
               bottomNavigationBar: Column(

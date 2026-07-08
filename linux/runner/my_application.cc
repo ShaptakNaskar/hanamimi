@@ -20,32 +20,12 @@ static void my_application_activate(GApplication* application) {
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
-  // Use a header bar when running in GNOME as this is the common style used
-  // by applications and is the setup most users will be using (e.g. Ubuntu
-  // desktop).
-  // If running on X and not using GNOME then just use a traditional title bar
-  // in case the window manager does more exotic layout, e.g. tiling.
-  // If running on Wayland assume the header bar will work (may need changing
-  // if future cases occur).
-  gboolean use_header_bar = TRUE;
-#ifdef GDK_WINDOWING_X11
-  GdkScreen* screen = gtk_window_get_screen(window);
-  if (GDK_IS_X11_SCREEN(screen)) {
-    const gchar* wm_name = gdk_x11_screen_get_window_manager_name(screen);
-    if (g_strcmp0(wm_name, "GNOME Shell") != 0) {
-      use_header_bar = FALSE;
-    }
-  }
-#endif
-  if (use_header_bar) {
-    GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
-    gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "Hanamimi+ 花耳");
-    gtk_header_bar_set_show_close_button(header_bar, TRUE);
-    gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
-  } else {
-    gtk_window_set_title(window, "Hanamimi+ 花耳");
-  }
+  // Use a plain title bar so the compositor draws server-side decorations
+  // (the thin native title bar every other app has). Flutter's template
+  // defaults to a client-side GtkHeaderBar, but our GTK theme renders that
+  // header bar oversized — a fat, out-of-place bar. A traditional title
+  // lets the window manager decorate us like Dolphin, Files, etc.
+  gtk_window_set_title(window, "Hanamimi+ 花耳");
 
   // Window icon from the bundled Flutter assets, for X11 and bare dev
   // runs (no installed .desktop file to inherit one from). On Wayland

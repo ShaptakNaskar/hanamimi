@@ -299,6 +299,15 @@ jobs:
             build/linux/x64/release/bundle \
             ${{ needs.build-release.outputs.semver }} dist
 
+      - name: Package .deb + .rpm (fpm)
+        run: |
+          # fpm builds both from one staging tree; rpm needs rpmbuild.
+          sudo apt-get install -y ruby ruby-dev build-essential rpm
+          sudo gem install --no-document fpm
+          packaging/linux/make_fpm.sh \
+            build/linux/x64/release/bundle \
+            ${{ needs.build-release.outputs.semver }} dist
+
       - name: Attach to release
         uses: softprops/action-gh-release@v2
         with:
@@ -306,6 +315,8 @@ jobs:
           files: |
             Hanamimi-plus-x86_64.AppImage
             dist/*.pkg.tar.zst
+            dist/*.deb
+            dist/*.rpm
 
 
   # One Telegram drop per plus release: APK + Windows installer +

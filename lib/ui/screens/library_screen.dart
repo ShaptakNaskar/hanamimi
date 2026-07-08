@@ -13,6 +13,7 @@ import '../../library/models/track.dart';
 import '../../online/models/online_search_result.dart';
 import '../../utils/back_stack.dart';
 import '../../providers/audio_provider.dart';
+import '../../platform/desktop/desktop_bootstrap.dart';
 import '../../providers/desktop_shell_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
@@ -1298,6 +1299,9 @@ class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
                       track: visible[i],
                       theme: theme,
                       isPlaying: visible[i].id == playingId,
+                      // Clear the desktop reorder handle that overlays the
+                      // trailing edge (only shown when q.isEmpty).
+                      trailingReserve: isDesktop && q.isEmpty ? 40 : 0,
                       onTap: () => ref
                           .read(audioHandlerProvider)
                           .playTracks(visible, startIndex: i),

@@ -9,8 +9,10 @@ import 'dart:io';
 ///   Outside an AppImage (dev run, distro package) there's nothing we
 ///   can safely swap, so canInstall is false and the dialog falls back
 ///   to "open the release page".
-/// - **Windows**: launch the downloaded installer and exit; the
-///   installer replaces the app.
+/// - **Windows**: run the downloaded installer silently (/VERYSILENT)
+///   and exit; Inno reinstalls into the same folder (UsePreviousAppDir)
+///   and a silent-only [Run] entry relaunches the app. No wizard, no
+///   clicks — the app just blinks and comes back updated.
 class DesktopUpdater {
   /// The path of the running AppImage, set by AppImage runtimes.
   static String? get _appImage => Platform.environment['APPIMAGE'];
@@ -36,7 +38,15 @@ class DesktopUpdater {
         exit(0);
       }
       if (Platform.isWindows) {
-        await Process.start(path, [], mode: ProcessStartMode.detached);
+        // Silent, unattended reinstall over the current install. We exit
+        // right after so the running .exe unlocks; /FORCECLOSEAPPLICATIONS
+        // is the safety net if any file is still held.
+        await Process.start(path, [
+          '/VERYSILENT',
+          '/SUPPRESSMSGBOXES',
+          '/NORESTART',
+          '/FORCECLOSEAPPLICATIONS',
+        ], mode: ProcessStartMode.detached);
         exit(0);
       }
     } catch (_) {}

@@ -10,6 +10,7 @@ import '../../../providers/update_provider.dart';
 import '../../../theme/app_theme.dart';
 import '../../../theme/hanamimi_theme.dart';
 import '../../../theme/theme_tokens.dart';
+import '../mascot/buddies.dart';
 import '../mascot/hanamimi_widget.dart';
 import '../library/playlist_cover.dart';
 
@@ -70,13 +71,29 @@ class LibrarySidebar extends ConsumerWidget {
                         state: ref.watch(mascotStateProvider), size: 28),
                     const SizedBox(width: Space.s2),
                   ],
-                  Expanded(
-                    child: Text(
-                      ref.watch(editionNameProvider).value ?? 'Hanamimi',
-                      style:
-                          AppText.screenTitle(theme).copyWith(fontSize: 20),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                  // Flexible (not Expanded): the Stack sizes to the title
+                  // text so the parrot roams over the words, not the whole
+                  // empty sidebar width (which left it floating mid-air).
+                  Flexible(
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Text(
+                          ref.watch(editionNameProvider).value ?? 'Hanamimi',
+                          style: AppText.screenTitle(theme)
+                              .copyWith(fontSize: 20),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        // The parrot perches on the title and hops along
+                        // it — same as the mobile header (Requests.txt #20).
+                        if (ref.watch(buddyEnabledProvider('parrot')))
+                          const Positioned(
+                              left: 0,
+                              right: 0,
+                              top: -15,
+                              child: HeaderParrot()),
+                      ],
                     ),
                   ),
                 ],

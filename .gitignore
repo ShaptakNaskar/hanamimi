@@ -31,3 +31,6 @@ design/
 Hanamimi-handoff.zip
 *.log
 .DS_Store
+
+# Local desktop packaging output (deb/rpm/pkg.tar.zst/AppImage)
+dist/

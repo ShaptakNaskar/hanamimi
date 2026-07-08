@@ -62,9 +62,15 @@ class AppUpdate {
     required this.changelog,
     required this.apkUrl,
     required this.sizeBytes,
+    required this.htmlUrl,
   });
 
   final String versionName;
+
+  /// The release's GitHub page — for package-managed desktop installs
+  /// (pacman/AUR) that update themselves and only want a "here's what's
+  /// new, go grab it" link rather than an in-app download.
+  final String htmlUrl;
 
   /// Bare x.y.z parsed from the tag, for version comparisons.
   final String semver;
@@ -163,6 +169,8 @@ final updateCheckProvider = FutureProvider<AppUpdate?>((ref) async {
         changelog: (r['body'] as String?) ?? '',
         apkUrl: asset['browser_download_url'] as String,
         sizeBytes: (asset['size'] as num?)?.toInt() ?? 0,
+        htmlUrl: (r['html_url'] as String?) ??
+            'https://github.com/$_repo/releases',
       );
     }
     return best;

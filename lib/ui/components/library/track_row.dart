@@ -18,12 +18,18 @@ class TrackRow extends StatelessWidget {
     this.onAddToQueue,
     this.onAddToPlaylist,
     this.onRemove,
+    this.trailingReserve = 0,
   });
 
   final Track track;
   final HanamimiTheme theme;
   final VoidCallback onTap;
   final bool isPlaying;
+
+  /// Extra right padding after the duration. Reserves room for the
+  /// drag handle that ReorderableListView overlays on the trailing edge
+  /// on desktop, so it doesn't sit on top of the mm:ss timestamp.
+  final double trailingReserve;
 
   /// Swipe right reveals "add to queue"; swipe left "add to playlist"
   /// (DESIGN.md §9.1) — or "remove" inside a playlist view. Rows spring
@@ -154,6 +160,7 @@ class TrackRow extends StatelessWidget {
               ),
               const SizedBox(width: Space.s3),
               Text(track.duration.mmss, style: AppText.timestamp(theme)),
+              if (trailingReserve > 0) SizedBox(width: trailingReserve),
             ],
           ),
         ),

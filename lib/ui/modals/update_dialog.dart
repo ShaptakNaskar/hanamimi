@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../providers/theme_provider.dart';
 import '../../providers/update_provider.dart';
@@ -38,6 +41,29 @@ enum _Phase { idle, downloading, installing, failed }
 class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
   _Phase _phase = _Phase.idle;
   double _progress = 0;
+
+  /// A desktop build that can't swap itself — a distro package
+  /// (pacman/AUR) or a dev run. It updates through the package manager,
+  /// so we notify + link to the release instead of downloading in-app.
+  bool _packageManaged = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!Platform.isAndroid) {
+      // canInstall() on desktop == "can I self-install?" (AppImage swap
+      // / Windows installer). False → managed by pacman/AUR.
+      UpdaterChannel.canInstall().then((ok) {
+        if (mounted) setState(() => _packageManaged = !ok);
+      });
+    }
+  }
+
+  Future<void> _openRelease() async {
+    final uri = Uri.parse(widget.update.htmlUrl);
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (mounted) Navigator.of(context).pop();
+  }
 
   Future<void> _start() async {
     // Unknown-sources permission first — otherwise the installer
@@ -94,6 +120,14 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
                 ),
               ),
             ),
+            if (_packageManaged) ...[
+              const SizedBox(height: Space.s3),
+              Text(
+                'Update through your package manager (AUR / pacman) — '
+                'no in-app download needed.',
+                style: AppText.caption(theme).copyWith(color: theme.textMuted),
+              ),
+            ],
             if (_phase == _Phase.downloading ||
                 _phase == _Phase.installing) ...[
               const SizedBox(height: Space.s3),
@@ -130,15 +164,23 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
               style: AppText.rowSongTitle(theme)
                   .copyWith(color: theme.textMuted)),
         ),
-        TextButton(
-          onPressed: _phase == _Phase.downloading ||
-                  _phase == _Phase.installing
-              ? null
-              : _start,
-          child: Text(_phase == _Phase.failed ? 'Retry' : 'Update',
-              style: AppText.rowSongTitle(theme)
-                  .copyWith(color: theme.primary)),
-        ),
+        if (_packageManaged)
+          TextButton(
+            onPressed: _openRelease,
+            child: Text('View release',
+                style: AppText.rowSongTitle(theme)
+                    .copyWith(color: theme.primary)),
+          )
+        else
+          TextButton(
+            onPressed: _phase == _Phase.downloading ||
+                    _phase == _Phase.installing
+                ? null
+                : _start,
+            child: Text(_phase == _Phase.failed ? 'Retry' : 'Update',
+                style: AppText.rowSongTitle(theme)
+                    .copyWith(color: theme.primary)),
+          ),
       ],
     );
   }

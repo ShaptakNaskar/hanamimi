@@ -53,4 +53,9 @@ Name: "{group}\Hanamimi+"; Filename: "{app}\hanamimi.exe"
 Name: "{autodesktop}\Hanamimi+"; Filename: "{app}\hanamimi.exe"; Tasks: desktopicon
 
 [Run]
+; Manual install: a "launch now" checkbox on the finished page.
 Filename: "{app}\hanamimi.exe"; Description: "{cm:LaunchProgram,Hanamimi+}"; Flags: nowait postinstall skipifsilent
+; Silent install (the in-app updater's /VERYSILENT run): relaunch the
+; app automatically so a self-update just reopens updated. WizardSilent
+; keeps this from double-launching on a normal install.
+Filename: "{app}\hanamimi.exe"; Flags: nowait runasoriginaluser; Check: WizardSilent

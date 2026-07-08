@@ -425,7 +425,8 @@ class _MoreCard extends ConsumerWidget {
                 size: 20, color: theme.textMuted),
             title: Text('Open-source licenses',
                 style: AppText.rowSongTitle(theme)),
-            subtitle: Text('yt-dlp · GPLv3', style: AppText.caption(theme)),
+            subtitle:
+                Text('yt-dlp · oneko · GPLv3', style: AppText.caption(theme)),
             onTap: () => _showLicenseDialog(context, theme),
           ),
           Divider(height: 0.5, color: theme.divider),
@@ -503,15 +504,22 @@ void _showLicenseDialog(BuildContext context, HanamimiTheme theme) {
       shape:
           RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.lg)),
       title: Text('Open-source licenses', style: AppText.rowSongTitle(theme)),
-      content: Text(
-        'Hanamimi+ bundles yt-dlp through youtubedl-android '
-        '(io.github.junkfood02.youtubedl-android), which is licensed under '
-        'the GNU General Public License v3.\n\n'
-        'Because this build links that library, Hanamimi+ as a whole is '
-        'distributed under GPLv3. The corresponding source is available at '
-        'github.com/ShaptakNaskar/hanamimi (plus branch).\n\n'
-        'yt-dlp and youtubedl-android are © their respective authors.',
-        style: AppText.caption(theme),
+      content: SingleChildScrollView(
+        child: Text(
+          'Hanamimi+ bundles yt-dlp through youtubedl-android '
+          '(io.github.junkfood02.youtubedl-android), which is licensed under '
+          'the GNU General Public License v3.\n\n'
+          'Because this build links that library, Hanamimi+ as a whole is '
+          'distributed under GPLv3. The corresponding source is available at '
+          'github.com/ShaptakNaskar/hanamimi (plus branch).\n\n'
+          'yt-dlp and youtubedl-android are © their respective authors.\n\n'
+          'The desktop cursor cat is oneko — ported from oneko.js by adryd '
+          '(adryd325/oneko.js), which revives the classic X11 "neko". Its '
+          'sprite sheet ships with the app. The idea to bring it into an app '
+          'comes from the Vencord oneko plugin by V '
+          '(vencord.dev/plugins/oneko), which is likewise GPLv3.',
+          style: AppText.caption(theme),
+        ),
       ),
       actions: [
         TextButton(

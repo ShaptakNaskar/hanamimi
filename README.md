@@ -103,4 +103,5 @@ android/…/app/    MainActivity + MediaStoreChannel.kt + FftExtractorChannel.kt
 
 - [beautiful-lyrics](https://github.com/surfbryce/beautiful-lyrics) and [spicy-lyrics](https://github.com/Spikerko/spicy-lyrics) — the karaoke animation language this app's lyrics view is modeled on
 - [LRCLIB](https://lrclib.net) — free, keyless synced lyrics
+- **oneko** — the desktop cursor cat, ported from [oneko.js](https://github.com/adryd325/oneko.js) by **adryd** (reviving the classic X11 `neko`); its sprite sheet is bundled with the app. Brought over as an in-app buddy after the [Vencord oneko plugin](https://vencord.dev/plugins/oneko) by **V**. Both are GPLv3.
 - Hanamimi — the real beagle 🐾
