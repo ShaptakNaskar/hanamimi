@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:sqflite/sqflite.dart';
 
@@ -16,10 +17,12 @@ class LibraryRepository {
   static Future<LibraryRepository> open() async {
     final db = await openDatabase(
       'hanamimi.db',
-      version: 3,
+      version: 4,
       // v2 adds lyric quality (word/line/plain). Old rows predate the
       // word-synced provider, so wipe them and refetch on demand.
       // v3 (main numbering) adds user-picked playlist cover images.
+      // v4 adds the recommendation signals (ARCHITECTURE-RECOMMENDATIONS.md
+      // M38a): co_play transitions, per-track audio features, skip counts.
       onUpgrade: (db, oldVersion, _) async {
         if (oldVersion < 2) {
           await db.execute('DROP TABLE IF EXISTS lyric_cache');
@@ -28,6 +31,11 @@ class LibraryRepository {
         if (oldVersion < 3) {
           await db.execute(
               'ALTER TABLE playlists ADD COLUMN cover_image_path TEXT');
+        }
+        if (oldVersion < 4) {
+          await db.execute(
+              'ALTER TABLE tracks ADD COLUMN skip_count INTEGER NOT NULL DEFAULT 0');
+          await _createRecoTables(db);
         }
       },
       onCreate: (db, _) async {
@@ -45,9 +53,11 @@ class LibraryRepository {
             track_number INTEGER,
             play_count INTEGER NOT NULL DEFAULT 0,
             last_played INTEGER,
-            liked INTEGER NOT NULL DEFAULT 0
+            liked INTEGER NOT NULL DEFAULT 0,
+            skip_count INTEGER NOT NULL DEFAULT 0
           )
         ''');
+        await _createRecoTables(db);
         await db.execute('''
           CREATE TABLE playlists (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,6 +79,29 @@ class LibraryRepository {
       },
     );
     return LibraryRepository._(db);
+  }
+
+  /// M38a recommendation signals. co_play counts "B started after A
+  /// played through" transitions (the Markov/co-occurrence source);
+  /// track_features holds the per-track audio summary vector extracted
+  /// during the visualizer decode.
+  static Future<void> _createRecoTables(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS co_play (
+        from_id INTEGER NOT NULL,
+        to_id INTEGER NOT NULL,
+        count INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (from_id, to_id)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS track_features (
+        track_id INTEGER PRIMARY KEY,
+        version INTEGER NOT NULL,
+        vector BLOB NOT NULL,
+        computed_at INTEGER NOT NULL
+      )
+    ''');
   }
 
   static Future<void> _createLyricCache(DatabaseExecutor db) async {
@@ -166,6 +199,74 @@ class LibraryRepository {
   Future<void> recordPlay(int trackId) => _db.rawUpdate(
       'UPDATE tracks SET play_count = play_count + 1, last_played = ? WHERE id = ?',
       [DateTime.now().millisecondsSinceEpoch, trackId]);
+
+  /// Most recently played tracks, newest first — the Home "Jump back
+  /// in" shelf.
+  Future<List<Track>> recentlyPlayed({int limit = 20}) async {
+    final rows = await _db.query('tracks',
+        where: 'last_played IS NOT NULL',
+        orderBy: 'last_played DESC',
+        limit: limit);
+    return rows.map(Track.fromRow).toList();
+  }
+
+  // --- Recommendation signals (M38a) ---
+
+  /// A track abandoned within the first ~20 s — a negative vote.
+  Future<void> recordSkip(int trackId) => _db.rawUpdate(
+      'UPDATE tracks SET skip_count = skip_count + 1 WHERE id = ?',
+      [trackId]);
+
+  /// One observed transition "listened to [fromId], then started [toId]".
+  Future<void> recordCoPlay(int fromId, int toId) => _db.rawInsert('''
+      INSERT INTO co_play (from_id, to_id, count) VALUES (?, ?, 1)
+      ON CONFLICT(from_id, to_id) DO UPDATE SET count = count + 1
+    ''', [fromId, toId]);
+
+  /// The full transition matrix, for the recommender's batch scoring.
+  Future<List<Map<String, Object?>>> allCoPlays() => _db.query('co_play');
+
+  Future<void> saveTrackFeatures(
+          int trackId, int version, Uint8List vector) =>
+      _db.insert(
+        'track_features',
+        {
+          'track_id': trackId,
+          'version': version,
+          'vector': vector,
+          'computed_at': DateTime.now().millisecondsSinceEpoch,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+
+  Future<bool> hasTrackFeatures(int trackId, int version) async {
+    final rows = await _db.query('track_features',
+        columns: ['track_id'],
+        where: 'track_id = ? AND version = ?',
+        whereArgs: [trackId, version],
+        limit: 1);
+    return rows.isNotEmpty;
+  }
+
+  /// All feature vectors of [version]: {track_id: raw float32 bytes}.
+  Future<Map<int, Uint8List>> allTrackFeatures(int version) async {
+    final rows = await _db.query('track_features',
+        where: 'version = ?', whereArgs: [version]);
+    return {
+      for (final r in rows)
+        r['track_id'] as int: r['vector'] as Uint8List,
+    };
+  }
+
+  /// skip_count per track (kept out of the Track model — only the
+  /// recommender cares).
+  Future<Map<int, int>> skipCounts() async {
+    final rows = await _db.query('tracks',
+        columns: ['id', 'skip_count'], where: 'skip_count > 0');
+    return {
+      for (final r in rows) r['id'] as int: r['skip_count'] as int,
+    };
+  }
 
   // --- Playlists ---
 

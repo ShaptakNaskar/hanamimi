@@ -121,6 +121,12 @@ class QueueManager {
   /// User setting; Duration.zero = crossfade off.
   Duration crossfadeDuration = Duration.zero;
 
+  /// Smart shuffle (M38c): when set, shuffle orders are sampled with
+  /// probability ∝ weight(track) instead of uniformly — favorites come
+  /// up sooner, skipped tracks later, nothing is excluded. Pushed by
+  /// the reco provider; null = classic uniform shuffle.
+  double Function(Track track)? shuffleWeight;
+
   /// Sleep timer "end of track" mode: finish the current song, then
   /// pause instead of advancing.
   bool pauseAtTrackEnd = false;
@@ -548,9 +554,14 @@ class QueueManager {
   /// Builds [_order]. [anchor] is an index into [_source] that must end
   /// up at the cursor (the track the user tapped).
   void _rebuildOrder({int? anchor}) {
-    final indices = List.generate(_source.length, (i) => i);
+    var indices = List.generate(_source.length, (i) => i);
     if (_mode == QueueMode.shuffle) {
-      indices.shuffle(Random());
+      final weigh = shuffleWeight;
+      if (weigh == null) {
+        indices.shuffle(Random());
+      } else {
+        indices = _weightedOrder(indices, weigh);
+      }
       if (anchor != null) {
         indices.remove(anchor);
         indices.insert(0, anchor);
@@ -560,6 +571,33 @@ class QueueManager {
       _cursor = anchor ?? 0;
     }
     _order = indices;
+  }
+
+  /// Weighted sample without replacement: each draw picks a remaining
+  /// index with probability ∝ its track's weight.
+  List<int> _weightedOrder(
+      List<int> indices, double Function(Track) weigh) {
+    final rng = Random();
+    final remaining = List.of(indices);
+    final weights = [
+      for (final i in remaining) max(weigh(_source[i]), 1e-6),
+    ];
+    final out = <int>[];
+    var total = weights.fold(0.0, (a, b) => a + b);
+    while (remaining.isNotEmpty) {
+      var roll = rng.nextDouble() * total;
+      var pick = remaining.length - 1;
+      for (var j = 0; j < remaining.length; j++) {
+        roll -= weights[j];
+        if (roll <= 0) {
+          pick = j;
+          break;
+        }
+      }
+      out.add(remaining.removeAt(pick));
+      total -= weights.removeAt(pick);
+    }
+    return out;
   }
 
   Future<void> _onTrackCompleted() async {

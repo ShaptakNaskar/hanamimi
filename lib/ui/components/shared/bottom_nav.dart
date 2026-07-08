@@ -11,6 +11,7 @@ class NavItem {
 }
 
 const _items = [
+  NavItem('Home', Icons.home_outlined, Icons.home_rounded),
   NavItem('Library', Icons.music_note_outlined, Icons.music_note_outlined),
   NavItem('Playing', Icons.play_circle_outline, Icons.play_circle),
   NavItem('You', Icons.pets_outlined, Icons.pets_outlined),

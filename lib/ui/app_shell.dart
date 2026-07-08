@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../audio/models/playback_session.dart';
 import '../library/models/track.dart';
+import '../platform/gamepad_service.dart';
 import '../providers/audio_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/theme_provider.dart';
@@ -17,7 +18,9 @@ import '../utils/back_stack.dart';
 import '../utils/duration_ext.dart';
 import 'components/mini_player.dart';
 import 'components/shared/bottom_nav.dart';
+import 'modals/battery_prompt_dialog.dart';
 import 'modals/update_dialog.dart';
+import 'screens/home_screen.dart';
 import 'screens/library_screen.dart';
 import 'screens/now_playing_screen.dart';
 import 'screens/you_screen.dart';
@@ -39,12 +42,34 @@ class _AppShellState extends ConsumerState<AppShell>
   PlaybackSession? _pendingResume;
   Timer? _resumeTimer;
 
+  // Couch-mode gamepad → focus/transport.
+  GamepadService? _gamepad;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Couch mode: a gamepad drives focus + transport (ROG Ally etc.).
+    _gamepad = GamepadService(
+      onDirection: (dir) =>
+          FocusManager.instance.primaryFocus?.focusInDirection(dir),
+      onActivate: () {
+        final ctx = FocusManager.instance.primaryFocus?.context;
+        if (ctx != null) Actions.maybeInvoke(ctx, const ActivateIntent());
+      },
+      onBack: _onSystemBack,
+      onPlayPause: () {
+        final engine = ref.read(audioHandlerProvider).engine;
+        engine.state.isPlaying ? engine.pause() : engine.play();
+      },
+      onNext: () => ref.read(audioHandlerProvider).engine.next(),
+      onPrevious: () => ref.read(audioHandlerProvider).engine.previous(),
+    )..start();
     // Offer to resume the previous session once, after the first frame.
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeOfferResume());
+    // First launch: ask for the battery-optimization exemption up front.
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => maybeShowBatteryPrompt(context, ref));
     // If the user starts playing something else, the offer is moot —
     // drop the banner (the new session overwrites the saved one anyway).
     ref.listenManual(audioStateProvider, (_, next) {
@@ -64,6 +89,7 @@ class _AppShellState extends ConsumerState<AppShell>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _resumeTimer?.cancel();
+    _gamepad?.dispose();
     super.dispose();
   }
 
@@ -77,11 +103,17 @@ class _AppShellState extends ConsumerState<AppShell>
     ref.read(appResumeTickProvider.notifier).bump();
   }
 
+  // Home is the start page (index 0); Library stays a pure list one tab
+  // away (ARCHITECTURE-RECOMMENDATIONS.md §5).
   static const _screens = [
+    HomeScreen(),
     LibraryScreen(),
     NowPlayingScreen(),
     YouScreen(),
   ];
+
+  /// The Now Playing tab index.
+  static const _playingIndex = 2;
 
   void _onNavChanged(int i) {
     if (i == _index) return;
@@ -127,7 +159,7 @@ class _AppShellState extends ConsumerState<AppShell>
         .read(audioHandlerProvider)
         .engine
         .restoreSession(session, autoPlay: true);
-    if (mounted) _onNavChanged(1); // jump to Now Playing
+    if (mounted) _onNavChanged(_playingIndex); // jump to Now Playing
   }
 
   void _dismissResume() {
@@ -185,7 +217,8 @@ class _AppShellState extends ConsumerState<AppShell>
               onDismiss: _dismissResume,
             ),
             // Hidden on the Playing tab — the full screen is already there.
-            if (_index != 1) MiniPlayer(onOpen: () => _onNavChanged(1)),
+            if (_index != _playingIndex)
+              MiniPlayer(onOpen: () => _onNavChanged(_playingIndex)),
             HanamimiBottomNav(
               activeIndex: _index,
               onChanged: _onNavChanged,
