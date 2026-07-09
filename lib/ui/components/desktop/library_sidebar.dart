@@ -51,9 +51,14 @@ class LibrarySidebar extends ConsumerWidget {
     return Container(
       width: 280,
       decoration: BoxDecoration(
-        // Translucent over the shell-wide art glow (BackdropWash): the
-        // pane reads as a soft layer, not a hard block of another color.
-        color: theme.surface.withValues(alpha: 0.35),
+        // Opaque surface. It used to be 35% translucent over the art-glow
+        // backdrop, but a light album cover (blurred huge by BackdropWash)
+        // washed this pane pale — and on a dark theme its light text then
+        // vanished into the grey (user-reported "blank sidebar"). The glow
+        // still shows through the middle pane and the Now Playing panel;
+        // the sidebar needs guaranteed text contrast more than it needs
+        // the wash bleeding through.
+        color: theme.surface,
         border: Border(
             right: BorderSide(
                 color: theme.divider.withValues(alpha: 0.4), width: 0.5)),
