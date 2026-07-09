@@ -23,6 +23,7 @@ class GamepadService {
     required this.onPlayPause,
     required this.onNext,
     required this.onPrevious,
+    required this.isActive,
   });
 
   final void Function(TraversalDirection) onDirection;
@@ -31,6 +32,12 @@ class GamepadService {
   final VoidCallback onPlayPause;
   final VoidCallback onNext;
   final VoidCallback onPrevious;
+
+  /// Only act on controller input while Hanamimi is foregrounded/focused.
+  /// The desktop backend reads the raw joystick device, which keeps firing
+  /// even when another window (e.g. a game) has focus — without this gate,
+  /// gaming input would skip your music (user-reported).
+  final bool Function() isActive;
 
   StreamSubscription<GamepadEvent>? _sub;
 
@@ -57,6 +64,9 @@ class GamepadService {
   double _norm(double v) => v.abs() > 1.5 ? v / 32767.0 : v;
 
   void _onEvent(GamepadEvent e) {
+    // Ignore controller input unless Hanamimi is the active window —
+    // otherwise a game's rapid inputs would drive the player.
+    if (!isActive()) return;
     final key = e.key.toLowerCase();
 
     if (e.type == KeyType.analog) {

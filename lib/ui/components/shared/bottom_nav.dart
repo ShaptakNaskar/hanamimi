@@ -17,6 +17,84 @@ const _items = [
   NavItem('You', Icons.pets_outlined, Icons.pets_outlined),
 ];
 
+/// Wide-window nav rail (adaptive shell): the same destinations as
+/// [HanamimiBottomNav], stood up as a left rail. In the three-pane
+/// layout Now Playing lives in its own permanent panel, so [showPlaying]
+/// drops that destination (index 2) from the rail.
+class HanamimiSideRail extends StatelessWidget {
+  const HanamimiSideRail({
+    super.key,
+    required this.activeIndex,
+    required this.onChanged,
+    required this.theme,
+    this.showPlaying = true,
+  });
+
+  final int activeIndex;
+  final ValueChanged<int> onChanged;
+  final HanamimiTheme theme;
+  final bool showPlaying;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 76,
+      decoration: BoxDecoration(
+        // Opaque so a light album backdrop can't wash the rail pale and
+        // hide its icons on a dark theme.
+        color: theme.surface,
+        border: Border(
+            right: BorderSide(
+                color: theme.divider.withValues(alpha: 0.4), width: 0.5)),
+      ),
+      child: SafeArea(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            for (var i = 0; i < _items.length; i++)
+              if (showPlaying || i != 2)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: Space.s3),
+                  child: InkResponse(
+                    onTap: () => onChanged(i),
+                    radius: 34,
+                    child: Column(
+                      children: [
+                        Icon(
+                          i == activeIndex
+                              ? _items[i].activeIcon
+                              : _items[i].icon,
+                          size: 24,
+                          color: i == activeIndex
+                              ? theme.primary
+                              : theme.textMuted,
+                        ),
+                        const SizedBox(height: 3),
+                        AnimatedDefaultTextStyle(
+                          duration: Anim.minTransition,
+                          style: TextStyle(
+                            fontFamily: 'Nunito',
+                            fontSize: 10,
+                            fontWeight: i == activeIndex
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: i == activeIndex
+                                ? theme.primary
+                                : theme.textMuted.withValues(alpha: 0.85),
+                          ),
+                          child: Text(_items[i].label),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class HanamimiBottomNav extends StatelessWidget {
   const HanamimiBottomNav({
     super.key,

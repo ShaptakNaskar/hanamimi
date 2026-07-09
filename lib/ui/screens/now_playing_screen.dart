@@ -32,7 +32,13 @@ import '../modals/queue_sheet.dart';
 import '../modals/sleep_timer_modal.dart';
 
 class NowPlayingScreen extends ConsumerWidget {
-  const NowPlayingScreen({super.key});
+  const NowPlayingScreen({super.key, this.panel = false});
+
+  /// True when living as the desktop/tablet side panel: the shell paints
+  /// ONE art-glow wash + particle field under all three panes, so the
+  /// panel skips its own copies (they'd confine the glow to 400px and
+  /// double the particles).
+  final bool panel;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -69,10 +75,11 @@ class NowPlayingScreen extends ConsumerWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        _BlurredArtBackground(track: track, theme: theme),
-        ParticleOverlay(
-            theme: theme,
-            fireflies: ref.watch(buddyEnabledProvider('fireflies'))),
+        if (!panel) _BlurredArtBackground(track: track, theme: theme),
+        if (!panel)
+          ParticleOverlay(
+              theme: theme,
+              fireflies: ref.watch(buddyEnabledProvider('fireflies'))),
         SafeArea(
           bottom: false,
           child: LayoutBuilder(builder: (context, constraints) {

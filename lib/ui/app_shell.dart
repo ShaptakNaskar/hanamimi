@@ -8,6 +8,7 @@ import '../audio/models/playback_session.dart';
 import '../library/models/track.dart';
 import '../platform/gamepad_service.dart';
 import '../providers/audio_provider.dart';
+import '../providers/buddy_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/update_provider.dart';
@@ -16,8 +17,11 @@ import '../theme/hanamimi_theme.dart';
 import '../theme/theme_tokens.dart';
 import '../utils/back_stack.dart';
 import '../utils/duration_ext.dart';
+import 'components/desktop/backdrop_wash.dart';
+import 'components/desktop/library_sidebar.dart';
 import 'components/mini_player.dart';
 import 'components/shared/bottom_nav.dart';
+import 'components/shared/particle_overlay.dart';
 import 'modals/battery_prompt_dialog.dart';
 import 'modals/update_dialog.dart';
 import 'screens/home_screen.dart';
@@ -45,12 +49,18 @@ class _AppShellState extends ConsumerState<AppShell>
   // Couch-mode gamepad → focus/transport.
   GamepadService? _gamepad;
 
+  /// True while Hanamimi is foregrounded — gates gamepad input so a game
+  /// in front can't drive the player.
+  bool _appActive = true;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Couch mode: a gamepad drives focus + transport (ROG Ally etc.).
+    // Couch mode: a gamepad drives focus + transport (ROG Ally etc.),
+    // but only while Hanamimi is the active window.
     _gamepad = GamepadService(
+      isActive: () => _appActive,
       onDirection: (dir) =>
           FocusManager.instance.primaryFocus?.focusInDirection(dir),
       onActivate: () {
@@ -95,6 +105,10 @@ class _AppShellState extends ConsumerState<AppShell>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Gate gamepad input on foreground: while another window/game is in
+    // front (inactive/paused/hidden), the raw joystick still fires but we
+    // don't want it skipping tracks (user-reported).
+    _appActive = state == AppLifecycleState.resumed;
     if (state != AppLifecycleState.resumed) return;
     // Back to the foreground: an OEM battery freeze can leave the seek bar
     // stalled and the FFT extraction dead. Snap the position to truth and
@@ -175,58 +189,142 @@ class _AppShellState extends ConsumerState<AppShell>
     final theme = ref.watch(currentThemeProvider);
     // Content slides in from the direction of travel (DESIGN.md §8).
     final slideFromRight = _index > _previousIndex;
+    // Width decides the shell, not platform: a tablet (or unfolded
+    // foldable) gets the same rail/three-pane layout as a desktop window
+    // of that size, so it never reads as a stretched phone. A narrow
+    // window keeps the phone layout it maps cleanly onto.
+    final width = MediaQuery.sizeOf(context).width;
+    final wide = width >= 880;
+    final threePane = width >= 1240;
+    // In the wide shell, Now Playing is a permanent right-hand panel
+    // instead of a tab — its tab index shows Home in the middle instead.
+    final contentIndex = _index == _playingIndex ? 0 : _index;
+
+    final content = AnimatedSwitcher(
+      duration: Anim.tabSlide,
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeOut,
+      transitionBuilder: (child, animation) {
+        final isIncoming = child.key == ValueKey(_index);
+        final beginX = isIncoming
+            ? (slideFromRight ? 0.15 : -0.15)
+            : (slideFromRight ? -0.15 : 0.15);
+        return FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: Offset(beginX, 0),
+              end: Offset.zero,
+            ).animate(animation),
+            child: child,
+          ),
+        );
+      },
+      child: KeyedSubtree(
+        key: ValueKey(_index),
+        child: _screens[_index],
+      ),
+    );
+
+    if (!wide) {
+      return PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) _onSystemBack();
+        },
+        child: Scaffold(
+          body: content,
+          bottomNavigationBar: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _ResumeTicker(
+                session: _pendingResume,
+                theme: theme,
+                onPlay: _acceptResume,
+                onDismiss: _dismissResume,
+              ),
+              // Hidden on the Playing tab — the full screen is already there.
+              if (_index != _playingIndex)
+                MiniPlayer(onOpen: () => _onNavChanged(_playingIndex)),
+              HanamimiBottomNav(
+                activeIndex: _index,
+                onChanged: _onNavChanged,
+                theme: theme,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Wide shell: Now Playing is a permanent right-hand panel, the middle
+    // pane holds the active screen, and the left edge is the slim rail
+    // (≥880) or the full "Your Library" sidebar (≥1240). One art-glow
+    // wash + particle field sit under every pane so no boundary reads as
+    // a jump into a different color; the mini player never exists here —
+    // the panel IS the player.
+    final middlePane = Expanded(
+      child: Column(
+        children: [
+          Expanded(
+            child: KeyedSubtree(
+              key: ValueKey(contentIndex),
+              child: _screens[contentIndex],
+            ),
+          ),
+          _ResumeTicker(
+            session: _pendingResume,
+            theme: theme,
+            onPlay: _acceptResume,
+            onDismiss: _dismissResume,
+          ),
+        ],
+      ),
+    );
+
+    final wideBody = Row(
+      children: [
+        if (threePane)
+          LibrarySidebar(activeIndex: contentIndex, onNav: _onNavChanged)
+        else
+          HanamimiSideRail(
+            activeIndex: contentIndex,
+            onChanged: _onNavChanged,
+            theme: theme,
+            showPlaying: false,
+          ),
+        middlePane,
+        // No divider: the panel's art wash fades out at its left edge,
+        // so the panes blend instead of splitting at a hard line.
+        const SizedBox(
+          width: 400,
+          child: NowPlayingScreen(panel: true),
+        ),
+      ],
+    );
+
+    final wideBackground = Stack(
+      fit: StackFit.expand,
+      children: [
+        const BackdropWash(),
+        // Isolated so its 60 fps ticker repaints only its own layer, not
+        // the blur below or the panes above.
+        RepaintBoundary(
+          child: ParticleOverlay(
+            theme: theme,
+            fireflies: ref.watch(buddyEnabledProvider('fireflies')),
+          ),
+        ),
+        wideBody,
+      ],
+    );
 
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _onSystemBack();
       },
-      child: Scaffold(
-        body: AnimatedSwitcher(
-          duration: Anim.tabSlide,
-          switchInCurve: Curves.easeOut,
-          switchOutCurve: Curves.easeOut,
-          transitionBuilder: (child, animation) {
-            final isIncoming = child.key == ValueKey(_index);
-            final beginX = isIncoming
-                ? (slideFromRight ? 0.15 : -0.15)
-                : (slideFromRight ? -0.15 : 0.15);
-            return FadeTransition(
-              opacity: animation,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: Offset(beginX, 0),
-                  end: Offset.zero,
-                ).animate(animation),
-                child: child,
-              ),
-            );
-          },
-          child: KeyedSubtree(
-            key: ValueKey(_index),
-            child: _screens[_index],
-          ),
-        ),
-        bottomNavigationBar: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _ResumeTicker(
-              session: _pendingResume,
-              theme: theme,
-              onPlay: _acceptResume,
-              onDismiss: _dismissResume,
-            ),
-            // Hidden on the Playing tab — the full screen is already there.
-            if (_index != _playingIndex)
-              MiniPlayer(onOpen: () => _onNavChanged(_playingIndex)),
-            HanamimiBottomNav(
-              activeIndex: _index,
-              onChanged: _onNavChanged,
-              theme: theme,
-            ),
-          ],
-        ),
-      ),
+      child: Scaffold(body: wideBackground),
     );
   }
 }

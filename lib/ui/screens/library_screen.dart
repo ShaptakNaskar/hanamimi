@@ -10,6 +10,7 @@ import '../../library/models/playlist.dart';
 import '../../library/models/track.dart';
 import '../../utils/back_stack.dart';
 import '../../providers/audio_provider.dart';
+import '../../providers/desktop_shell_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
 import '../../providers/theme_provider.dart';
@@ -69,6 +70,16 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = ref.watch(currentThemeProvider);
+    final width = MediaQuery.sizeOf(context).width;
+    // Three-pane shell (wide tablets / desktop windows): the sidebar
+    // deep-links a collection into this pane. A request overrides the
+    // active pill until the user drives the pills again.
+    final collectionRequest = ref.watch(desktopCollectionProvider);
+    final visualTab = collectionRequest == null
+        ? _tab
+        : collectionRequest.type == DesktopCollectionType.folder
+            ? 2
+            : 3;
 
     return SafeArea(
       bottom: false,
@@ -118,32 +129,38 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                   )
                 : Row(
                     children: [
-                      // The mascot lives in the header too — she reacts
-                      // to playback just like on Now Playing.
-                      if (ref.watch(buddyEnabledProvider('beagle'))) ...[
-                        HanamimiMascot(
-                            state: ref.watch(mascotStateProvider),
-                            size: 30),
-                        const SizedBox(width: Space.s2),
-                      ],
-                      Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Text(
-                              ref.watch(editionNameProvider).value ??
-                                  'Hanamimi',
-                              style: AppText.screenTitle(theme)
-                                  .copyWith(fontSize: 22)),
-                          // The parrot perches on the title and hops
-                          // along it (Requests.txt #20).
-                          if (ref.watch(buddyEnabledProvider('parrot')))
-                            const Positioned(
-                                left: 0,
-                                right: 0,
-                                top: -15,
-                                child: HeaderParrot()),
+                      // In the three-pane shell the sidebar already wears
+                      // the mascot + edition title, so repeating them in
+                      // the middle pane read as a glitch — drop them there
+                      // and keep just the search affordance.
+                      if (width < 1240) ...[
+                        // The mascot lives in the header too — she reacts
+                        // to playback just like on Now Playing.
+                        if (ref.watch(buddyEnabledProvider('beagle'))) ...[
+                          HanamimiMascot(
+                              state: ref.watch(mascotStateProvider),
+                              size: 30),
+                          const SizedBox(width: Space.s2),
                         ],
-                      ),
+                        Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Text(
+                                ref.watch(editionNameProvider).value ??
+                                    'Hanamimi',
+                                style: AppText.screenTitle(theme)
+                                    .copyWith(fontSize: 22)),
+                            // The parrot perches on the title and hops
+                            // along it (Requests.txt #20).
+                            if (ref.watch(buddyEnabledProvider('parrot')))
+                              const Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  top: -15,
+                                  child: HeaderParrot()),
+                          ],
+                        ),
+                      ],
                       const Spacer(),
                       InkResponse(
                         onTap: () => setState(() => _searching = true),
@@ -159,8 +176,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             padding: const EdgeInsets.symmetric(horizontal: Space.s4),
             child: PillTabBar(
               tabs: const ['Songs', 'Albums', 'Folders', 'Playlists'],
-              activeIndex: _tab,
-              onChanged: (i) => setState(() => _tab = i),
+              activeIndex: visualTab,
+              onChanged: (i) => setState(() {
+                // Manual pill tap takes the wheel back from the sidebar.
+                ref.read(desktopCollectionProvider.notifier).clear();
+                _tab = i;
+              }),
               theme: theme,
             ),
           ),
@@ -168,12 +189,30 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
           Expanded(
             child: AnimatedSwitcher(
               duration: Anim.minTransition,
-              child: switch (_tab) {
-                0 => _SongsTab(key: const ValueKey(0), query: _query),
-                1 => _AlbumsTab(key: const ValueKey(1), query: _query),
-                2 => _FoldersTab(key: const ValueKey(2), query: _query),
-                _ => _PlaylistsTab(key: const ValueKey(3), query: _query),
-              },
+              child: collectionRequest != null
+                  ? switch (collectionRequest.type) {
+                      DesktopCollectionType.folder => _FoldersTab(
+                          key: ValueKey('sidebar_${collectionRequest.nonce}'),
+                          query: _query,
+                          initialOpenPath: collectionRequest.folderPath,
+                        ),
+                      DesktopCollectionType.playlist => _PlaylistsTab(
+                          key: ValueKey('sidebar_${collectionRequest.nonce}'),
+                          query: _query,
+                          initialOpenId: collectionRequest.playlistId,
+                        ),
+                      DesktopCollectionType.liked => _PlaylistsTab(
+                          key: ValueKey('sidebar_${collectionRequest.nonce}'),
+                          query: _query,
+                          initialLikedOpen: true,
+                        ),
+                    }
+                  : switch (_tab) {
+                      0 => _SongsTab(key: const ValueKey(0), query: _query),
+                      1 => _AlbumsTab(key: const ValueKey(1), query: _query),
+                      2 => _FoldersTab(key: const ValueKey(2), query: _query),
+                      _ => _PlaylistsTab(key: const ValueKey(3), query: _query),
+                    },
             ),
           ),
         ],
@@ -300,9 +339,12 @@ class _AlbumsTab extends ConsumerWidget {
 /// VLC-style folder browsing: folders that contain music, drill into
 /// one to see and play its songs (folder becomes the queue).
 class _FoldersTab extends ConsumerStatefulWidget {
-  const _FoldersTab({super.key, this.query = ''});
+  const _FoldersTab({super.key, this.query = '', this.initialOpenPath});
 
   final String query;
+
+  /// Deep-link from the desktop sidebar: open straight into this folder.
+  final String? initialOpenPath;
 
   @override
   ConsumerState<_FoldersTab> createState() => _FoldersTabState();
@@ -314,6 +356,7 @@ class _FoldersTabState extends ConsumerState<_FoldersTab> {
   @override
   void initState() {
     super.initState();
+    _openPath = widget.initialOpenPath;
     // System back climbs out of the open folder before leaving the tab.
     BackStack.register(this, () {
       if (_openPath == null) return false;
@@ -636,9 +679,19 @@ class _LikedSongsCard extends StatelessWidget {
 }
 
 class _PlaylistsTab extends ConsumerStatefulWidget {
-  const _PlaylistsTab({super.key, this.query = ''});
+  const _PlaylistsTab({
+    super.key,
+    this.query = '',
+    this.initialOpenId,
+    this.initialLikedOpen = false,
+  });
 
   final String query;
+
+  /// Deep-links from the desktop sidebar: open straight into a playlist,
+  /// or into the Liked-songs detail.
+  final int? initialOpenId;
+  final bool initialLikedOpen;
 
   @override
   ConsumerState<_PlaylistsTab> createState() => _PlaylistsTabState();
@@ -651,6 +704,8 @@ class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
   @override
   void initState() {
     super.initState();
+    _openId = widget.initialOpenId;
+    _likedOpen = widget.initialLikedOpen;
     // System back closes the open playlist / liked-songs detail first.
     BackStack.register(this, () {
       if (_likedOpen) {
