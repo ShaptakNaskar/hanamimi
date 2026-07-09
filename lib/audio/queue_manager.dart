@@ -40,8 +40,13 @@ class QueueManager {
     _posHeartbeat = Timer.periodic(const Duration(milliseconds: 250), (_) {
       if (!_crossfading) {
         if (_primary.playing) _position.add(_primary.position);
-        // Buffered position advances while loading/paused too.
-        _buffered.add(_primary.bufferedPosition);
+        // A file on disk has nothing to buffer, but just_audio still
+        // reports a partial decode-ahead as "buffered", which drew a
+        // pointless buffer overlay on the seek bar. Base Hanamimi is
+        // local-only, so zero it whenever a track is loaded.
+        _buffered.add(_currentTrack?.filePath != null
+            ? Duration.zero
+            : _primary.bufferedPosition);
       }
     });
   }
