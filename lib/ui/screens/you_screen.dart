@@ -34,7 +34,6 @@ import '../components/mascot/buddies.dart';
 import '../components/mascot/hanamimi_widget.dart';
 import '../modals/update_dialog.dart';
 import '../modals/yt_signin_dialog.dart';
-import 'online_search_screen.dart';
 import 'stats_screen.dart';
 import '../components/mascot/mascot_painter.dart';
 
@@ -52,12 +51,6 @@ class YouScreen extends ConsumerWidget {
         children: [
           const SizedBox(height: Space.s6),
           Text('You', style: AppText.screenTitle(theme)),
-          // The definitive online search lives here — Library search
-          // stays local. Only shown when online features are on.
-          if (ref.watch(onlineEnabledProvider)) ...[
-            const SizedBox(height: Space.s4),
-            const _OnlineSearchBar(),
-          ],
           const SizedBox(height: Space.s6),
           Text('MOOD', style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
@@ -104,45 +97,6 @@ class YouScreen extends ConsumerWidget {
           const _MoreCard(),
           const SizedBox(height: Space.s12),
         ],
-      ),
-    );
-  }
-}
-
-/// Tap-to-open entry point for online search (YouTube + JioSaavn).
-/// Names the sources so it's clear this is where streaming search lives.
-class _OnlineSearchBar extends ConsumerWidget {
-  const _OnlineSearchBar();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = ref.watch(currentThemeProvider);
-    return GestureDetector(
-      onTap: () =>
-          Navigator.of(context).push(OnlineSearchScreen.route()),
-      child: Container(
-        height: Sizes.inputHeight,
-        padding: const EdgeInsets.symmetric(horizontal: Space.s3),
-        decoration: BoxDecoration(
-          color: theme.surface,
-          borderRadius: BorderRadius.circular(Radii.pill),
-          border: Border.all(color: theme.divider, width: 0.5),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.search, size: 20, color: theme.textMuted),
-            const SizedBox(width: Space.s2),
-            Expanded(
-              child: Text(
-                'Search YouTube & JioSaavn',
-                style:
-                    AppText.body(theme).copyWith(color: theme.textMuted),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

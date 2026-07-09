@@ -7,6 +7,7 @@ import '../../providers/audio_provider.dart';
 import '../../providers/home_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/online_provider.dart';
+import '../../providers/online_settings_provider.dart';
 import '../../providers/reco_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/yt_account_provider.dart';
@@ -17,6 +18,7 @@ import '../../theme/theme_tokens.dart';
 import '../components/home/track_shelf.dart';
 import '../components/library/art_thumb.dart';
 import '../modals/yt_signin_dialog.dart';
+import 'online_search_screen.dart';
 
 /// Home — the start page (ARCHITECTURE-RECOMMENDATIONS.md §5). Shelves
 /// in trust order: your recents first, then the on-device picks, then
@@ -54,6 +56,13 @@ class HomeScreen extends ConsumerWidget {
           Text(greeting(DateTime.now()),
               style: AppText.screenTitle(theme)),
           const SizedBox(height: Space.s6),
+          // The online search entry point lives on Home (the start page)
+          // so streaming search is one tap from launch — Library search
+          // stays local. Only shown when online features are on.
+          if (ref.watch(onlineEnabledProvider)) ...[
+            const _OnlineSearchBar(),
+            const SizedBox(height: Space.s6),
+          ],
           if (recent.isEmpty)
             _EmptyHome(theme: theme, libraryEmpty: libraryEmpty)
           else
@@ -205,6 +214,44 @@ class _PlaylistShelf extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Tap-to-open entry point for online search (YouTube + JioSaavn).
+/// Names the sources so it's clear this is where streaming search lives.
+/// Lives on Home now (moved off the You tab) — search is a start-page act.
+class _OnlineSearchBar extends ConsumerWidget {
+  const _OnlineSearchBar();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    return GestureDetector(
+      onTap: () => Navigator.of(context).push(OnlineSearchScreen.route()),
+      child: Container(
+        height: Sizes.inputHeight,
+        padding: const EdgeInsets.symmetric(horizontal: Space.s3),
+        decoration: BoxDecoration(
+          color: theme.surface,
+          borderRadius: BorderRadius.circular(Radii.pill),
+          border: Border.all(color: theme.divider, width: 0.5),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.search, size: 20, color: theme.textMuted),
+            const SizedBox(width: Space.s2),
+            Expanded(
+              child: Text(
+                'Search YouTube & JioSaavn',
+                style: AppText.body(theme).copyWith(color: theme.textMuted),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

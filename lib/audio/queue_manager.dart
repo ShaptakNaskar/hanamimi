@@ -42,8 +42,14 @@ class QueueManager {
       if (!_crossfading) {
         if (_primary.playing) _position.add(_primary.position);
         // Buffered position advances while loading/paused too, so publish
-        // it independent of the playing check.
-        _buffered.add(_primary.bufferedPosition);
+        // it independent of the playing check. A file on disk (local track
+        // OR a downloaded online one) has nothing to buffer — but the
+        // players still report a partial decode-ahead as "buffered", which
+        // drew a pointless buffer overlay on local songs (user-reported).
+        // Zero it so the overlay only ever shows for real streams.
+        _buffered.add(_currentTrack?.filePath != null
+            ? Duration.zero
+            : _primary.bufferedPosition);
       }
     });
   }
@@ -731,13 +737,16 @@ class QueueManager {
       status: PlaybackStatus.loading,
     ));
     try {
-      await _loadInto(_primary, track);
+      await _loadInto(_primary, track, generation: generation);
       if (generation != _playGeneration) return; // superseded mid-load
       await _primary.setVolume(1);
       await _activateFocus();
       await _primary.play();
       _loadFailures = 0;
       trackStarted.add(track);
+      // Get a head start on the next track's URL so the following
+      // advance is a buffer, not a resolve-then-buffer.
+      _preResolveNext();
     } catch (_) {
       // A newer request interrupted this load — its failure is noise,
       // not a broken track; the newer request owns the outcome.
@@ -759,13 +768,42 @@ class QueueManager {
   /// Resolves the track to an audio source and loads it. A cached
   /// stream URL can expire between resolution and load (HTTP 403) —
   /// invalidate and re-resolve once before giving up.
-  Future<void> _loadInto(AudioPlayerPort player, Track track) async {
+  ///
+  /// [generation] guards against a superseded load swapping an audible
+  /// player. Resolving an online stream takes seconds; if the user starts
+  /// something else during that wait ([_playGeneration] moves on), we must
+  /// NOT call setSource on [player] — it's [_primary] and already playing
+  /// the new track, and setSource swaps the audio in place. That was the
+  /// "song 2 finished buffering and hijacked the audio while song 3's art
+  /// stayed on screen" bug. The check sits AFTER each resolve (the slow,
+  /// racy part) and BEFORE the swap.
+  Future<void> _loadInto(AudioPlayerPort player, Track track,
+      {int? generation}) async {
+    bool superseded() =>
+        generation != null && generation != _playGeneration;
+    var source = await _resolver.sourceFor(track);
+    if (superseded()) return;
     try {
-      await player.setSource(await _resolver.sourceFor(track));
+      await player.setSource(source);
     } catch (_) {
       if (track.source == TrackSource.local) rethrow;
       _resolver.invalidate(track);
-      await player.setSource(await _resolver.sourceFor(track));
+      source = await _resolver.sourceFor(track);
+      if (superseded()) return;
+      await player.setSource(source);
     }
+  }
+
+  /// Warm the NEXT track's stream URL so advancing (a "next" tap or a
+  /// natural track-end) doesn't stall on a fresh online resolve — the
+  /// player then only has to buffer, not resolve-then-buffer. No-op for
+  /// local files (already instant) and off the end of a one-shot queue.
+  void _preResolveNext() {
+    if (_order.isEmpty) return;
+    final int? nextCursor = _cursor + 1 < _order.length
+        ? _cursor + 1
+        : (_mode == QueueMode.repeatAll ? 0 : null);
+    if (nextCursor == null) return;
+    unawaited(_resolver.preResolve(_source[_order[nextCursor]]));
   }
 }
