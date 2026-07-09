@@ -29,12 +29,19 @@ class LibraryRepository {
           await _createLyricCache(db);
         }
         if (oldVersion < 3) {
-          await db.execute(
-              'ALTER TABLE playlists ADD COLUMN cover_image_path TEXT');
+          if (!await _columnExists(db, 'playlists', 'cover_image_path')) {
+            await db.execute(
+                'ALTER TABLE playlists ADD COLUMN cover_image_path TEXT');
+          }
         }
         if (oldVersion < 4) {
-          await db.execute(
-              'ALTER TABLE tracks ADD COLUMN skip_count INTEGER NOT NULL DEFAULT 0');
+          // Guard with an existence check so a re-run or an out-of-order
+          // column add can't crash with "duplicate column name" (see the
+          // plus-branch desktop crash this pattern fixed).
+          if (!await _columnExists(db, 'tracks', 'skip_count')) {
+            await db.execute(
+                'ALTER TABLE tracks ADD COLUMN skip_count INTEGER NOT NULL DEFAULT 0');
+          }
           await _createRecoTables(db);
         }
       },
@@ -79,6 +86,15 @@ class LibraryRepository {
       },
     );
     return LibraryRepository._(db);
+  }
+
+  /// True when [table] already has [column] — makes ALTER-based
+  /// migrations idempotent so a re-run can't crash with "duplicate
+  /// column name".
+  static Future<bool> _columnExists(
+      DatabaseExecutor db, String table, String column) async {
+    final rows = await db.rawQuery('PRAGMA table_info($table)');
+    return rows.any((r) => r['name'] == column);
   }
 
   /// M38a recommendation signals. co_play counts "B started after A
