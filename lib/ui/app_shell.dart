@@ -61,6 +61,13 @@ class _AppShellState extends ConsumerState<AppShell>
   // Couch-mode gamepad → focus/transport.
   GamepadService? _gamepad;
 
+  /// True while Hanamimi is the active/focused window — gates gamepad
+  /// input so a game in front can't drive the player. On desktop the
+  /// `gamepads` backend reads the raw joystick globally, so focus (not
+  /// just app lifecycle) is what matters; onWindowFocus/Blur keep this
+  /// current, with didChangeAppLifecycleState covering mobile.
+  bool _appActive = true;
+
   @override
   void initState() {
     super.initState();
@@ -81,6 +88,7 @@ class _AppShellState extends ConsumerState<AppShell>
     // Directional events move the Flutter focus; face buttons activate /
     // go back; shoulders and start map to transport.
     _gamepad = GamepadService(
+      isActive: () => _appActive,
       onDirection: (dir) =>
           FocusManager.instance.primaryFocus?.focusInDirection(dir),
       onActivate: () {
@@ -178,6 +186,15 @@ class _AppShellState extends ConsumerState<AppShell>
     await windowManager.destroy();
   }
 
+  // Window focus gates the gamepad on desktop: the joystick backend reads
+  // the device globally, so without this a controller aimed at a game in
+  // front would still skip Hanamimi's tracks.
+  @override
+  void onWindowFocus() => _appActive = true;
+
+  @override
+  void onWindowBlur() => _appActive = false;
+
   /// Desktop shortcuts: space play/pause, ←/→ seek 5 s, Ctrl+←/→
   /// prev/next, Esc backs out of overlays, 1–5 jump tabs.
   bool _onKey(KeyEvent event) {
@@ -246,6 +263,10 @@ class _AppShellState extends ConsumerState<AppShell>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Gate the gamepad on foreground (mobile; desktop also uses window
+    // focus above): a backgrounded app shouldn't have its controller
+    // still driving playback while you game.
+    _appActive = state == AppLifecycleState.resumed;
     if (state != AppLifecycleState.resumed) return;
     // Back to the foreground: an OEM battery freeze can leave the seek bar
     // stalled and the FFT extraction dead. Snap the position to truth and
