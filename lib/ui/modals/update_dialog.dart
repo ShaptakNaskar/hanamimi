@@ -12,6 +12,21 @@ import '../../utils/format_bytes.dart';
 /// listener), which previously opened several dialogs at once.
 bool _updateDialogOpen = false;
 
+/// The changelog comes from Groq as markdown, but the dialog renders
+/// plain text — so `**bold**` markers showed literally. Strip the inline
+/// markers and turn `*`/`-` bullets into real dots (mirrors what the
+/// Telegram caption does server-side).
+String _cleanMarkdown(String md) {
+  return md
+      .split('\n')
+      .map((line) => line
+          .replaceAll(RegExp(r'^\s*[*-]\s+'), '• ')
+          .replaceAll(RegExp(r'\*\*|__|`'), '')
+          .replaceAll(RegExp(r'^#+\s*'), ''))
+      .join('\n')
+      .trim();
+}
+
 /// "Update available" dialog: changelog + in-app download with a live
 /// progress bar, then hands the APK to the system installer (the app
 /// reopens itself after Android swaps the package).
@@ -89,7 +104,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
                 child: Text(
                   update.changelog.isEmpty
                       ? 'No release notes.'
-                      : update.changelog,
+                      : _cleanMarkdown(update.changelog),
                   style: AppText.caption(theme),
                 ),
               ),
