@@ -5,6 +5,11 @@
 # commit message), publishes a GitHub Release tagged <branch>-v<version>,
 # and posts the arm64 APK to Telegram when bot secrets are configured.
 #
+# plus also builds Linux + Windows. On plus the release is created as a
+# DRAFT and only goes live (publish-plus job) once APK + Linux + Windows
+# ALL succeed — so a failed desktop build never ships a partial release,
+# and the tag/version isn't burned until it actually publishes.
+#
 # Versioning: versionCode = the workflow run number (monotonic across
 # both branches), versionName = <pubspec version>-<branch>.<run>.
 # The in-app update checker compares run numbers per branch tag prefix.
@@ -177,15 +182,26 @@ jobs:
           name: ${{ steps.ver.outputs.display }}
           body_path: release_body.md
           files: build/app/outputs/flutter-apk/hanamimi-*.apk
+          # plus ships APKs + Linux AppImage + Windows installer together.
+          # Create the release as a DRAFT so it stays invisible (and its
+          # tag isn't minted) until the desktop jobs finish — the
+          # publish-plus job flips it live only when all three builds are
+          # green. A failed desktop build then leaves a draft, not a
+          # public release with missing artifacts (and no version is
+          # burned, since the tag only appears on publish).
+          draft: ${{ github.ref_name == 'plus' }}
           # The releases page sorts by the tagged COMMIT's date, so commits
           # committed long before they're pushed scramble the order. Forcing
           # the badge keeps "Latest" on the newest publish regardless.
-          make_latest: true
+          # (plus takes the badge at publish time instead.)
+          make_latest: ${{ github.ref_name != 'plus' }}
 
       # Keep the releases page short and ordered: only the newest 3 releases
       # per edition stay up. Tags are kept (versioning counts them; git
-      # history stays browsable) — only the release entries go.
+      # history stays browsable) — only the release entries go. plus prunes
+      # in publish-plus instead (after its draft goes live).
       - name: Prune old releases
+        if: github.ref_name == 'main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -264,6 +280,8 @@ jobs:
         with:
           tag_name: ${{ needs.build-release.outputs.tag }}
           files: dist/hanamimi-plus-setup.exe
+          # Keep it a draft — publish-plus flips it live once all builds pass.
+          draft: true
 
   build-linux:
     if: github.ref_name == 'plus'
@@ -316,6 +334,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.build-release.outputs.tag }}
+          # Keep it a draft — publish-plus flips it live once all builds pass.
+          draft: true
           files: |
             Hanamimi-plus-x86_64.AppImage
             dist/*.pkg.tar.zst
@@ -327,11 +347,35 @@ jobs:
   # AppImage (with the main run's APK that makes the full set of four).
   # All three stay under the Bot API's 50 MB document cap — that's WHY
   # the desktop artifacts ship slim and self-fetch ffmpeg/yt-dlp.
-  post-telegram-plus:
+  publish-plus:
     if: github.ref_name == 'plus'
+    # Only reached when APK + Windows + Linux ALL succeed — that's the gate
+    # for making the release public / posting it out.
     needs: [build-release, build-windows, build-linux]
     runs-on: ubuntu-latest
     steps:
+      # Flip the draft live now that every artifact is attached. This is
+      # the moment the release becomes public AND the tag is minted, so a
+      # partial build never ships and never burns a version number.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit '${{ needs.build-release.outputs.tag }}' \
+            --repo '${{ github.repository }}' \
+            --draft=false --latest
+
+      - name: Prune old releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/releases?per_page=100" --paginate \
+            --jq '.[] | select(.tag_name | startswith("plus-v")) | "\(.published_at) \(.id)"' \
+            | sort -r | tail -n +4 | awk '{print $2}' \
+            | while read -r id; do
+                gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
+              done
+
       - name: Download release assets
         env:
           GH_TOKEN: ${{ github.token }}
