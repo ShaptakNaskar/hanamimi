@@ -17,7 +17,6 @@ import '../../providers/dev_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
-import '../../providers/listenbrainz_provider.dart';
 import '../../providers/nerd_provider.dart';
 import '../../providers/reco_provider.dart';
 import '../../providers/yt_account_provider.dart';
@@ -33,9 +32,10 @@ import '../../theme/theme_tokens.dart';
 import '../../theme/themes.dart';
 import '../components/mascot/buddies.dart';
 import '../components/mascot/hanamimi_widget.dart';
-import '../modals/listenbrainz_dialog.dart';
 import '../modals/update_dialog.dart';
 import '../modals/yt_signin_dialog.dart';
+import 'online_search_screen.dart';
+import 'stats_screen.dart';
 import '../components/mascot/mascot_painter.dart';
 
 class YouScreen extends ConsumerWidget {
@@ -52,6 +52,12 @@ class YouScreen extends ConsumerWidget {
         children: [
           const SizedBox(height: Space.s6),
           Text('You', style: AppText.screenTitle(theme)),
+          // The definitive online search lives here — Library search
+          // stays local. Only shown when online features are on.
+          if (ref.watch(onlineEnabledProvider)) ...[
+            const SizedBox(height: Space.s4),
+            const _OnlineSearchBar(),
+          ],
           const SizedBox(height: Space.s6),
           Text('MOOD', style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
@@ -98,6 +104,45 @@ class YouScreen extends ConsumerWidget {
           const _MoreCard(),
           const SizedBox(height: Space.s12),
         ],
+      ),
+    );
+  }
+}
+
+/// Tap-to-open entry point for online search (YouTube + JioSaavn).
+/// Names the sources so it's clear this is where streaming search lives.
+class _OnlineSearchBar extends ConsumerWidget {
+  const _OnlineSearchBar();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    return GestureDetector(
+      onTap: () =>
+          Navigator.of(context).push(OnlineSearchScreen.route()),
+      child: Container(
+        height: Sizes.inputHeight,
+        padding: const EdgeInsets.symmetric(horizontal: Space.s3),
+        decoration: BoxDecoration(
+          color: theme.surface,
+          borderRadius: BorderRadius.circular(Radii.pill),
+          border: Border.all(color: theme.divider, width: 0.5),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.search, size: 20, color: theme.textMuted),
+            const SizedBox(width: Space.s2),
+            Expanded(
+              child: Text(
+                'Search YouTube & JioSaavn',
+                style:
+                    AppText.body(theme).copyWith(color: theme.textMuted),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -324,6 +369,17 @@ class _MoreCard extends ConsumerWidget {
       ),
       child: Column(
         children: [
+          ListTile(
+            leading: Icon(Icons.bar_chart_rounded,
+                size: 20, color: theme.textMuted),
+            title: Text('Listening stats',
+                style: AppText.rowSongTitle(theme)),
+            subtitle: Text('Your minutes & songs, and the leaderboard',
+                style: AppText.caption(theme)),
+            onTap: () =>
+                Navigator.of(context).push(StatsScreen.route()),
+          ),
+          Divider(height: 0.5, color: theme.divider),
           ListTile(
             leading:
                 Icon(Icons.refresh, size: 20, color: theme.textMuted),
@@ -989,8 +1045,6 @@ class _OnlineSettings extends ConsumerWidget {
                       Divider(height: Space.s6, color: theme.divider),
                       const _UpdateExtractorTile(),
                       Divider(height: Space.s6, color: theme.divider),
-                      const _ListenBrainzTile(),
-                      Divider(height: Space.s6, color: theme.divider),
                       const _YtMusicTile(),
                     ],
                   ),
@@ -1063,63 +1117,6 @@ class _UpdateExtractorTileState extends ConsumerState<_UpdateExtractorTile> {
                 )
               : Icon(Icons.system_update_alt,
                   size: 20, color: theme.primary),
-        ],
-      ),
-    );
-  }
-}
-
-/// Tier 2 (ARCHITECTURE-RECOMMENDATIONS.md §4): opt-in ListenBrainz.
-/// Connect walks through the consent dialog; disconnect is one tap and
-/// wipes the token.
-class _ListenBrainzTile extends ConsumerWidget {
-  const _ListenBrainzTile();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = ref.watch(currentThemeProvider);
-    final account = ref.watch(listenBrainzProvider);
-    return InkWell(
-      onTap: () async {
-        if (!account.connected) {
-          await showListenBrainzDialog(context);
-          return;
-        }
-        await ref.read(listenBrainzProvider.notifier).disconnect();
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(Radii.md)),
-            content: const Text('ListenBrainz disconnected — token wiped',
-                style: TextStyle(fontFamily: 'Nunito')),
-          ));
-        }
-      },
-      borderRadius: BorderRadius.circular(Radii.sm),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('ListenBrainz', style: AppText.rowSongTitle(theme)),
-                Text(
-                  account.connected
-                      ? 'Scrobbling as ${account.user} — tap to disconnect'
-                      : 'Opt-in: share listens, get Weekly Jams back',
-                  style: AppText.caption(theme),
-                ),
-              ],
-            ),
-          ),
-          Icon(
-            account.connected
-                ? Icons.link_off
-                : Icons.podcasts_outlined,
-            size: 20,
-            color: account.connected ? theme.primary : theme.textMuted,
-          ),
         ],
       ),
     );

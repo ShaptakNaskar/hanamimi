@@ -52,6 +52,11 @@ abstract class AudioPlayerPort {
 
   bool get playing;
   Duration get position;
+
+  /// How much of the track has buffered (for the seek bar's buffer
+  /// overlay). Defaults to [position] for backends without a real
+  /// buffered-position signal.
+  Duration get bufferedPosition => position;
   Duration? get duration;
   PortState get processingState;
 
@@ -62,6 +67,11 @@ abstract class AudioPlayerPort {
   Stream<void> get playerStateStream;
   Stream<Duration?> get durationStream;
   Stream<Duration> get positionStream;
+
+  /// Buffered position over time. Backends without one can leave the
+  /// default (a single-value stream is fine; the UI polls the getter).
+  Stream<Duration> get bufferedPositionStream =>
+      const Stream<Duration>.empty();
 
   /// Android audio session id (equalizer hooks); never fires on desktop.
   Stream<int> get audioSessionIdStream;

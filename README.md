@@ -17,9 +17,9 @@ Hanamimi plays the music already on your device and, on **Hanamimi+**, streams f
 |:---:|
 | ![Desktop](docs/screenshots/desktop.png) |
 
-| Karaoke lyrics | Instrumental breaks | Library | You | Sleep timer |
+| Karaoke lyrics | Listening stats | Library | You | Sleep timer |
 |:---:|:---:|:---:|:---:|:---:|
-| ![Lyrics](docs/screenshots/lyrics-karaoke.png) | ![Interlude](docs/screenshots/lyrics-interlude.png) | ![Library](docs/screenshots/library.png) | ![You](docs/screenshots/you-screen.png) | ![Sleep timer](docs/screenshots/sleep-timer.png) |
+| ![Lyrics](docs/screenshots/lyrics-karaoke.png) | ![Stats](docs/screenshots/stats.png) | ![Library](docs/screenshots/library.png) | ![You](docs/screenshots/you-screen.png) | ![Sleep timer](docs/screenshots/sleep-timer.png) |
 
 ## Features
 
@@ -27,17 +27,18 @@ Hanamimi plays the music already on your device and, on **Hanamimi+**, streams f
 - A **Home** start page with shelves in trust order: **Jump back in** (recents), **For you** (on-device picks), and — on +, opt-in — online **Discover**
 - Everything personal is computed **on the device**: recency-weighted plays, a co-play/Markov matrix ("after this, you usually play that"), a skip signal, and audio-feature similarity extracted for free during the visualizer decode
 - **Song radio** (seed any track into a station), **smart shuffle** (weighted toward your favorites), and queue-end **autoplay** that keeps going with similar songs
-- A **four-position privacy dial** — you choose how much leaves the device:
+- A **three-position privacy dial** — you choose how much leaves the device:
   1. **Local only** (default) — recommendations from your own library, airplane-mode safe
-  2. **Anonymous discovery** (+; default-on) — locally-chosen seeds ask YouTube / JioSaavn / Last.fm for related tracks with no account
-  3. **ListenBrainz** (opt-in) — scrobble to your own/self-hosted account, get collaborative Weekly Jams back
-  4. **YT Music sign-in** (opt-in) — your real personalized feed via cookie login; **read-only by default**, so playback stays anonymous and nothing is added to your history unless you turn that on
+  2. **Anonymous discovery** (+; default-on) — locally-chosen seeds ask YouTube / JioSaavn for related tracks with no account
+  3. **YT Music sign-in** (opt-in) — your real personalized feed via cookie login; **read-only by default**, so playback stays anonymous and nothing is added to your history unless you turn that on
+- Each source stays in its own lane: a station from a YouTube track continues on YouTube, JioSaavn on JioSaavn, your own library on-device — the queue never becomes a hodgepodge
 
 **Online (Hanamimi+)**
-- Stream and search **YouTube** (Innertube + bundled yt-dlp for full-speed audio) and **JioSaavn** (CBR streams)
+- Search **YouTube** (Innertube + bundled yt-dlp for full-speed audio) and **JioSaavn** (CBR streams) from the You tab — Library search stays local
 - **Downloads** tab — save any online track for offline, with a per-track quality picker
 - **Import a playlist** from a YouTube or Spotify link — fuzzy-matched into a new playlist
 - Everything flows through the same one engine as local files: crossfade, visualizer, lyrics, notification, playlists
+- **Listening stats** — minutes and songs per platform (on-device, YouTube, JioSaavn) plus a cumulative total, with an **opt-in global leaderboard** (nicknames only; sharing your device make/model is a separate choice)
 
 **Desktop (Hanamimi+)**
 - Native **Linux** and **Windows** apps (media_kit / libmpv — no Electron), packaged as **AppImage**, Windows **installer**, and **pacman** package
@@ -110,7 +111,7 @@ lib/
 ├── online/       YouTube (Innertube + yt-dlp) & JioSaavn providers, stream resolver,
 │                 caching, downloads, playlist import
 ├── reco/         on-device engine (co-play, features, recommender, station), Discover,
-│                 ListenBrainz, YT Music session
+│                 YT Music session
 ├── library/      sqflite repository, Kotlin MediaStore scanner channel
 ├── lyrics/       LRC + richsync parsers, embedded-tag readers, provider resolution
 ├── visualizer/   FFT band processor + per-theme painters
@@ -131,6 +132,7 @@ android/…/app/    MainActivity + MediaStore/FFT/yt-dlp/updater/power channels
 ## Credits
 
 - [beautiful-lyrics](https://github.com/surfbryce/beautiful-lyrics) and [spicy-lyrics](https://github.com/Spikerko/spicy-lyrics) — the karaoke animation language this app's lyrics view is modeled on
-- [LRCLIB](https://lrclib.net) — free, keyless synced lyrics; [ListenBrainz](https://listenbrainz.org) — open, self-hostable recommendations
+- [LRCLIB](https://lrclib.net) — free, keyless synced lyrics
 - **oneko** — the desktop cursor cat, ported from [oneko.js](https://github.com/adryd325/oneko.js) by **adryd** (reviving the classic X11 `neko`); its sprite sheet is bundled with the app. Brought over as an in-app buddy after the [Vencord oneko plugin](https://vencord.dev/plugins/oneko) by **V**. Both are GPLv3.
+- **Claude Fable & Opus** — the dream team on debugging duty, for helping bring this whole thing to life 🤝
 - Hanamimi — the real beagle 🐾

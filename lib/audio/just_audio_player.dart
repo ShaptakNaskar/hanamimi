@@ -48,6 +48,8 @@ class JustAudioPlayer implements AudioPlayerPort {
   @override
   Duration get position => _player.position;
   @override
+  Duration get bufferedPosition => _player.bufferedPosition;
+  @override
   Duration? get duration => _player.duration;
   @override
   PortState get processingState => _map(_player.processingState);
@@ -61,6 +63,9 @@ class JustAudioPlayer implements AudioPlayerPort {
   Stream<Duration?> get durationStream => _player.durationStream;
   @override
   Stream<Duration> get positionStream => _player.positionStream;
+  @override
+  Stream<Duration> get bufferedPositionStream =>
+      _player.bufferedPositionStream;
   @override
   Stream<int> get audioSessionIdStream => _player.androidAudioSessionIdStream
       .where((id) => id != null)

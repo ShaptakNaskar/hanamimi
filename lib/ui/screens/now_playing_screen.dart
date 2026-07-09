@@ -419,10 +419,12 @@ class _SeekBarSection extends ConsumerWidget {
     final position = ref.watch(positionProvider).value ?? Duration.zero;
     final duration =
         ref.watch(audioStateProvider).value?.duration ?? Duration.zero;
+    final buffered = ref.watch(bufferedProvider).value ?? Duration.zero;
 
     return SeekBarWidget(
       position: position,
       duration: duration,
+      buffered: buffered,
       theme: theme,
       onSeek: (d) => ref.read(audioHandlerProvider).seek(d),
     );

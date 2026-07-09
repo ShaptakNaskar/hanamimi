@@ -112,8 +112,14 @@ class DesktopYtDlp {
     final bin = await _ensureBinary(allowDownload: true);
     if (bin == null) return null;
     try {
-      final res =
-          await Process.run(bin, ['-U']).timeout(const Duration(minutes: 3));
+      // NIGHTLY keeps up with YouTube's player changes far better than
+      // the stable channel; fall back to a plain self-update if this
+      // build of yt-dlp doesn't understand --update-to.
+      var res = await Process.run(bin, ['--update-to', 'nightly'])
+          .timeout(const Duration(minutes: 3));
+      if (res.exitCode != 0) {
+        res = await Process.run(bin, ['-U']).timeout(const Duration(minutes: 3));
+      }
       if (res.exitCode == 0) return version();
     } catch (_) {}
     final fresh = await _download();

@@ -21,10 +21,20 @@ import 'yt_account_provider.dart';
 /// track start (playTick) so shelves and weights follow the listening
 /// session; the queries are all small (id-keyed maps, no blobs besides
 /// the ~120-byte feature vectors).
+///
+/// **Local-only.** Tier 0 (For you, song radio, smart shuffle) recommends
+/// from your own library — online picks come source-pure from the
+/// providers (Discover / online radio), so the on-device engine and the
+/// local queue never get mixed with YouTube/JioSaavn rows. This is what
+/// keeps "For you" playable offline and the queue from becoming a
+/// hodgepodge of sources.
 final recoDataProvider = FutureProvider<RecoData>((ref) async {
   ref.watch(playTickProvider);
   final repo = await ref.watch(libraryRepositoryProvider.future);
-  final tracks = await repo.allTracks();
+  final tracks = [
+    for (final t in await repo.allTracks())
+      if (t.isLocal) t,
+  ];
 
   final coPlay = <int, Map<int, int>>{};
   for (final row in await repo.allCoPlays()) {
@@ -39,6 +49,39 @@ final recoDataProvider = FutureProvider<RecoData>((ref) async {
     features: await repo.allTrackFeatures(trackFeaturesVersion),
   );
 });
+
+/// Source-pure continuation from [seed], excluding the seed itself:
+/// a YouTube seed → YT radio, a JioSaavn seed → Saavn reco, a local seed
+/// → the on-device station over your local library. Never cross-matches
+/// sources, so a station stays within the world it started in.
+Future<List<Track>> _continuationFor(WidgetRef ref, Track seed,
+    {int limit = 24}) async {
+  if (ref.read(onlineEnabledProvider) && seed.sourceId != null) {
+    List<OnlineSearchResult> similar = const [];
+    if (seed.source == TrackSource.saavn) {
+      similar = await (musicProviderRegistry[TrackSource.saavn]
+                  as SaavnProvider?)
+              ?.similarSongs(seed.sourceId!) ??
+          const [];
+    } else if (seed.source == TrackSource.youtube) {
+      similar = await (musicProviderRegistry[TrackSource.youtube]
+                  as YouTubeProvider?)
+              ?.relatedSongs(seed.sourceId!) ??
+          const [];
+    }
+    if (similar.isNotEmpty) {
+      final notifier = ref.read(libraryProvider.notifier);
+      return [
+        for (final r in similar.take(limit))
+          await notifier.ensureOnlineTrack(r),
+      ];
+    }
+  }
+  // Local seed (or online off / providers dry): on-device station over
+  // the local library.
+  final data = await ref.read(recoDataProvider.future);
+  return Recommender(data).station(seed, length: limit + 1).skip(1).toList();
+}
 
 /// Home "For you" shelf — on-device picks, airplane-mode safe.
 final forYouProvider = FutureProvider<List<Track>>((ref) async {
@@ -78,13 +121,22 @@ final smartShufflePusherProvider = Provider<void>((ref) {
   engine.shuffleWeight = rec.shuffleWeight;
 });
 
-/// Builds a station from [seed] and starts playing it ("Start radio").
+/// Builds a source-pure station from [seed] and starts playing it
+/// ("Start radio" / tapping a For-you card). The seed always plays
+/// first; the continuation matches the seed's source.
 Future<void> startRadio(WidgetRef ref, Track seed) async {
-  final data = await ref.read(recoDataProvider.future);
-  final queue = Recommender(data).station(seed);
-  await ref
-      .read(audioHandlerProvider)
-      .playTracks(queue, mode: QueueMode.sequential);
+  // Play the seed immediately so the tap always does something, even
+  // while the (possibly online) continuation is still resolving.
+  final handler = ref.read(audioHandlerProvider);
+  await handler.playTracks([seed], mode: QueueMode.sequential);
+  final tail = await _continuationFor(ref, seed);
+  final fresh = [
+    for (final t in tail)
+      if (t.id != seed.id) t,
+  ];
+  for (final t in fresh) {
+    await handler.engine.addToQueue(t);
+  }
 }
 
 /// Autoplay / radio continuation preference (M39): when the queue ends,
@@ -137,9 +189,13 @@ final autoplayPusherProvider = Provider<void>((ref) {
             await notifier.ensureOnlineTrack(r),
         ];
       }
+      // Online seed but the provider came back dry — stop rather than
+      // cross-match into local tracks (that's what made the queue a
+      // hodgepodge of sources).
+      return const [];
     }
-    // Local seed (or online off / providers dry): Tier 0 station
-    // continuation — works in airplane mode, ships on both editions.
+    // Local seed: Tier 0 station continuation over the local library —
+    // works in airplane mode, ships on both editions.
     final data = await ref.read(recoDataProvider.future);
     return Recommender(data).station(last, length: 11).skip(1).toList();
   };
@@ -160,12 +216,18 @@ final discoverLanesProvider = FutureProvider<List<DiscoverLane>>((ref) async {
     _lanesCache = const [];
     return const [];
   }
-  final data = await ref.watch(recoDataProvider.future);
-  final anchor = Recommender(data).anchors(limit: 1).firstOrNull;
-  final key = Discover.seedKey(history: data.tracks, localAnchor: anchor);
+  ref.watch(playTickProvider);
+  // Discover needs the FULL play history (incl. online) to find the
+  // newest YouTube/JioSaavn seed; the local-only recoData just supplies
+  // the top local anchor for the bridge lane.
+  final repo = await ref.watch(libraryRepositoryProvider.future);
+  final history = await repo.allTracks();
+  final localData = await ref.watch(recoDataProvider.future);
+  final anchor = Recommender(localData).anchors(limit: 1).firstOrNull;
+  final key = Discover.seedKey(history: history, localAnchor: anchor);
   if (key == _lanesKey) return _lanesCache;
   final lanes =
-      await Discover().lanes(history: data.tracks, localAnchor: anchor);
+      await Discover().lanes(history: history, localAnchor: anchor);
   _lanesKey = key;
   _lanesCache = lanes;
   return lanes;
@@ -182,19 +244,6 @@ Future<void> playDiscoverLane(
   await ref
       .read(audioHandlerProvider)
       .playTracks(tracks, startIndex: index, mode: QueueMode.sequential);
-}
-
-/// Plays a ListenBrainz jam (title/artist only — LB speaks MusicBrainz,
-/// not stream URLs) by resolving through one YT Music search. Returns
-/// false when nothing matched.
-Future<bool> playJam(WidgetRef ref, String title, String artist) async {
-  final yt = musicProviderRegistry[TrackSource.youtube] as YouTubeProvider?;
-  final hits = await yt?.searchMusic('$title $artist') ?? const [];
-  if (hits.isEmpty) return false;
-  final track =
-      await ref.read(libraryProvider.notifier).ensureOnlineTrack(hits.first);
-  await ref.read(audioHandlerProvider).playTracks([track]);
-  return true;
 }
 
 /// Plays the signed-in YT Music Quick Picks (Tier 3) from [index].

@@ -365,8 +365,14 @@ class YouTubeProvider implements MusicProvider {
     // storage, YouTube change, native crash — it returns null and we
     // drop to the pure-Dart youtube_explode client-rotation below, so
     // YouTube still plays (degraded, real-time-throttled) either way.
+    // Trust yt-dlp's deciphered URL directly. The old extra HEAD probe
+    // (_urlServes) added seconds of latency on top of the already-slow
+    // extraction and false-failed on slow networks — which dumped
+    // playback onto the throttled explode path AND left the visualizer
+    // stuck in synth-fallback (a throttled URL can't be decoded ahead).
+    // If the URL is actually dead, the engine re-resolves on load error.
     final viaYtDlp = await YtDlpChannel.resolve(sourceId, quality);
-    if (viaYtDlp != null && await _urlServes(viaYtDlp.url)) return viaYtDlp;
+    if (viaYtDlp != null) return viaYtDlp;
 
     return _resolveViaExplode(sourceId, quality);
   }

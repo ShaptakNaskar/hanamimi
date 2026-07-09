@@ -39,8 +39,11 @@ class QueueManager {
   Timer? _posHeartbeat;
   void _startPositionHeartbeat() {
     _posHeartbeat = Timer.periodic(const Duration(milliseconds: 250), (_) {
-      if (_primary.playing && !_crossfading) {
-        _position.add(_primary.position);
+      if (!_crossfading) {
+        if (_primary.playing) _position.add(_primary.position);
+        // Buffered position advances while loading/paused too, so publish
+        // it independent of the playing check.
+        _buffered.add(_primary.bufferedPosition);
       }
     });
   }
@@ -161,6 +164,12 @@ class QueueManager {
   final _position = BehaviorSubject<Duration>.seeded(Duration.zero);
   Stream<Duration> get positionStream => _position.stream;
   Duration get position => _position.value;
+
+  /// Buffered position of the primary player, for the seek bar's buffer
+  /// overlay. Republished by the same heartbeat so it survives player
+  /// swaps and stream stalls.
+  final _buffered = BehaviorSubject<Duration>.seeded(Duration.zero);
+  Stream<Duration> get bufferedStream => _buffered.stream;
 
   /// Fires with a track every time playback of it begins (for play counts).
   final trackStarted = StreamController<Track>.broadcast();
@@ -322,8 +331,13 @@ class QueueManager {
     if (_cursor + 1 >= _order.length) {
       switch (_mode) {
         case QueueMode.sequential:
+          // At the end of a sequential queue — fetch more like the last
+          // track (autoplay) rather than looping back to the start.
+          // Pressing "next" on the last song of a short online queue used
+          // to jump to the first song, which read as "it played the
+          // previous song" (user-reported).
+          if (await _tryAutoplayContinuation()) return;
           if (!byUser) {
-            if (await _tryAutoplayContinuation()) return;
             _state.add(state.copyWith(status: PlaybackStatus.completed));
             return;
           }
@@ -505,6 +519,7 @@ class QueueManager {
     await _incoming?.dispose();
     await _state.close();
     await _position.close();
+    await _buffered.close();
     await trackStarted.close();
     await errors.close();
   }

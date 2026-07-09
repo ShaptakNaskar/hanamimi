@@ -6,7 +6,6 @@ import '../../online/models/online_search_result.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/home_provider.dart';
 import '../../providers/library_provider.dart';
-import '../../providers/listenbrainz_provider.dart';
 import '../../providers/online_provider.dart';
 import '../../providers/reco_provider.dart';
 import '../../providers/theme_provider.dart';
@@ -17,7 +16,7 @@ import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
 import '../components/home/track_shelf.dart';
 import '../components/library/art_thumb.dart';
-import '../modals/listenbrainz_dialog.dart';
+import '../modals/yt_signin_dialog.dart';
 
 /// Home — the start page (ARCHITECTURE-RECOMMENDATIONS.md §5). Shelves
 /// in trust order: your recents first, then the on-device picks, then
@@ -40,7 +39,6 @@ class HomeScreen extends ConsumerWidget {
     final recent = ref.watch(recentTracksProvider).value ?? const [];
     final forYou = ref.watch(forYouProvider).value ?? const [];
     final lanes = ref.watch(discoverLanesProvider).value ?? const [];
-    final jams = ref.watch(weeklyJamsProvider).value ?? const [];
     final ytFeed = ref.watch(ytHomeFeedProvider).value ??
         const YtHomeFeed(songs: [], playlists: []);
     final cardDismissed = ref.watch(deepRecsCardDismissedProvider);
@@ -124,24 +122,9 @@ class HomeScreen extends ConsumerWidget {
               },
             ),
           ],
-          // Tier 2: ListenBrainz's collaborative picks, once connected.
-          if (jams.isNotEmpty) ...[
-            const SizedBox(height: Space.s6),
-            TrackShelf(
-              title: 'WEEKLY JAMS',
-              subtitle: 'from ListenBrainz — listeners with your taste',
-              tracks: [
-                for (final (title, artist) in jams)
-                  _jamPlaceholder(title, artist),
-              ],
-              theme: theme,
-              onTap: (i) => playJam(ref, jams[i].$1, jams[i].$2),
-            ),
-          ],
-          // One-time doorway to the opt-in tiers; dismissible forever,
-          // and moot once either deeper tier is connected.
+          // One-time doorway to YT Music sign-in; dismissible forever,
+          // and moot once connected.
           if (!cardDismissed &&
-              !ref.watch(listenBrainzProvider).connected &&
               !(ref.watch(ytAccountProvider).value?.connected ?? false)) ...[
             const SizedBox(height: Space.s6),
             _DeepRecsCard(theme: theme),
@@ -233,19 +216,9 @@ Track _ephemeral(OnlineSearchResult r) => Track(
       artUrl: r.artUrl,
     );
 
-/// Display card for a ListenBrainz jam — no stream identity yet (LB
-/// speaks MusicBrainz); resolution happens at tap time via playJam.
-Track _jamPlaceholder(String title, String artist) => Track(
-      id: -1,
-      title: title,
-      artist: artist,
-      album: '',
-      duration: Duration.zero,
-    );
-
-/// "Want deeper recommendations?" — the one-time Tier 2/3 doorway
-/// (ARCHITECTURE-RECOMMENDATIONS.md §5). Never a hidden default:
-/// connecting always goes through the consent dialog.
+/// "Want deeper recommendations?" — the one-time doorway to YT Music
+/// sign-in (Tier 3). Never a hidden default: connecting always goes
+/// through the consent dialog.
 class _DeepRecsCard extends ConsumerWidget {
   const _DeepRecsCard({required this.theme});
 
@@ -281,14 +254,14 @@ class _DeepRecsCard extends ConsumerWidget {
           const SizedBox(height: Space.s2),
           Text(
             'Everything so far is computed on this device or asked '
-            'anonymously. Opt in to share your listening and get '
-            'collaborative picks back — always your call.',
+            'anonymously. Sign in to YT Music for your own personalized '
+            'picks — always your call.',
             style: AppText.caption(theme),
           ),
           const SizedBox(height: Space.s3),
           TextButton(
-            onPressed: () => showListenBrainzDialog(context),
-            child: Text('Connect ListenBrainz →',
+            onPressed: () => showYtSignInDialog(context),
+            child: Text('Sign in to YT Music →',
                 style: AppText.caption(theme)
                     .copyWith(color: theme.primary)),
           ),

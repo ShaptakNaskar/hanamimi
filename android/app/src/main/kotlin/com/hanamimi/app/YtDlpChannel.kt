@@ -47,6 +47,18 @@ class YtDlpChannel(private val context: Context) {
     @Volatile
     private var initialized = false
 
+    @Volatile
+    private var autoUpdateChecked = false
+
+    // yt-dlp breaks whenever YouTube changes its player; a stale bundled
+    // copy then fails on *every* track. Auto-refresh from the NIGHTLY
+    // channel at most once a day so extraction stays current without the
+    // user ever hitting "Update extractor".
+    private val prefs by lazy {
+        context.getSharedPreferences("ytdlp", Context.MODE_PRIVATE)
+    }
+    private val autoUpdateIntervalMs = 24L * 60 * 60 * 1000
+
     fun handle(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "resolve" -> {
@@ -69,14 +81,35 @@ class YtDlpChannel(private val context: Context) {
 
     /** Unpacks Python + yt-dlp on the first call (~1–2 s). Returns false on failure. */
     private fun ensureInit(): Boolean {
-        if (initialized) return true
-        return try {
-            YoutubeDL.init(context)
-            initialized = true
-            true
-        } catch (e: Throwable) {
-            Log.e(TAG, "yt-dlp init failed", e)
-            false
+        if (!initialized) {
+            try {
+                YoutubeDL.init(context)
+                initialized = true
+            } catch (e: Throwable) {
+                Log.e(TAG, "yt-dlp init failed", e)
+                return false
+            }
+        }
+        maybeAutoUpdate()
+        return true
+    }
+
+    /** Once a day, refresh yt-dlp in the background so it keeps up with
+     *  YouTube changes. Non-blocking: the current resolve uses whatever
+     *  binary is present; the next one benefits from the refresh. */
+    private fun maybeAutoUpdate() {
+        if (autoUpdateChecked) return
+        autoUpdateChecked = true
+        val last = prefs.getLong("last_auto_update", 0)
+        if (System.currentTimeMillis() - last < autoUpdateIntervalMs) return
+        io.execute {
+            try {
+                YoutubeDL.updateYoutubeDL(context, YoutubeDL.UpdateChannel.NIGHTLY)
+                prefs.edit().putLong("last_auto_update", System.currentTimeMillis()).apply()
+                Log.i(TAG, "yt-dlp auto-updated (nightly)")
+            } catch (e: Throwable) {
+                Log.w(TAG, "yt-dlp auto-update failed", e)
+            }
         }
     }
 
@@ -148,7 +181,11 @@ class YtDlpChannel(private val context: Context) {
             return
         }
         try {
-            YoutubeDL.updateYoutubeDL(context, YoutubeDL.UpdateChannel.STABLE)
+            // NIGHTLY tracks YouTube's frequent player changes far more
+            // closely than STABLE — the manual "Update extractor" action
+            // should pull the freshest fix available.
+            YoutubeDL.updateYoutubeDL(context, YoutubeDL.UpdateChannel.NIGHTLY)
+            prefs.edit().putLong("last_auto_update", System.currentTimeMillis()).apply()
             postSuccess(result, safeVersion())
         } catch (e: Throwable) {
             Log.w(TAG, "yt-dlp update failed", e)

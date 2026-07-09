@@ -148,6 +148,8 @@ class MediaKitPlayer implements AudioPlayerPort {
   @override
   Duration get position => _position;
   @override
+  Duration get bufferedPosition => _player.state.buffer;
+  @override
   Duration? get duration => _duration.value;
   @override
   PortState get processingState => _state;
@@ -160,6 +162,8 @@ class MediaKitPlayer implements AudioPlayerPort {
   Stream<Duration?> get durationStream => _duration.stream;
   @override
   Stream<Duration> get positionStream => _player.stream.position;
+  @override
+  Stream<Duration> get bufferedPositionStream => _player.stream.buffer;
   @override
   Stream<int> get audioSessionIdStream => const Stream.empty();
 }
