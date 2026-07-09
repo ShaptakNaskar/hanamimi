@@ -39,14 +39,20 @@ class LibraryRepository {
         }
         if (oldVersion < 3) await _migrateTracksV3(db);
         if (oldVersion < 4) {
-          await db.execute(
-              'ALTER TABLE playlists ADD COLUMN cover_image_path TEXT');
+          if (!await _columnExists(db, 'playlists', 'cover_image_path')) {
+            await db.execute(
+                'ALTER TABLE playlists ADD COLUMN cover_image_path TEXT');
+          }
         }
         if (oldVersion < 5) {
-          // A pre-v3 DB just got its tracks table rebuilt from
-          // _tracksSchema, which already carries skip_count — only a
-          // v3/v4 table needs the column added.
-          if (oldVersion >= 3) {
+          // Add skip_count only if it isn't already present. A pre-v3 DB
+          // gets its tracks table rebuilt from _tracksSchema (which now
+          // carries skip_count), and some builds left the column present
+          // while the version lagged — a blind ALTER then throws
+          // "duplicate column name" and wedges the whole app (desktop
+          // crash, user-reported). The existence check makes the
+          // migration idempotent regardless of prior state.
+          if (!await _columnExists(db, 'tracks', 'skip_count')) {
             await db.execute(
                 'ALTER TABLE tracks ADD COLUMN skip_count INTEGER NOT NULL DEFAULT 0');
           }
@@ -126,6 +132,15 @@ class LibraryRepository {
     await db.execute('DROP TABLE tracks');
     await db.execute('ALTER TABLE tracks_v3 RENAME TO tracks');
     await db.execute(_onlineIndex);
+  }
+
+  /// True when [table] already has [column] — used to make ALTER-based
+  /// migrations idempotent so a re-run (or a column added out of version
+  /// order) can't crash with "duplicate column name".
+  static Future<bool> _columnExists(
+      DatabaseExecutor db, String table, String column) async {
+    final rows = await db.rawQuery('PRAGMA table_info($table)');
+    return rows.any((r) => r['name'] == column);
   }
 
   /// M38a recommendation signals. co_play counts "B started after A
