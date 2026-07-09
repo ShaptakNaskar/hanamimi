@@ -108,11 +108,13 @@ class LibrarySidebar extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.symmetric(
                   horizontal: Space.s3, vertical: Space.s1),
-              // Wrap, not Row: four chips overflow the sidebar on the
-              // narrower three-pane widths.
-              child: Wrap(
-                spacing: Space.s1,
-                runSpacing: Space.s1,
+              // Row, not Wrap: each _NavChip is an Expanded, which only
+              // works inside a Flex — a Wrap parent throws a
+              // WrapParentData/FlexParentData cast that turns the whole
+              // sidebar into a grey error-widget in release builds
+              // (user-reported). Four equal-flex chips share the 280px
+              // sidebar without overflowing.
+              child: Row(
                 children: [
                   _NavChip(
                     icon: Icons.home_outlined,
