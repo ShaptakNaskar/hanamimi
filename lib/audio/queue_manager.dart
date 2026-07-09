@@ -38,8 +38,10 @@ class QueueManager {
   Timer? _posHeartbeat;
   void _startPositionHeartbeat() {
     _posHeartbeat = Timer.periodic(const Duration(milliseconds: 250), (_) {
-      if (_primary.playing && !_crossfading) {
-        _position.add(_primary.position);
+      if (!_crossfading) {
+        if (_primary.playing) _position.add(_primary.position);
+        // Buffered position advances while loading/paused too.
+        _buffered.add(_primary.bufferedPosition);
       }
     });
   }
@@ -145,6 +147,11 @@ class QueueManager {
   final _position = BehaviorSubject<Duration>.seeded(Duration.zero);
   Stream<Duration> get positionStream => _position.stream;
   Duration get position => _position.value;
+
+  /// Buffered position of the primary player, for the seek bar's buffer
+  /// overlay.
+  final _buffered = BehaviorSubject<Duration>.seeded(Duration.zero);
+  Stream<Duration> get bufferedStream => _buffered.stream;
 
   /// Fires with a track every time playback of it begins (for play counts).
   final trackStarted = StreamController<Track>.broadcast();
@@ -444,6 +451,7 @@ class QueueManager {
     await _incoming?.dispose();
     await _state.close();
     await _position.close();
+    await _buffered.close();
     await trackStarted.close();
   }
 

@@ -16,10 +16,15 @@ class SeekBarWidget extends StatefulWidget {
     required this.duration,
     required this.theme,
     required this.onSeek,
+    this.buffered = Duration.zero,
   });
 
   final Duration position;
   final Duration duration;
+
+  /// How much of the track has buffered — drawn as a lighter overlay
+  /// ahead of the played portion.
+  final Duration buffered;
   final HanamimiTheme theme;
   final ValueChanged<Duration> onSeek;
 
@@ -42,6 +47,12 @@ class _SeekBarWidgetState extends State<SeekBarWidget> {
   Duration get _displayPosition => _dragging
       ? widget.duration * _dragValue!
       : widget.position;
+
+  double get _bufferedFraction {
+    final ms = widget.duration.inMilliseconds;
+    if (ms == 0) return 0;
+    return (widget.buffered.inMilliseconds / ms).clamp(0.0, 1.0);
+  }
 
   void _updateDrag(Offset localPosition, double width) {
     setState(() {
@@ -75,6 +86,7 @@ class _SeekBarWidgetState extends State<SeekBarWidget> {
                 size: Size(width, 32),
                 painter: _CaterpillarPainter(
                   progress: _progress,
+                  buffered: _bufferedFraction,
                   theme: widget.theme,
                   thumbScale: _dragging ? 20 / 14 : 1.0,
                 ),
@@ -106,11 +118,13 @@ class _SeekBarWidgetState extends State<SeekBarWidget> {
 class _CaterpillarPainter extends CustomPainter {
   _CaterpillarPainter({
     required this.progress,
+    required this.buffered,
     required this.theme,
     required this.thumbScale,
   });
 
   final double progress;
+  final double buffered;
   final HanamimiTheme theme;
   final double thumbScale;
 
@@ -126,6 +140,22 @@ class _CaterpillarPainter extends CustomPainter {
       ..strokeWidth = trackH
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(Offset(3, cy), Offset(size.width - 3, cy), trackPaint);
+
+    // Buffered overlay: a lighter segment ahead of the played portion,
+    // so you can see how much is loaded (matters most for online
+    // streaming). Drawn between the fill end and the buffered end.
+    final bufferedEnd = size.width * buffered;
+    if (bufferedEnd > fillEnd + 1) {
+      canvas.drawLine(
+        Offset(math.max(3, fillEnd), cy),
+        Offset(math.min(size.width - 3, bufferedEnd), cy),
+        Paint()
+          ..color = theme.primary.withValues(alpha: 0.28)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = trackH
+          ..strokeCap = StrokeCap.round,
+      );
+    }
 
     if (fillEnd > 3) {
       // Wavy caterpillar body along the filled portion.
@@ -162,6 +192,7 @@ class _CaterpillarPainter extends CustomPainter {
   @override
   bool shouldRepaint(_CaterpillarPainter old) =>
       old.progress != progress ||
+      old.buffered != buffered ||
       old.thumbScale != thumbScale ||
       old.theme != theme;
 }

@@ -117,4 +117,5 @@ android/…/app/    MainActivity + MediaStoreChannel.kt + FftExtractorChannel.kt
 
 - [beautiful-lyrics](https://github.com/surfbryce/beautiful-lyrics) and [spicy-lyrics](https://github.com/Spikerko/spicy-lyrics) — the karaoke animation language this app's lyrics view is modeled on
 - [LRCLIB](https://lrclib.net) — free, keyless synced lyrics
+- **Claude Fable & Opus** — the dream team on debugging duty, for helping bring this whole thing to life 🤝
 - Hanamimi — the real beagle 🐾

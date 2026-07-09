@@ -17,6 +17,11 @@ final positionProvider = StreamProvider<Duration>(
   (ref) => ref.watch(audioHandlerProvider).engine.positionStream,
 );
 
+/// Buffered position — the seek bar draws a lighter overlay up to here.
+final bufferedProvider = StreamProvider<Duration>(
+  (ref) => ref.watch(audioHandlerProvider).engine.bufferedStream,
+);
+
 /// Bumped every time the app returns to the foreground. Widgets that must
 /// self-heal after a background freeze (the visualizer re-kicks its FFT
 /// extraction, etc.) watch this. See AppShell's lifecycle observer.
