@@ -33,6 +33,16 @@ class _YtSignInDialog extends ConsumerStatefulWidget {
 class _YtSignInDialogState extends ConsumerState<_YtSignInDialog> {
   var _busy = false;
   String? _error;
+  var _showAdvanced = false;
+  final _profileCtrl = TextEditingController();
+  final _cookieCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _profileCtrl.dispose();
+    _cookieCtrl.dispose();
+    super.dispose();
+  }
 
   Future<void> _androidLogin() async {
     final ok = await Navigator.of(context).push(YtLoginScreen.route());
@@ -49,13 +59,42 @@ class _YtSignInDialogState extends ConsumerState<_YtSignInDialog> {
       _busy = true;
       _error = null;
     });
-    final cookie = await YtDlpChannel.cookiesFromBrowser(browser);
+    final profile = _profileCtrl.text.trim();
+    final cookie = await YtDlpChannel.cookiesFromBrowser(
+      browser,
+      profile: profile.isEmpty ? null : profile,
+    );
     if (!mounted) return;
     if (cookie == null || !YtSession(cookie: cookie).looksSignedIn) {
       setState(() {
         _busy = false;
-        _error = "No signed-in YT Music session found in $browser. "
-            'Log in there first, or try another browser.';
+        // yt-dlp's own reason is far more useful than a blank "no
+        // session" (e.g. "could not find firefox cookies database").
+        _error = YtDlpChannel.lastCookieError ??
+            "No signed-in YT Music session found in $browser. "
+                'Log in there first, or try another browser.';
+      });
+      return;
+    }
+    await ref.read(ytAccountProvider.notifier).connect(cookie);
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  /// Extension-paste escape hatch: parse a pasted cookies.txt (or raw
+  /// Cookie header) and connect — works for any browser/fork, including
+  /// ones yt-dlp can't read (Thorium, Zen, Snap/Flatpak sandboxes).
+  Future<void> _usePastedCookies() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final cookie = YtDlpChannel.cookieHeaderFromText(_cookieCtrl.text);
+    if (cookie == null || !YtSession(cookie: cookie).looksSignedIn) {
+      setState(() {
+        _busy = false;
+        _error = "That didn't contain a signed-in session (no SAPISID). "
+            'Export cookies.txt for youtube.com while signed in, then '
+            'paste it here.';
       });
       return;
     }
@@ -116,6 +155,89 @@ class _YtSignInDialogState extends ConsumerState<_YtSignInDialog> {
               Text('Firefox works most reliably.',
                   style: AppText.caption(theme)
                       .copyWith(color: theme.textMuted)),
+              const SizedBox(height: Space.s1),
+              // Escape hatch for when the buttons above can't find a
+              // session: a browser whose profile lives somewhere the
+              // default lookup misses (Firefox under ~/.config/mozilla,
+              // Snap/Flatpak, a Chromium fork like Thorium/Zen).
+              GestureDetector(
+                onTap: _busy
+                    ? null
+                    : () => setState(() => _showAdvanced = !_showAdvanced),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                        _showAdvanced
+                            ? Icons.expand_less
+                            : Icons.expand_more,
+                        size: 18,
+                        color: theme.primary),
+                    Text("It didn't find my session",
+                        style: AppText.caption(theme)
+                            .copyWith(color: theme.primary)),
+                  ],
+                ),
+              ),
+              if (_showAdvanced) ...[
+                const SizedBox(height: Space.s2),
+                Text(
+                  'Point it at your profile folder, then tap your browser '
+                  'above:\n'
+                  '• Firefox — open about:profiles, copy the "Root '
+                  'Directory".\n'
+                  '• Chrome / Chromium / forks — open chrome://version, '
+                  'copy the "Profile Path".',
+                  style: AppText.caption(theme)
+                      .copyWith(color: theme.textMuted),
+                ),
+                const SizedBox(height: Space.s2),
+                TextField(
+                  controller: _profileCtrl,
+                  enabled: !_busy,
+                  style: AppText.caption(theme),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: '/home/you/.config/mozilla/firefox/xxxx.default',
+                    hintStyle: AppText.caption(theme)
+                        .copyWith(color: theme.textMuted),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(Radii.sm)),
+                  ),
+                ),
+                const SizedBox(height: Space.s3),
+                Text(
+                  'Or paste cookies.txt (from a "Get cookies.txt" '
+                  'extension, exported for youtube.com while signed in) — '
+                  'works with any browser:',
+                  style: AppText.caption(theme)
+                      .copyWith(color: theme.textMuted),
+                ),
+                const SizedBox(height: Space.s2),
+                TextField(
+                  controller: _cookieCtrl,
+                  enabled: !_busy,
+                  maxLines: 3,
+                  style: AppText.caption(theme),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: '# Netscape HTTP Cookie File …',
+                    hintStyle: AppText.caption(theme)
+                        .copyWith(color: theme.textMuted),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(Radii.sm)),
+                  ),
+                ),
+                const SizedBox(height: Space.s2),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: OutlinedButton(
+                    onPressed: _busy ? null : _usePastedCookies,
+                    child: Text('Use pasted cookies',
+                        style: AppText.caption(theme)),
+                  ),
+                ),
+              ],
             ],
           ],
         ),

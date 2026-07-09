@@ -163,10 +163,14 @@ class _PlaylistShelf extends StatelessWidget {
             style: AppText.caption(theme).copyWith(color: theme.textMuted)),
         const SizedBox(height: Space.s3),
         SizedBox(
-          height: _w + 46,
+          // Extra room + an Expanded caption so a 2-line title never
+          // overflows the card box (was spilling ~1px).
+          height: _w + 52,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            clipBehavior: Clip.none,
+            // Clip to the pane (not Clip.none) so cards don't bleed under
+            // the Now Playing panel in the three-pane shell.
+            clipBehavior: Clip.hardEdge,
             itemCount: cards.length,
             separatorBuilder: (_, __) => const SizedBox(width: Space.s3),
             itemBuilder: (context, i) {
@@ -186,11 +190,13 @@ class _PlaylistShelf extends StatelessWidget {
                         radius: Radii.md,
                       ),
                       const SizedBox(height: Space.s2),
-                      Text(c.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppText.rowSongTitle(theme)
-                              .copyWith(fontSize: 13)),
+                      Expanded(
+                        child: Text(c.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppText.rowSongTitle(theme)
+                                .copyWith(fontSize: 13)),
+                      ),
                     ],
                   ),
                 ),

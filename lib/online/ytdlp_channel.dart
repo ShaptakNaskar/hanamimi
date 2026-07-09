@@ -65,12 +65,25 @@ class YtDlpChannel {
   }
 
   /// Desktop-only (M41): read the YT session cookies from an installed
-  /// browser via yt-dlp `--cookies-from-browser`. Android uses the
-  /// in-app WebView instead, so this returns null there.
-  static Future<String?> cookiesFromBrowser(String browser) async {
+  /// browser via yt-dlp `--cookies-from-browser`. [profile] optionally
+  /// points at a specific profile folder for browsers/forks the default
+  /// lookup misses. Android uses the in-app WebView instead, so this
+  /// returns null there.
+  static Future<String?> cookiesFromBrowser(String browser,
+      {String? profile}) async {
     if (Platform.isAndroid) return null;
-    return DesktopYtDlp.cookiesFromBrowser(browser);
+    return DesktopYtDlp.cookiesFromBrowser(browser, profile: profile);
   }
+
+  /// Why the last [cookiesFromBrowser] returned null (desktop only).
+  static String? get lastCookieError =>
+      Platform.isAndroid ? null : DesktopYtDlp.lastCookieError;
+
+  /// Parse a pasted cookies.txt (or raw Cookie header) into a header
+  /// string — the extension-paste escape hatch. Pure string work, so it
+  /// is safe on every platform.
+  static String? cookieHeaderFromText(String text) =>
+      DesktopYtDlp.cookieHeaderFromText(text);
 
   /// Current yt-dlp version (null if never initialized / unavailable).
   static Future<String?> version() async {

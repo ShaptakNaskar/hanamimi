@@ -54,12 +54,19 @@ class TrackShelf extends StatelessWidget {
         ],
         const SizedBox(height: Space.s3),
         SizedBox(
-          height: _cardWidth + 46,
+          // Art (square) + a flexible caption block. The caption is
+          // Expanded so a tall glyph run (Devanagari, accents) or a large
+          // text-scale can never push the card past this box — it was
+          // overflowing by ~1px on some titles otherwise.
+          height: _cardWidth + 50,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            // Cards bleed to the screen edge while the section label
-            // keeps the page inset.
-            clipBehavior: Clip.none,
+            // Clip to the pane, not Clip.none — in the three-pane shell an
+            // unclipped horizontal list painted its off-screen cards past
+            // the middle pane and under the transparent Now Playing panel
+            // (user-reported "overlap"). hardEdge keeps cards inside their
+            // column; the first still aligns with the inset section label.
+            clipBehavior: Clip.hardEdge,
             itemCount: tracks.length,
             separatorBuilder: (_, __) => const SizedBox(width: Space.s3),
             itemBuilder: (context, i) {
@@ -80,18 +87,25 @@ class TrackShelf extends StatelessWidget {
                         radius: Radii.md,
                       ),
                       const SizedBox(height: Space.s2),
-                      Text(
-                        track.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppText.rowSongTitle(theme)
-                            .copyWith(fontSize: 13),
-                      ),
-                      Text(
-                        track.artist,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppText.caption(theme),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              track.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppText.rowSongTitle(theme)
+                                  .copyWith(fontSize: 13),
+                            ),
+                            Text(
+                              track.artist,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppText.caption(theme),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
