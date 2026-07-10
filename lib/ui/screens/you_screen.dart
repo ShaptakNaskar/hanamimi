@@ -54,35 +54,40 @@ class YouScreen extends ConsumerWidget {
           const SizedBox(height: Space.s6),
           // Same header as the Library: mascot + edition wordmark (+
           // parrot + sleeping cat) — replaced the plain "You" title.
-          Row(
-            children: [
-              if (ref.watch(buddyEnabledProvider('beagle'))) ...[
-                HanamimiMascot(
-                    state: ref.watch(mascotStateProvider), size: 30),
-                const SizedBox(width: Space.s2),
-              ],
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Text(ref.watch(editionNameProvider).value ?? 'Hanamimi',
-                      style: AppText.screenTitle(theme)
-                          .copyWith(fontSize: 22)),
-                  if (ref.watch(buddyEnabledProvider('parrot')))
-                    const Positioned(
-                        left: 0,
-                        right: 0,
-                        top: -15,
-                        child: HeaderParrot()),
+          // Hidden in the three-pane shell, where the sidebar already
+          // wears the identity (duplicated side by side otherwise).
+          if (MediaQuery.sizeOf(context).width < 1240) ...[
+            Row(
+              children: [
+                if (ref.watch(buddyEnabledProvider('beagle'))) ...[
+                  HanamimiMascot(
+                      state: ref.watch(mascotStateProvider), size: 30),
+                  const SizedBox(width: Space.s2),
                 ],
-              ),
-              if (ref.watch(buddyEnabledProvider('cat')) &&
-                  (!isDesktop || !ref.watch(catFollowProvider))) ...[
-                const SizedBox(width: Space.s1),
-                const SleepingOneko(),
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Text(
+                        ref.watch(editionNameProvider).value ?? 'Hanamimi',
+                        style: AppText.screenTitle(theme)
+                            .copyWith(fontSize: 22)),
+                    if (ref.watch(buddyEnabledProvider('parrot')))
+                      const Positioned(
+                          left: 0,
+                          right: 0,
+                          top: -15,
+                          child: HeaderParrot()),
+                  ],
+                ),
+                if (ref.watch(buddyEnabledProvider('cat')) &&
+                    (!isDesktop || !ref.watch(catFollowProvider))) ...[
+                  const SizedBox(width: Space.s1),
+                  const SleepingOneko(),
+                ],
               ],
-            ],
-          ),
-          const SizedBox(height: Space.s6),
+            ),
+            const SizedBox(height: Space.s6),
+          ],
           Text('MOOD', style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
           // Max-extent, not fixed-count: a 2-column grid across a wide
