@@ -1,6 +1,6 @@
 import 'dart:ui';
 
-enum VisualizerStyle { bars, raindrops, radial, wave }
+enum VisualizerStyle { bars, vuMeters, ledVu }
 
 enum HanamimiBrightness { light, dark }
 

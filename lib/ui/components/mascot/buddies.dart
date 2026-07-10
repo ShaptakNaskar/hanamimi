@@ -1,8 +1,9 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 
+import '../../../providers/window_activity_provider.dart';
 import 'mascot_painter.dart' show HanaColors;
 
 /// Code-drawn animal "buddies" that share the mascot's no-asset ethos
@@ -138,7 +139,8 @@ class DownloadRabbit extends StatefulWidget {
 }
 
 class _DownloadRabbitState extends State<DownloadRabbit> {
-  late final Ticker _ticker;
+  Timer? _timer;
+  final _clock = Stopwatch()..start();
   final _rng = math.Random();
   Duration _last = Duration.zero;
 
@@ -157,7 +159,12 @@ class _DownloadRabbitState extends State<DownloadRabbit> {
   @override
   void initState() {
     super.initState();
-    _ticker = Ticker(_tick)..start();
+    // Ambient pets read the same at 30 fps — and a timer, unlike a
+    // vsync ticker that skips frames, only makes the engine raster +
+    // swap the frames we actually paint (NVIDIA's GL swap busy-waits
+    // on CPU — the desktop constant-CPU report).
+    _timer = Timer.periodic(
+        const Duration(milliseconds: 33), (_) => _tick(_clock.elapsed));
   }
 
   double get _maxX => math.max(0, _w - widget.size);
@@ -166,6 +173,10 @@ class _DownloadRabbitState extends State<DownloadRabbit> {
           .clamp(0.0, _maxX);
 
   void _tick(Duration elapsed) {
+    if (!mounted) return;
+    // Ambient pets freeze while another window has focus (see
+    // window_activity_provider); the dt clamp absorbs the gap.
+    if (!windowFocused.value) return;
     final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 0.05);
     _last = elapsed;
     if (!_started) return;
@@ -218,7 +229,7 @@ class _DownloadRabbitState extends State<DownloadRabbit> {
 
   @override
   void dispose() {
-    _ticker.dispose();
+    _timer?.cancel();
     super.dispose();
   }
 
@@ -294,7 +305,8 @@ class RoamingBuddy extends StatefulWidget {
 }
 
 class _RoamingBuddyState extends State<RoamingBuddy> {
-  late final Ticker _ticker;
+  Timer? _timer;
+  final _clock = Stopwatch()..start();
   final _rng = math.Random();
   Duration _last = Duration.zero;
 
@@ -308,12 +320,19 @@ class _RoamingBuddyState extends State<RoamingBuddy> {
   @override
   void initState() {
     super.initState();
-    _ticker = Ticker(_tick)..start();
+    // 30 fps timer instead of a skip-throttled vsync ticker — see
+    // _DownloadRabbitState.initState.
+    _timer = Timer.periodic(
+        const Duration(milliseconds: 33), (_) => _tick(_clock.elapsed));
   }
 
   double get _maxX => math.max(0, _w - widget.size);
 
   void _tick(Duration elapsed) {
+    if (!mounted) return;
+    // Ambient pets freeze while another window has focus (see
+    // window_activity_provider); the dt clamp absorbs the gap.
+    if (!windowFocused.value) return;
     final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 0.05);
     _last = elapsed;
     if (!_started) return;
@@ -348,7 +367,7 @@ class _RoamingBuddyState extends State<RoamingBuddy> {
 
   @override
   void dispose() {
-    _ticker.dispose();
+    _timer?.cancel();
     super.dispose();
   }
 
@@ -729,17 +748,25 @@ class CatBuddy extends StatefulWidget {
 }
 
 class _CatBuddyState extends State<CatBuddy> {
-  late final Ticker _ticker;
+  Timer? _timer;
+  final _clock = Stopwatch()..start();
   Duration _last = Duration.zero;
   double _phase = 0;
 
   @override
   void initState() {
     super.initState();
-    _ticker = Ticker(_tick)..start();
+    // 30 fps timer instead of a skip-throttled vsync ticker — see
+    // _DownloadRabbitState.initState.
+    _timer = Timer.periodic(
+        const Duration(milliseconds: 33), (_) => _tick(_clock.elapsed));
   }
 
   void _tick(Duration elapsed) {
+    if (!mounted) return;
+    // Ambient pets freeze while another window has focus (see
+    // window_activity_provider); the dt clamp absorbs the gap.
+    if (!windowFocused.value) return;
     final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 0.05);
     _last = elapsed;
     _phase += dt / (widget.sleeping ? 3.4 : 1.5);
@@ -748,7 +775,7 @@ class _CatBuddyState extends State<CatBuddy> {
 
   @override
   void dispose() {
-    _ticker.dispose();
+    _timer?.cancel();
     super.dispose();
   }
 

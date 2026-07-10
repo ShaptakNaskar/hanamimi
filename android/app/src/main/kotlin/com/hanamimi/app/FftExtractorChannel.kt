@@ -34,14 +34,19 @@ import kotlin.math.sqrt
  *
  * Method channel "hanamimi/fft": start(path, key) / cancel.
  * Event channel "hanamimi/fft/frames": maps of
- *   {key, offset (frame index), bands (DoubleArray, frames×12), done}.
- * Band values are raw 0..~1 amplitudes; the Dart side applies the
- * perceptual curve, user sensitivity and attack/decay smoothing.
+ *   {key, offset (frame index), bands (DoubleArray, frames×14),
+ *    stride (14), done}.
+ * Each frame is 12 band amplitudes followed by the left and right
+ * channel RMS (true VU-meter loudness; equal for mono sources). Values
+ * are raw 0..~1; the Dart side applies the perceptual curve, user
+ * sensitivity and attack/decay smoothing. Matches DesktopFft exactly —
+ * same cache layout, same 'stride' flag.
  */
 class FftExtractorChannel(private val context: Context) : EventChannel.StreamHandler {
     companion object {
         const val FRAME_RATE = 60
         const val BANDS = 12
+        const val FRAME_FLOATS = BANDS + 2 // + rmsL, rmsR
         private const val WINDOW = 2048
         private const val CHUNK_FRAMES = 120 // ~2s of frames per event
         private const val MAX_CACHE_FILES = 64
@@ -85,7 +90,10 @@ class FftExtractorChannel(private val context: Context) : EventChannel.StreamHan
         mainHandler.post {
             if (alive(job)) {
                 events?.success(
-                    mapOf("key" to key, "offset" to offset, "bands" to frames, "done" to done)
+                    mapOf(
+                        "key" to key, "offset" to offset, "bands" to frames,
+                        "stride" to FRAME_FLOATS, "done" to done
+                    )
                 )
             }
         }
@@ -131,7 +139,7 @@ class FftExtractorChannel(private val context: Context) : EventChannel.StreamHan
             var offset = 0
             while (offset < frameCount && alive(job)) {
                 val n = min(CHUNK_FRAMES * 4, frameCount - offset)
-                val chunk = DoubleArray(n * BANDS)
+                val chunk = DoubleArray(n * FRAME_FLOATS)
                 for (i in chunk.indices) chunk[i] = input.readFloat().toDouble()
                 send(job, key, offset, chunk, offset + n >= frameCount)
                 offset += n
@@ -183,9 +191,13 @@ class FftExtractorChannel(private val context: Context) : EventChannel.StreamHan
         var nextFrameAt = hop
         var bandEdges = bandEdgeBins(sampleRate)
 
-        val pending = ArrayList<Double>(CHUNK_FRAMES * BANDS)
+        val pending = ArrayList<Double>(CHUNK_FRAMES * FRAME_FLOATS)
         var framesSent = 0
         var frameCount = 0
+        // Per-hop channel energy for the VU RMS.
+        var sumL2 = 0.0
+        var sumR2 = 0.0
+        var hopSamples = 0
         val tmpFile = File(cacheOut.parentFile, "${cacheOut.name}.tmp")
         val cache = DataOutputStream(tmpFile.outputStream().buffered())
         cache.writeInt(0) // frame count patched at the end
@@ -194,7 +206,7 @@ class FftExtractorChannel(private val context: Context) : EventChannel.StreamHan
             if (pending.isEmpty() && !done) return
             val chunk = pending.toDoubleArray()
             send(job, key, framesSent, chunk, done)
-            framesSent += pending.size / BANDS
+            framesSent += pending.size / FRAME_FLOATS
             pending.clear()
         }
 
@@ -222,12 +234,24 @@ class FftExtractorChannel(private val context: Context) : EventChannel.StreamHan
                 pending.add(v)
                 cache.writeFloat(v.toFloat())
             }
+            val rmsL = if (hopSamples > 0) sqrt(sumL2 / hopSamples) else 0.0
+            val rmsR = if (hopSamples > 0) sqrt(sumR2 / hopSamples) else 0.0
+            sumL2 = 0.0
+            sumR2 = 0.0
+            hopSamples = 0
+            pending.add(rmsL)
+            pending.add(rmsR)
+            cache.writeFloat(rmsL.toFloat())
+            cache.writeFloat(rmsR.toFloat())
             frameCount++
-            if (pending.size >= CHUNK_FRAMES * BANDS) flushPending(false)
+            if (pending.size >= CHUNK_FRAMES * FRAME_FLOATS) flushPending(false)
         }
 
-        fun pushSample(s: Float) {
-            ring[(written % WINDOW).toInt()] = s
+        fun pushSample(mix: Float, l: Float, r: Float) {
+            sumL2 += l.toDouble() * l
+            sumR2 += r.toDouble() * r
+            hopSamples++
+            ring[(written % WINDOW).toInt()] = mix
             written++
             if (written >= nextFrameAt) {
                 analyzeFrame()
@@ -272,6 +296,9 @@ class FftExtractorChannel(private val context: Context) : EventChannel.StreamHan
                         val buf = codec.getOutputBuffer(outIndex)!!
                         buf.position(bufferInfo.offset)
                         buf.limit(bufferInfo.offset + bufferInfo.size)
+                        // Channel 0 = left, channel 1 = right (mono:
+                        // both needles read the same); extra surround
+                        // channels only join the FFT mix.
                         if (pcmFloat) {
                             val floats = buf.order(ByteOrder.nativeOrder()).asFloatBuffer()
                             val frame = FloatArray(channels)
@@ -279,7 +306,9 @@ class FftExtractorChannel(private val context: Context) : EventChannel.StreamHan
                                 floats.get(frame)
                                 var mix = 0f
                                 for (c in frame) mix += c
-                                pushSample(mix / channels)
+                                val l = frame[0]
+                                val r = if (channels > 1) frame[1] else l
+                                pushSample(mix / channels, l, r)
                             }
                         } else {
                             val shorts = buf.order(ByteOrder.nativeOrder()).asShortBuffer()
@@ -288,7 +317,9 @@ class FftExtractorChannel(private val context: Context) : EventChannel.StreamHan
                                 shorts.get(frame)
                                 var mix = 0f
                                 for (c in frame) mix += c / 32768f
-                                pushSample(mix / channels)
+                                val l = frame[0] / 32768f
+                                val r = if (channels > 1) frame[1] / 32768f else l
+                                pushSample(mix / channels, l, r)
                             }
                         }
                         codec.releaseOutputBuffer(outIndex, false)

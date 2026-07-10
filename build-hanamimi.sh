@@ -47,7 +47,9 @@ done
 PROJECT_DIR="/home/sappy/projects/hanamimi"
 KEYSTORE_PATH="$PROJECT_DIR/android/keystore/sappy-release.jks"
 KEY_PROPERTIES="$PROJECT_DIR/android/key.properties"
-APP_PACKAGE="com.hanamimi.app"
+# Read the edition's applicationId from gradle (main ships
+# com.hanamimi.app; plus ships com.hanamimi.app.plus).
+APP_PACKAGE="$(grep -oP 'applicationId = "\K[^"]+' "$PROJECT_DIR/android/app/build.gradle.kts" 2>/dev/null || echo com.hanamimi.app)"
 APK_PATH="$PROJECT_DIR/build/app/outputs/flutter-apk/app-release.apk"
 
 # ─────────────────────────────────────────────

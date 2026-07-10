@@ -3,13 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../audio/models/audio_state.dart';
 import '../../providers/audio_provider.dart';
-import '../../providers/buddy_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
 import 'library/art_thumb.dart';
-import 'mascot/buddies.dart';
 
 /// Persistent bar above the bottom nav when a track is loaded
 /// (DESIGN.md §9.7). 2px progress line along the top edge; tapping the
@@ -125,15 +123,9 @@ class MiniPlayer extends ConsumerWidget {
                   ],
                 ),
               ),
-                  // The cat has claimed the top edge of the bar: asleep
-                  // while paused, tail swaying once the music plays.
-                  if (ref.watch(buddyEnabledProvider('cat')))
-                    Positioned(
-                      top: -21,
-                      right: 58,
-                      child: CatBuddy(
-                          sleeping: !(audio?.isPlaying ?? false)),
-                    ),
+                  // The cat used to nap on the bar's top edge; she now
+                  // sleeps beside the edition logo as the oneko sprite
+                  // (see library_screen header).
                 ],
               ),
             ),

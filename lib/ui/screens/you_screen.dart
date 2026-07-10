@@ -23,6 +23,8 @@ import '../../theme/theme_tokens.dart';
 import '../../theme/themes.dart';
 import '../components/mascot/buddies.dart';
 import '../components/mascot/hanamimi_widget.dart';
+import '../components/mascot/oneko.dart';
+import '../modals/about_dialog.dart';
 import '../modals/update_dialog.dart';
 import '../components/mascot/mascot_painter.dart';
 
@@ -39,7 +41,35 @@ class YouScreen extends ConsumerWidget {
         padding: const EdgeInsets.symmetric(horizontal: Space.s4),
         children: [
           const SizedBox(height: Space.s6),
-          Text('You', style: AppText.screenTitle(theme)),
+          if (MediaQuery.sizeOf(context).width < 1240)
+            Row(
+              children: [
+                if (ref.watch(buddyEnabledProvider('beagle'))) ...[
+                  HanamimiMascot(
+                      state: ref.watch(mascotStateProvider), size: 30),
+                  const SizedBox(width: Space.s2),
+                ],
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Text(
+                        ref.watch(editionNameProvider).value ?? 'Hanamimi',
+                        style: AppText.screenTitle(theme)
+                            .copyWith(fontSize: 22)),
+                    if (ref.watch(buddyEnabledProvider('parrot')))
+                      const Positioned(
+                          left: 0,
+                          right: 0,
+                          top: -15,
+                          child: HeaderParrot()),
+                  ],
+                ),
+                if (ref.watch(buddyEnabledProvider('cat'))) ...[
+                  const SizedBox(width: Space.s1),
+                  const SleepingOneko(),
+                ],
+              ],
+            ),
           const SizedBox(height: Space.s6),
           Text('MOOD', style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
@@ -362,6 +392,7 @@ class _MoreCard extends ConsumerWidget {
                       style: TextStyle(fontFamily: 'Nunito')),
                 ));
               }
+              showAboutHanamimi(context);
             },
           ),
           Divider(height: 0.5, color: theme.divider),
@@ -779,8 +810,81 @@ class _SoundSettings extends ConsumerWidget {
                   ),
                 ],
               ),
+              Text('Reactivity', style: AppText.rowSongTitle(theme)),
+              Text('Jumpy needle up high, silky-smooth down low',
+                  style: AppText.caption(theme)),
+              Row(
+                children: [
+                  Icon(Icons.bolt, size: 16, color: theme.primary),
+                  Expanded(
+                    child: Slider(
+                      value: ref
+                          .watch(visualizerReactivityProvider)
+                          .clamp(0.5, 3.0)
+                          .toDouble(),
+                      min: 0.5,
+                      max: 3.0,
+                      divisions: 10,
+                      onChanged: (v) => ref
+                          .read(visualizerReactivityProvider.notifier)
+                          .set(v),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 40,
+                    child: Text(
+                      '${ref.watch(visualizerReactivityProvider).toStringAsFixed(2)}×',
+                      style: AppText.caption(theme),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
+          Divider(height: Space.s6, color: theme.divider),
+          _QualityRow(
+            label: 'Visualizer style',
+            subtitle: 'How the music dances',
+            value: _visualizerStyleNames[
+                ref.watch(effectiveVisualizerStyleProvider)]!,
+            theme: theme,
+            onTap: () {
+              const order = VisualizerStyle.values;
+              final current = ref.read(effectiveVisualizerStyleProvider);
+              ref.read(visualizerStyleOverrideProvider.notifier).set(
+                  order[(order.indexOf(current) + 1) % order.length]);
+            },
+          ),
+          if (ref.watch(effectiveVisualizerStyleProvider) !=
+              VisualizerStyle.bars) ...[
+            Divider(height: Space.s6, color: theme.divider),
+            _QualityRow(
+              label: 'VU source',
+              subtitle: 'What the meters listen to',
+              value: ref.watch(vuSplitProvider)
+                  ? 'Bass & treble'
+                  : 'Loudness',
+              theme: theme,
+              onTap: () => ref
+                  .read(vuSplitProvider.notifier)
+                  .set(!ref.read(vuSplitProvider)),
+            ),
+          ],
+          if (ref.watch(effectiveVisualizerStyleProvider) ==
+              VisualizerStyle.ledVu) ...[
+            Divider(height: Space.s6, color: theme.divider),
+            _QualityRow(
+              label: 'LED look',
+              subtitle: 'Segmented or smooth',
+              value: ref.watch(ledVuDiscreteProvider)
+                  ? 'Discrete LEDs'
+                  : 'Continuous bar',
+              theme: theme,
+              onTap: () => ref
+                  .read(ledVuDiscreteProvider.notifier)
+                  .set(!ref.read(ledVuDiscreteProvider)),
+            ),
+          ],
           Divider(height: Space.s6, color: theme.divider),
           Row(
             children: [
@@ -877,6 +981,55 @@ class _ThemeTile extends ConsumerWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+
+const _visualizerStyleNames = <VisualizerStyle, String>{
+  VisualizerStyle.bars: 'Bars',
+  VisualizerStyle.vuMeters: 'VU meters',
+  VisualizerStyle.ledVu: 'LED VU meter',
+};
+
+/// Tap-to-cycle setting row (label left, current value + chevron right).
+class _QualityRow extends StatelessWidget {
+  const _QualityRow({
+    required this.label,
+    required this.subtitle,
+    required this.value,
+    required this.onTap,
+    required this.theme,
+  });
+
+  final String label;
+  final String subtitle;
+  final String value;
+  final VoidCallback onTap;
+  final HanamimiTheme theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(Radii.sm),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: AppText.rowSongTitle(theme)),
+                Text(subtitle, style: AppText.caption(theme)),
+              ],
+            ),
+          ),
+          Text(value,
+              style: AppText.rowSongTitle(theme)
+                  .copyWith(color: theme.primary)),
+          Icon(Icons.chevron_right, size: 18, color: theme.textMuted),
+        ],
       ),
     );
   }

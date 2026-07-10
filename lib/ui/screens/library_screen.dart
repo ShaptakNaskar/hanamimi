@@ -22,6 +22,7 @@ import '../../providers/buddy_provider.dart';
 import '../components/library/album_card.dart';
 import '../components/mascot/buddies.dart';
 import '../components/mascot/hanamimi_widget.dart';
+import '../components/mascot/oneko.dart';
 import '../components/library/playlist_card.dart';
 import '../components/library/playlist_cover.dart';
 import '../components/library/track_row.dart';
@@ -160,6 +161,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                                   child: HeaderParrot()),
                           ],
                         ),
+                        // The cat sleeps beside the logo (the Vencord
+                        // look) — the oneko sprite's sleep frames.
+                        if (ref.watch(buddyEnabledProvider('cat'))) ...[
+                          const SizedBox(width: Space.s1),
+                          const SleepingOneko(),
+                        ],
                       ],
                       const Spacer(),
                       InkResponse(
