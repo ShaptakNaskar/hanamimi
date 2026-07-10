@@ -9,14 +9,17 @@ import 'package:path_provider/path_provider.dart';
 import 'desktop_binaries.dart';
 
 /// Desktop port of FftExtractorChannel.kt (ARCHITECTURE-DESKTOP.md
-/// §2.1): ffmpeg decodes the file (or full-speed stream URL) to mono
-/// PCM, and the same Hann-windowed 2048-point FFT → 12 log-spaced bands
-/// at 60 fps runs in a Dart isolate. Identical event contract
-/// ({key, offset, bands, done}) and cache format, so the visualizer
-/// provider and BandShaper are shared verbatim.
+/// §2.1): ffmpeg decodes the file (or full-speed stream URL) to stereo
+/// PCM; the mono mix feeds the same Hann-windowed 2048-point FFT →
+/// 12 log-spaced bands at 60 fps in a Dart isolate, and each frame
+/// additionally carries per-channel RMS (true L/R loudness for the VU
+/// meters) — 14 floats per frame, flagged by 'stride' in the events
+/// ({key, offset, bands, stride, done}). FftExtractorChannel.kt sends
+/// the identical layout on Android.
 class DesktopFft {
   static const _frameRate = 60; // must match FftExtractorChannel.FRAME_RATE
   static const _bands = 12;
+  static const _frameFloats = _bands + 2; // + rmsL, rmsR
   static const _window = 2048;
   static const _chunkFrames = 120; // ~2s of frames per event
   static const _maxCacheFiles = 64;
@@ -123,7 +126,7 @@ class DesktopFft {
         '-v', 'quiet',
         '-i', path,
         '-vn',
-        '-ac', '1',
+        '-ac', '2', // mono sources come out duplicated: rmsL == rmsR
         '-ar', '$_sampleRate',
         '-f', 'f32le',
         '-',
@@ -132,18 +135,18 @@ class DesktopFft {
       unawaited(proc.stderr.drain<void>());
 
       final analyzer = _Analyzer(send, key);
-      final carry = BytesBuilder(copy: true); // partial trailing float
+      final carry = BytesBuilder(copy: true); // partial trailing L/R pair
       await for (final chunk in proc.stdout) {
         if (cancelled) break;
         carry.add(chunk);
         final bytes = carry.takeBytes();
         // sublistView bounds are in SOURCE elements (bytes) — and the
-        // viewed span must be float-aligned, hence the carry of the
-        // partial trailing sample.
-        final usable = bytes.length & ~3;
+        // viewed span must stay aligned to whole interleaved L/R pairs
+        // (8 bytes), or the channels would swap mid-stream.
+        final usable = bytes.length & ~7;
         final samples = Float32List.sublistView(bytes, 0, usable);
-        for (final s in samples) {
-          analyzer.push(s);
+        for (var i = 0; i < samples.length; i += 2) {
+          analyzer.push(samples[i], samples[i + 1]);
         }
         if (usable < bytes.length) carry.add(bytes.sublist(usable));
       }
@@ -168,26 +171,29 @@ class DesktopFft {
     }
   }
 
-  /// Cache format (same as Android): [int32 frameCount][float32 band…],
-  /// big-endian.
+  /// Cache format: [int32 frameCount][float32 × 14 per frame…],
+  /// big-endian. v3 keys only — 12-float v2 files are unreachable
+  /// (different filename) and age out of the LRU.
   static Future<void> _streamCached(
       SendPort send, String key, File file, bool Function() cancelled) async {
     final bytes = await file.readAsBytes();
     final data = ByteData.sublistView(bytes);
     final frameCount = data.getInt32(0);
-    if (frameCount <= 0 || bytes.length < 4 + frameCount * _bands * 4) {
+    if (frameCount <= 0 ||
+        bytes.length < 4 + frameCount * _frameFloats * 4) {
       send.send({'key': key, 'offset': 0, 'bands': <double>[], 'done': true});
       return;
     }
     var offset = 0;
     while (offset < frameCount && !cancelled()) {
       final n = math.min(_chunkFrames * 4, frameCount - offset);
-      final chunk = List<double>.generate(n * _bands,
-          (i) => data.getFloat32(4 + (offset * _bands + i) * 4));
+      final chunk = List<double>.generate(n * _frameFloats,
+          (i) => data.getFloat32(4 + (offset * _frameFloats + i) * 4));
       send.send({
         'key': key,
         'offset': offset,
         'bands': chunk,
+        'stride': _frameFloats,
         'done': offset + n >= frameCount,
       });
       offset += n;
@@ -210,9 +216,10 @@ class DesktopFft {
   }
 }
 
-/// Hann window → FFT → 12 log bands, one frame per hop. Numbers match
-/// the Kotlin extractor bit for bit (hop 735.0, norm N/4, 40 Hz–14 kHz
-/// edges) so a cache produced here draws identically on both platforms.
+/// Hann window → FFT → 12 log bands + per-channel RMS, one frame per
+/// hop. The band numbers match the Kotlin extractor bit for bit (hop
+/// 735.0, norm N/4, 40 Hz–14 kHz edges); the FFT sees the (L+R)/2 mix,
+/// and the two RMS values are the true VU-meter signal.
 class _Analyzer {
   _Analyzer(this.send, this.key);
 
@@ -229,6 +236,10 @@ class _Analyzer {
   final _ring = Float32List(DesktopFft._window);
   var _written = 0; // total mono samples seen
   var _nextFrameAt = _hop;
+
+  // Per-hop channel energy for the VU RMS.
+  var _sumL2 = 0.0, _sumR2 = 0.0;
+  var _hopSamples = 0;
 
   final _edges = _bandEdgeBins();
   final _pending = <double>[];
@@ -254,8 +265,11 @@ class _Analyzer {
     ];
   }
 
-  void push(double sample) {
-    _ring[_written % DesktopFft._window] = sample;
+  void push(double left, double right) {
+    _sumL2 += left * left;
+    _sumR2 += right * right;
+    _hopSamples++;
+    _ring[_written % DesktopFft._window] = (left + right) * 0.5;
     _written++;
     if (_written >= _nextFrameAt) {
       _analyzeFrame();
@@ -277,7 +291,7 @@ class _Analyzer {
     _fft.transform(re, im);
     // Hann coherent gain 0.5: a full-scale sine peaks at N/4.
     const norm = n / 4.0;
-    final frame = ByteData(DesktopFft._bands * 4);
+    final frame = ByteData(DesktopFft._frameFloats * 4);
     for (var b = 0; b < DesktopFft._bands; b++) {
       final lo = _edges[b];
       final hi = math.max(_edges[b + 1], lo + 1);
@@ -289,9 +303,22 @@ class _Analyzer {
       _pending.add(v);
       frame.setFloat32(b * 4, v);
     }
+    final rmsL =
+        _hopSamples > 0 ? math.sqrt(_sumL2 / _hopSamples) : 0.0;
+    final rmsR =
+        _hopSamples > 0 ? math.sqrt(_sumR2 / _hopSamples) : 0.0;
+    _sumL2 = 0;
+    _sumR2 = 0;
+    _hopSamples = 0;
+    _pending
+      ..add(rmsL)
+      ..add(rmsR);
+    frame.setFloat32(DesktopFft._bands * 4, rmsL);
+    frame.setFloat32((DesktopFft._bands + 1) * 4, rmsR);
     _cacheData.add(frame.buffer.asUint8List());
     _frameCount++;
-    if (_pending.length >= DesktopFft._chunkFrames * DesktopFft._bands) {
+    if (_pending.length >=
+        DesktopFft._chunkFrames * DesktopFft._frameFloats) {
       _flush(false);
     }
   }
@@ -302,9 +329,10 @@ class _Analyzer {
       'key': key,
       'offset': _framesSent,
       'bands': List<double>.of(_pending),
+      'stride': DesktopFft._frameFloats,
       'done': done,
     });
-    _framesSent += _pending.length ~/ DesktopFft._bands;
+    _framesSent += _pending.length ~/ DesktopFft._frameFloats;
     _pending.clear();
   }
 

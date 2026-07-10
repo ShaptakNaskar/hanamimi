@@ -19,7 +19,7 @@ class BuddyInfo {
 const buddyCatalog = [
   BuddyInfo('beagle', 'Hanamimi', 'Header & Now Playing'),
   BuddyInfo('parrot', 'Parrot', 'Perches on the Library title'),
-  BuddyInfo('cat', 'Cat', 'Naps on the mini player · chases the cursor on desktop'),
+  BuddyInfo('cat', 'Cat', 'Sleeps by the logo · chases the cursor on desktop'),
   BuddyInfo('duck', 'Duck', 'Struts atop Liked songs'),
   BuddyInfo('fireflies', 'Fireflies', 'Glow on the dark themes'),
   BuddyInfo('rabbit', 'Rabbit', 'Hops along downloads'),
@@ -52,3 +52,21 @@ final buddyTogglesProvider =
 /// True when the buddy with [id] should be visible.
 final buddyEnabledProvider = Provider.family<bool, String>(
     (ref, id) => !ref.watch(buddyTogglesProvider).contains(id));
+
+/// Desktop only: whether the cat chases the pointer (oneko). Off, she
+/// curls up asleep beside the edition logo instead — the Vencord look.
+/// Mobile has no pointer, so the cat always sleeps by the logo there.
+class CatFollowNotifier extends Notifier<bool> {
+  static const _key = 'cat_follow';
+
+  @override
+  bool build() => ref.watch(sharedPrefsProvider).getBool(_key) ?? true;
+
+  void set(bool on) {
+    ref.read(sharedPrefsProvider).setBool(_key, on);
+    state = on;
+  }
+}
+
+final catFollowProvider =
+    NotifierProvider<CatFollowNotifier, bool>(CatFollowNotifier.new);

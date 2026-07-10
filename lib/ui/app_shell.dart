@@ -544,9 +544,12 @@ class _AppShellState extends ConsumerState<AppShell>
         wideBody,
       ],
     );
-    // The "cat" buddy has no mini player to nap on here, so on desktop it
-    // wakes up as oneko and chases the pointer across the whole window.
-    if (isDesktop && ref.watch(buddyEnabledProvider('cat'))) {
+    // The "cat" buddy wakes up as oneko on desktop and chases the
+    // pointer across the whole window — unless follow is switched off,
+    // in which case she sleeps beside the sidebar logo instead.
+    if (isDesktop &&
+        ref.watch(buddyEnabledProvider('cat')) &&
+        ref.watch(catFollowProvider)) {
       wideBackground = OnekoLayer(child: wideBackground);
     }
 

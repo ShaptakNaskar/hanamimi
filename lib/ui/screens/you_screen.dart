@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../library/media_store_channel.dart';
+import '../../platform/desktop/desktop_bootstrap.dart';
 import '../../platform/desktop/desktop_library.dart';
 import '../../online/models/resolved_stream.dart';
 import '../../online/ytdlp_channel.dart';
@@ -31,6 +32,7 @@ import '../../theme/theme_tokens.dart';
 import '../../theme/themes.dart';
 import '../components/mascot/buddies.dart';
 import '../components/mascot/hanamimi_widget.dart';
+import '../components/mascot/oneko.dart';
 import '../modals/about_dialog.dart';
 import '../modals/update_dialog.dart';
 import '../modals/yt_signin_dialog.dart';
@@ -50,7 +52,36 @@ class YouScreen extends ConsumerWidget {
         padding: const EdgeInsets.symmetric(horizontal: Space.s4),
         children: [
           const SizedBox(height: Space.s6),
-          Text('You', style: AppText.screenTitle(theme)),
+          // Same header as the Library: mascot + edition wordmark (+
+          // parrot + sleeping cat) — replaced the plain "You" title.
+          Row(
+            children: [
+              if (ref.watch(buddyEnabledProvider('beagle'))) ...[
+                HanamimiMascot(
+                    state: ref.watch(mascotStateProvider), size: 30),
+                const SizedBox(width: Space.s2),
+              ],
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Text(ref.watch(editionNameProvider).value ?? 'Hanamimi',
+                      style: AppText.screenTitle(theme)
+                          .copyWith(fontSize: 22)),
+                  if (ref.watch(buddyEnabledProvider('parrot')))
+                    const Positioned(
+                        left: 0,
+                        right: 0,
+                        top: -15,
+                        child: HeaderParrot()),
+                ],
+              ),
+              if (ref.watch(buddyEnabledProvider('cat')) &&
+                  (!isDesktop || !ref.watch(catFollowProvider))) ...[
+                const SizedBox(width: Space.s1),
+                const SleepingOneko(),
+              ],
+            ],
+          ),
           const SizedBox(height: Space.s6),
           Text('MOOD', style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
@@ -175,7 +206,7 @@ class _BuddiesCard extends ConsumerWidget {
       ),
       child: Column(
         children: [
-          for (final info in buddyCatalog)
+          for (final info in buddyCatalog) ...[
             SwitchListTile(
               secondary: SizedBox(
                 width: 34,
@@ -189,6 +220,23 @@ class _BuddiesCard extends ConsumerWidget {
                   .read(buddyTogglesProvider.notifier)
                   .setEnabled(info.id, on),
             ),
+            // Desktop cat sub-toggle: chase the pointer, or sleep by
+            // the logo (mobile has no pointer — she always sleeps).
+            if (info.id == 'cat' &&
+                isDesktop &&
+                !disabled.contains('cat'))
+              SwitchListTile(
+                contentPadding:
+                    const EdgeInsets.only(left: Space.s8, right: 16),
+                title: Text('Chase the pointer',
+                    style: AppText.rowSongTitle(theme)),
+                subtitle: Text('Off: she sleeps beside the logo',
+                    style: AppText.caption(theme)),
+                value: ref.watch(catFollowProvider),
+                onChanged: (on) =>
+                    ref.read(catFollowProvider.notifier).set(on),
+              ),
+          ],
         ],
       ),
     );
@@ -1229,8 +1277,81 @@ class _SoundSettings extends ConsumerWidget {
                   ),
                 ],
               ),
+              Text('Reactivity', style: AppText.rowSongTitle(theme)),
+              Text('Jumpy needle up high, silky-smooth down low',
+                  style: AppText.caption(theme)),
+              Row(
+                children: [
+                  Icon(Icons.bolt, size: 16, color: theme.primary),
+                  Expanded(
+                    child: Slider(
+                      value: ref
+                          .watch(visualizerReactivityProvider)
+                          .clamp(0.5, 3.0)
+                          .toDouble(),
+                      min: 0.5,
+                      max: 3.0,
+                      divisions: 10,
+                      onChanged: (v) => ref
+                          .read(visualizerReactivityProvider.notifier)
+                          .set(v),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 40,
+                    child: Text(
+                      '${ref.watch(visualizerReactivityProvider).toStringAsFixed(2)}×',
+                      style: AppText.caption(theme),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
+          Divider(height: Space.s6, color: theme.divider),
+          _QualityRow(
+            label: 'Visualizer style',
+            subtitle: 'How the music dances',
+            value: _visualizerStyleNames[
+                ref.watch(effectiveVisualizerStyleProvider)]!,
+            theme: theme,
+            onTap: () {
+              const order = VisualizerStyle.values;
+              final current = ref.read(effectiveVisualizerStyleProvider);
+              ref.read(visualizerStyleOverrideProvider.notifier).set(
+                  order[(order.indexOf(current) + 1) % order.length]);
+            },
+          ),
+          if (ref.watch(effectiveVisualizerStyleProvider) !=
+              VisualizerStyle.bars) ...[
+            Divider(height: Space.s6, color: theme.divider),
+            _QualityRow(
+              label: 'VU source',
+              subtitle: 'What the meters listen to',
+              value: ref.watch(vuSplitProvider)
+                  ? 'Bass & treble'
+                  : 'Loudness',
+              theme: theme,
+              onTap: () => ref
+                  .read(vuSplitProvider.notifier)
+                  .set(!ref.read(vuSplitProvider)),
+            ),
+          ],
+          if (ref.watch(effectiveVisualizerStyleProvider) ==
+              VisualizerStyle.ledVu) ...[
+            Divider(height: Space.s6, color: theme.divider),
+            _QualityRow(
+              label: 'LED look',
+              subtitle: 'Segmented or smooth',
+              value: ref.watch(ledVuDiscreteProvider)
+                  ? 'Discrete LEDs'
+                  : 'Continuous bar',
+              theme: theme,
+              onTap: () => ref
+                  .read(ledVuDiscreteProvider.notifier)
+                  .set(!ref.read(ledVuDiscreteProvider)),
+            ),
+          ],
           Divider(height: Space.s6, color: theme.divider),
           Row(
             children: [
@@ -1375,3 +1496,10 @@ class _ThemeTile extends ConsumerWidget {
     );
   }
 }
+
+const _visualizerStyleNames = <VisualizerStyle, String>{
+  VisualizerStyle.bars: 'Bars',
+  VisualizerStyle.vuMeters: 'VU meters',
+  VisualizerStyle.ledVu: 'LED VU meter',
+};
+

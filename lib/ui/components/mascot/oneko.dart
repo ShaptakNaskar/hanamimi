@@ -137,6 +137,100 @@ const _sprites = <String, List<List<int>>>{
   ],
 };
 
+/// The oneko cat curled up asleep — parked beside the edition logo
+/// (the Vencord look) when she isn't chasing the pointer: follow
+/// switched off on desktop, or always on mobile, where there is no
+/// pointer to chase. Same sprite sheet, just the two sleeping frames
+/// on a slow blink.
+class SleepingOneko extends StatefulWidget {
+  const SleepingOneko({super.key, this.size = 28});
+
+  final double size;
+
+  @override
+  State<SleepingOneko> createState() => _SleepingOnekoState();
+}
+
+class _SleepingOnekoState extends State<SleepingOneko> {
+  Timer? _timer;
+  var _frame = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_OnekoPetState._sheet == null) {
+      _OnekoPetState._loadSheet().then((_) {
+        if (mounted) setState(() {});
+      });
+    }
+    // Matches the chase-mode sleep cadence (sleep frames advance every
+    // 4 ticks of the 100 ms clock). A 2-frame timer is too cheap to
+    // need gating beyond the visibility check inside.
+    _timer = Timer.periodic(const Duration(milliseconds: 400), (_) {
+      if (!mounted || !windowVisible.value) return;
+      setState(() => _frame++);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sheet = _OnekoPetState._sheet;
+    if (sheet == null) return SizedBox(width: widget.size);
+    final frames = _sprites['sleeping']!;
+    // The sleeping pose sits low in its 32px cell — nudge her up so she
+    // rests on the logo's baseline instead of dangling below it.
+    return Transform.translate(
+      offset: Offset(0, -widget.size * 0.14),
+      child: RepaintBoundary(
+        child: CustomPaint(
+          size: Size(widget.size, widget.size),
+          painter: _SleepingOnekoPainter(
+            sheet: sheet,
+            pose: frames[_frame % frames.length],
+            size: widget.size,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SleepingOnekoPainter extends CustomPainter {
+  _SleepingOnekoPainter({
+    required this.sheet,
+    required this.pose,
+    required this.size,
+  });
+
+  final ui.Image sheet;
+  final List<int> pose;
+  final double size;
+
+  @override
+  void paint(Canvas canvas, Size _) {
+    final src = Rect.fromLTWH(pose[0] * 32.0, pose[1] * 32.0, 32, 32);
+    final dst = Rect.fromLTWH(0, 0, size, size);
+    canvas.drawImageRect(
+      sheet,
+      src,
+      dst,
+      Paint()
+        ..filterQuality = FilterQuality.none // crisp pixels
+        ..isAntiAlias = false,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_SleepingOnekoPainter old) =>
+      !identical(old.pose, pose) || old.size != size;
+}
+
 class _OnekoPet extends StatefulWidget {
   const _OnekoPet({required this.cursor});
 

@@ -25,7 +25,8 @@ class FftChannel {
       : DesktopFft.cancel();
 
   /// Chunks: {key: String, offset: int (frame index), bands: Float64List
-  /// (frames × 12, flattened), done: bool}.
+  /// (frames × stride, flattened), stride: int? (14 on desktop — 12
+  /// bands + L/R RMS; absent on Android = 12), done: bool}.
   static Stream<Map> get frames => Platform.isAndroid
       ? _events.receiveBroadcastStream().map((e) => e as Map)
       : DesktopFft.frames;

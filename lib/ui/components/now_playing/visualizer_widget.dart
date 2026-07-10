@@ -21,6 +21,7 @@ class VisualizerWidget extends ConsumerStatefulWidget {
 class _VisualizerWidgetState extends ConsumerState<VisualizerWidget>
     with SingleTickerProviderStateMixin {
   late final Ticker _ticker;
+  final _sim = VisualizerSim();
   double _time = 0;
   Duration _last = Duration.zero;
 
@@ -46,7 +47,7 @@ class _VisualizerWidgetState extends ConsumerState<VisualizerWidget>
   Widget build(BuildContext context) {
     final theme = ref.watch(currentThemeProvider);
     final bands = ref.watch(visualizerBandsProvider).value ??
-        List.filled(12, 0.05);
+        List.filled(14, 0.05);
 
     // The clock ticker exists for styles whose motion is time-driven
     // (raindrops fall, radial rotates) — bars/wave redraw purely from
@@ -55,14 +56,16 @@ class _VisualizerWidgetState extends ConsumerState<VisualizerWidget>
     // busy-wait) every vsync forever, even paused with the panel idle —
     // the bulk of the desktop constant-CPU report. When paused, the
     // band stream itself settles and rebuilds stop.
-    final style = theme.visualizerStyle;
-    final needsClock = style == VisualizerStyle.raindrops ||
-        style == VisualizerStyle.radial;
+    final style = ref.watch(effectiveVisualizerStyleProvider);
+    final needsClock = style == VisualizerStyle.vuMeters ||
+        style == VisualizerStyle.ledVu;
     final playing =
         ref.watch(audioStateProvider).value?.isPlaying ?? false;
     final visible = ref.watch(windowVisibleProvider);
-    final animate =
-        visible && needsClock && (playing || bands.any((b) => b > 0.005));
+    // _sim.hasEnergy lets needles/peak dots finish falling after pause.
+    final animate = visible &&
+        needsClock &&
+        (playing || bands.any((b) => b > 0.005) || _sim.hasEnergy);
     if (animate && !_ticker.isActive) {
       _last = Duration.zero;
       _ticker.start();
@@ -76,7 +79,12 @@ class _VisualizerWidgetState extends ConsumerState<VisualizerWidget>
         painter: VisualizerPainter(
           bands: bands,
           theme: theme,
+          style: style,
           time: _time,
+          sim: _sim,
+          reactivity: ref.watch(visualizerReactivityProvider),
+          vuSplit: ref.watch(vuSplitProvider),
+          ledDiscrete: ref.watch(ledVuDiscreteProvider),
         ),
       ),
     );

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../library/models/track.dart';
 import '../reco/feature_extractor.dart';
+import '../theme/hanamimi_theme.dart';
 import '../visualizer/fft_channel.dart';
 import '../visualizer/fft_processor.dart';
 import 'audio_provider.dart';
@@ -31,25 +32,115 @@ final visualizerSensitivityProvider =
     NotifierProvider<VisualizerSensitivityNotifier, double>(
         VisualizerSensitivityNotifier.new);
 
-/// 12 frequency bands, 0–1, emitted at ~60 fps.
+/// Needle reactivity for the VU meters: high = jumpy, low = smoothed.
+/// Drives the needle spring stiffness in the painter (sensitivity
+/// stays a pure gain on the bands).
+class VisualizerReactivityNotifier extends Notifier<double> {
+  static const _key = 'visualizer_reactivity';
+
+  @override
+  double build() =>
+      ref.watch(sharedPrefsProvider).getDouble(_key) ?? 1.0;
+
+  void set(double value) {
+    state = value.clamp(0.5, 3.0).toDouble();
+    ref.read(sharedPrefsProvider).setDouble(_key, state);
+  }
+}
+
+final visualizerReactivityProvider =
+    NotifierProvider<VisualizerReactivityNotifier, double>(
+        VisualizerReactivityNotifier.new);
+
+/// What the VU needles measure: false = true L/R channel loudness
+/// (real-VU behaviour), true = the old bass/treble split.
+class VuSplitNotifier extends Notifier<bool> {
+  static const _key = 'vu_split';
+
+  @override
+  bool build() => ref.watch(sharedPrefsProvider).getBool(_key) ?? false;
+
+  void set(bool on) {
+    ref.read(sharedPrefsProvider).setBool(_key, on);
+    state = on;
+  }
+}
+
+final vuSplitProvider =
+    NotifierProvider<VuSplitNotifier, bool>(VuSplitNotifier.new);
+
+/// LED VU meter look: true = discrete LED segments (the foobar VU),
+/// false = continuous gradient bar (the OBS mixer).
+class LedVuDiscreteNotifier extends Notifier<bool> {
+  static const _key = 'led_vu_discrete';
+
+  @override
+  bool build() => ref.watch(sharedPrefsProvider).getBool(_key) ?? true;
+
+  void set(bool on) {
+    ref.read(sharedPrefsProvider).setBool(_key, on);
+    state = on;
+  }
+}
+
+final ledVuDiscreteProvider =
+    NotifierProvider<LedVuDiscreteNotifier, bool>(LedVuDiscreteNotifier.new);
+
+/// User-chosen visualizer style; null means "follow the theme".
+/// Persisted by enum name so reordering the enum can't corrupt it.
+class VisualizerStyleOverrideNotifier extends Notifier<VisualizerStyle?> {
+  static const _key = 'visualizer_style_override';
+
+  @override
+  VisualizerStyle? build() {
+    final name = ref.watch(sharedPrefsProvider).getString(_key);
+    return VisualizerStyle.values.asNameMap()[name];
+  }
+
+  void set(VisualizerStyle? style) {
+    state = style;
+    final prefs = ref.read(sharedPrefsProvider);
+    if (style == null) {
+      prefs.remove(_key);
+    } else {
+      prefs.setString(_key, style.name);
+    }
+  }
+}
+
+final visualizerStyleOverrideProvider =
+    NotifierProvider<VisualizerStyleOverrideNotifier, VisualizerStyle?>(
+        VisualizerStyleOverrideNotifier.new);
+
+/// The style renderers should draw: the user override, else the theme's.
+final effectiveVisualizerStyleProvider = Provider<VisualizerStyle>((ref) =>
+    ref.watch(visualizerStyleOverrideProvider) ??
+    ref.watch(currentThemeProvider).visualizerStyle);
+
+/// 12 frequency bands + L/R channel loudness, 0–1, at ~60 fps.
 ///
-/// Band frames come from FftExtractorChannel: the track's audio is
-/// decoded and analyzed once (then disk-cached), and this provider
-/// samples the frame matching the current playback position — no
-/// RECORD_AUDIO, sample-accurate, and independent of the output mix.
-/// A gentle synthetic pulse covers the moments before frames exist
-/// (extraction outruns playback within a second) and files the
-/// decoder can't read.
+/// Emits 14 values: [0..11] spectral bands, [12] left-channel RMS,
+/// [13] right-channel RMS (the true VU-meter signal). Frames come from
+/// FftExtractorChannel: the track's audio is decoded and analyzed once
+/// (then disk-cached), and this provider samples the frame matching
+/// the current playback position — no RECORD_AUDIO, sample-accurate,
+/// and independent of the output mix. Both extractors send 14-float
+/// frames ('stride': 14); if a frame ever arrives without channel RMS
+/// (stride 12), a lows/highs pseudo-split stands in for L/R. A gentle
+/// synthetic pulse covers the moments before frames exist (extraction
+/// outruns playback within a second) and files the decoder can't read.
 final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   final controller = StreamController<List<double>>();
   final shaper = BandShaper();
 
   const frameRate = 60; // must match FftExtractorChannel.FRAME_RATE
   const bandCount = BandShaper.bandCount;
+  const outCount = bandCount + 2; // bands + L/R loudness
 
   String? currentKey;
   int? currentTrackId; // DB row id, for the M38a feature store
-  var frames = <double>[]; // flattened frames × 12
+  var frames = <double>[]; // flattened frames × stride
+  var stride = bandCount; // floats per frame in [frames]
   var extractionDone = false;
 
   // Watchdog state: extraction can die without producing a frame —
@@ -77,16 +168,18 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   });
 
   void startFor(Track track) {
-    // v2: fractional-hop frame timing (old caches drift on rates not
-    // divisible by 60).
+    // v3: frames carry L/R RMS after the bands (v2 fixed fractional-hop
+    // frame timing). New prefixes miss the old 12-float cache files,
+    // which age out of the extractor's LRU.
     final path = track.filePath;
     final key = path == null
-        ? 'stream_${track.source.name}_${track.sourceId}'
-        : 'v2_${track.mediaId ?? track.sourceId}_${path.hashCode}_${track.duration.inMilliseconds}';
+        ? 'stream3_${track.source.name}_${track.sourceId}'
+        : 'v3_${track.mediaId ?? track.sourceId}_${path.hashCode}_${track.duration.inMilliseconds}';
     if (key == currentKey) return;
     currentKey = key;
     currentTrackId = track.id;
     frames = <double>[];
+    stride = bandCount;
     extractionDone = false;
     if (key != retryKey) {
       // Genuinely new track — fresh retry budget.
@@ -111,7 +204,9 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
 
   final frameSub = FftChannel.frames.listen((event) {
     if (event['key'] != currentKey) return; // stale job
-    final offset = (event['offset'] as int) * bandCount;
+    // Both extractors flag 14-float frames; no flag means legacy 12.
+    stride = (event['stride'] as int?) ?? bandCount;
+    final offset = (event['offset'] as int) * stride;
     final bands = (event['bands'] as List).cast<double>();
     // Chunks arrive in order; tolerate a gap by zero-filling.
     if (frames.length < offset) {
@@ -123,9 +218,17 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
       // M38a: the decode we just paid for doubles as the content-
       // similarity source — summarize the full frame run into the
       // track's feature vector (once per track per layout version).
+      // Strip the RMS columns first: vectors must stay comparable with
+      // the 12-band ones already in the library.
       final tid = currentTrackId;
       if (tid != null && frames.isNotEmpty) {
-        final snapshot = List<double>.from(frames);
+        final s = stride;
+        final snapshot = s == bandCount
+            ? List<double>.from(frames)
+            : <double>[
+                for (var f = 0; f + s <= frames.length; f += s)
+                  ...frames.getRange(f, f + bandCount),
+              ];
         Future(() async {
           final repo = await ref.read(libraryRepositoryProvider.future);
           if (await repo.hasTrackFeatures(tid, trackFeaturesVersion)) {
@@ -148,29 +251,41 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   if (initial != null) startFor(initial);
 
   /// Frame at [position], linearly interpolated between neighbors.
+  /// Always [outCount] values: 12-float frames get a lows/highs
+  /// pseudo-split appended in place of the missing channel RMS.
   List<double>? sample(Duration position) {
-    final frameCount = frames.length ~/ bandCount;
+    final s = stride;
+    final frameCount = frames.length ~/ s;
     if (frameCount == 0) return null;
     final exact = position.inMilliseconds * frameRate / 1000;
     final lo = exact.floor();
     if (lo >= frameCount) {
       // Past the analyzed range: silence tail if extraction finished,
       // not-yet-decoded if it's still running.
-      return extractionDone ? List.filled(bandCount, 0.0) : null;
+      return extractionDone ? List.filled(outCount, 0.0) : null;
     }
     final hi = math.min(lo + 1, frameCount - 1);
     final t = exact - lo;
-    return [
-      for (var b = 0; b < bandCount; b++)
-        frames[lo * bandCount + b] * (1 - t) +
-            frames[hi * bandCount + b] * t,
+    final raw = [
+      for (var b = 0; b < s; b++)
+        frames[lo * s + b] * (1 - t) + frames[hi * s + b] * t,
     ];
+    if (s < outCount) {
+      raw
+        ..add(raw[0] * 0.35 + raw[1] * 0.30 + raw[2] * 0.20 + raw[3] * 0.15)
+        ..add(raw[6] * 0.15 +
+            raw[7] * 0.20 +
+            raw[8] * 0.25 +
+            raw[9] * 0.20 +
+            raw[10] * 0.20);
+    }
+    return raw;
   }
 
   List<double> synth(bool playing) {
     final t = DateTime.now().millisecondsSinceEpoch / 1000.0;
     return [
-      for (var i = 0; i < bandCount; i++)
+      for (var i = 0; i < outCount; i++)
         playing
             ? (0.12 +
                     0.12 * math.sin(t * 2.1 + i * 0.9) +
@@ -226,7 +341,8 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     }
     final raw = playing ? (sample(position) ?? synth(true)) : synth(false);
     final sensitivity = ref.read(visualizerSensitivityProvider);
-    final bands = shaper.shape(raw, sensitivity);
+    final reactivity = ref.read(visualizerReactivityProvider);
+    final bands = shaper.shape(raw, sensitivity, reactivity);
     // Paused + fully decayed: stop rebuilding every listener at 60 Hz.
     final quiet = !playing && bands.every((b) => b < 0.005);
     if (quiet && settled) return;

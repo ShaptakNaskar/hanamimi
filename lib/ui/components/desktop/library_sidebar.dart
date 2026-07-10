@@ -12,6 +12,7 @@ import '../../../theme/hanamimi_theme.dart';
 import '../../../theme/theme_tokens.dart';
 import '../mascot/buddies.dart';
 import '../mascot/hanamimi_widget.dart';
+import '../mascot/oneko.dart';
 import '../library/playlist_cover.dart';
 
 /// Spotify-style "Your Library" sidebar for the three-pane desktop
@@ -102,6 +103,13 @@ class LibrarySidebar extends ConsumerWidget {
                       ],
                     ),
                   ),
+                  // Follow off: the cat sleeps beside the logo instead
+                  // of chasing the pointer (the Vencord look).
+                  if (ref.watch(buddyEnabledProvider('cat')) &&
+                      !ref.watch(catFollowProvider)) ...[
+                    const SizedBox(width: Space.s1),
+                    const SleepingOneko(),
+                  ],
                 ],
               ),
             ),
