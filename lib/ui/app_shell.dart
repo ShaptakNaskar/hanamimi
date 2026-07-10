@@ -401,7 +401,7 @@ class _AppShellState extends ConsumerState<AppShell>
     // phone layout on a 1280dp tablet looked sparse and wrong).
     final wide = MediaQuery.sizeOf(context).width >= 880;
 
-    final content = AnimatedSwitcher(
+    Widget content = AnimatedSwitcher(
       duration: Anim.tabSlide,
       switchInCurve: Curves.easeOut,
       switchOutCurve: Curves.easeOut,
@@ -544,13 +544,15 @@ class _AppShellState extends ConsumerState<AppShell>
         wideBody,
       ],
     );
-    // The "cat" buddy wakes up as oneko on desktop and chases the
-    // pointer across the whole window — unless follow is switched off,
-    // in which case she sleeps beside the sidebar logo instead.
-    if (isDesktop &&
-        ref.watch(buddyEnabledProvider('cat')) &&
-        ref.watch(catFollowProvider)) {
+    // The "cat" buddy wakes up as the full oneko everywhere: she chases
+    // the mouse on desktop and your taps/drags on touch screens —
+    // unless follow is switched off, in which case she sleeps beside
+    // the edition logo instead.
+    final onekoChase = ref.watch(buddyEnabledProvider('cat')) &&
+        ref.watch(catFollowProvider);
+    if (onekoChase) {
       wideBackground = OnekoLayer(child: wideBackground);
+      content = OnekoLayer(child: content);
     }
 
     return PopScope(

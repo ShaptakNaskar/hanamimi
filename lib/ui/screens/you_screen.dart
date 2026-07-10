@@ -80,7 +80,7 @@ class YouScreen extends ConsumerWidget {
                   ],
                 ),
                 if (ref.watch(buddyEnabledProvider('cat')) &&
-                    (!isDesktop || !ref.watch(catFollowProvider))) ...[
+                    !ref.watch(catFollowProvider)) ...[
                   const SizedBox(width: Space.s1),
                   const SleepingOneko(),
                 ],
@@ -225,15 +225,14 @@ class _BuddiesCard extends ConsumerWidget {
                   .read(buddyTogglesProvider.notifier)
                   .setEnabled(info.id, on),
             ),
-            // Desktop cat sub-toggle: chase the pointer, or sleep by
-            // the logo (mobile has no pointer — she always sleeps).
-            if (info.id == 'cat' &&
-                isDesktop &&
-                !disabled.contains('cat'))
+            // Cat sub-toggle: the full oneko chase (mouse on desktop,
+            // taps and drags on touch), or asleep beside the logo.
+            if (info.id == 'cat' && !disabled.contains('cat'))
               SwitchListTile(
                 contentPadding:
                     const EdgeInsets.only(left: Space.s8, right: 16),
-                title: Text('Chase the pointer',
+                title: Text(
+                    isDesktop ? 'Chase the pointer' : 'Chase your touches',
                     style: AppText.rowSongTitle(theme)),
                 subtitle: Text('Off: she sleeps beside the logo',
                     style: AppText.caption(theme)),

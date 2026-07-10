@@ -176,12 +176,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                                       child: HeaderParrot()),
                               ],
                             ),
-                            // The cat sleeps beside the logo (the
-                            // Vencord look) — always on mobile, and on
-                            // desktop whenever pointer-chasing is off.
+                            // Follow off: the cat sleeps beside the
+                            // logo instead of chasing pointer/touches.
                             if (ref.watch(buddyEnabledProvider('cat')) &&
-                                (!isDesktop ||
-                                    !ref.watch(catFollowProvider))) ...[
+                                !ref.watch(catFollowProvider)) ...[
                               const SizedBox(width: Space.s1),
                               const SleepingOneko(),
                             ],
