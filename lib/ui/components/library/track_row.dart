@@ -159,7 +159,10 @@ class TrackRow extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: Space.s3),
-              Text(track.duration.mmss, style: AppText.timestamp(theme)),
+              // Some sources (e.g. the YT Music feed) don't carry a
+              // duration — show nothing rather than a meaningless "0:00".
+              if (track.duration > Duration.zero)
+                Text(track.duration.mmss, style: AppText.timestamp(theme)),
               if (trailingReserve > 0) SizedBox(width: trailingReserve),
             ],
           ),

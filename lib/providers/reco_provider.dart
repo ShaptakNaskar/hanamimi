@@ -259,6 +259,17 @@ Future<void> playYtSongs(
       .playTracks(tracks, startIndex: index, mode: QueueMode.sequential);
 }
 
+/// The songs inside a YT Music home-feed playlist / mix card, for the
+/// online playlist detail view. Keyed by playlistId so re-opening the
+/// same card is instant. Empty when signed out.
+final ytPlaylistTracksProvider =
+    FutureProvider.family<List<OnlineSearchResult>, String>(
+        (ref, playlistId) async {
+  final account = ref.watch(ytAccountProvider).value;
+  if (account == null || !account.connected) return const [];
+  return YtSession(cookie: account.cookie).playlistTracks(playlistId);
+});
+
 /// Resolves a home-feed playlist / mix card to its tracks and plays it.
 /// Returns false when the playlist came back empty.
 Future<bool> playYtPlaylist(WidgetRef ref, YtPlaylistCard card) async {

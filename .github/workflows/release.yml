@@ -304,7 +304,13 @@ jobs:
       - name: Build
         run: |
           flutter pub get
-          flutter build linux --release
+          # Stamp the version like Android/Windows do — without --build-name
+          # the Linux bundle reports the pubspec base version forever, so the
+          # in-app update checker saw every release as newer (perpetual
+          # "update available" even when fully up to date).
+          flutter build linux --release \
+            --build-name=${{ needs.build-release.outputs.semver }} \
+            --build-number=${{ needs.build-release.outputs.code }}
 
       - name: Package AppImage
         env:

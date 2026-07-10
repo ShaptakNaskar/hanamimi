@@ -131,7 +131,12 @@ final updateCheckProvider = FutureProvider<AppUpdate?>((ref) async {
               ? tag.lastIndexOf('-')
               : tag.length);
       final versionCmp = compareSemver(version, currentVersion);
-      final isNewer = versionCmp > 0 || (versionCmp == 0 && run > currentCode);
+      // The run-number tie-break is an Android versionCode concept (split
+      // APKs share a semver but bump the code). Desktop packages version
+      // by semver alone, so comparing runs there just re-nags a fully
+      // up-to-date install — gate the tie-break to Android.
+      final isNewer = versionCmp > 0 ||
+          (Platform.isAndroid && versionCmp == 0 && run > currentCode);
       if (!isNewer) continue;
       if (best != null) {
         final bestCmp = compareSemver(version, best.semver);

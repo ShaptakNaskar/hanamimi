@@ -15,16 +15,18 @@ import '../../reco/yt_session.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
+import '../../utils/back_stack.dart';
 import '../components/home/track_shelf.dart';
 import '../components/library/art_thumb.dart';
 import '../modals/yt_signin_dialog.dart';
+import 'online_playlist_screen.dart';
 import 'online_search_screen.dart';
 
 /// Home — the start page (ARCHITECTURE-RECOMMENDATIONS.md §5). Shelves
 /// in trust order: your recents first, then the on-device picks, then
 /// (on +) online discovery. Never a merged pool; online never displaces
 /// your own music at the top.
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   static String greeting(DateTime now) {
@@ -36,7 +38,42 @@ class HomeScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  // An opened YT Music playlist / mix card renders in place (like the
+  // Library's inline playlist detail) so on desktop it stays in the
+  // middle pane instead of a full-window route over the sidebar/panel.
+  YtPlaylistCard? _openCard;
+
+  @override
+  void initState() {
+    super.initState();
+    // System back / Esc closes the open playlist first.
+    BackStack.register(this, () {
+      if (_openCard != null) {
+        setState(() => _openCard = null);
+        return true;
+      }
+      return false;
+    });
+  }
+
+  @override
+  void dispose() {
+    BackStack.unregister(this);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_openCard != null) {
+      return OnlinePlaylistView(
+        card: _openCard!,
+        onClose: () => setState(() => _openCard = null),
+      );
+    }
     final theme = ref.watch(currentThemeProvider);
     final recent = ref.watch(recentTracksProvider).value ?? const [];
     final forYou = ref.watch(forYouProvider).value ?? const [];
@@ -53,7 +90,7 @@ class HomeScreen extends ConsumerWidget {
         padding: const EdgeInsets.symmetric(horizontal: Space.s4),
         children: [
           const SizedBox(height: Space.s6),
-          Text(greeting(DateTime.now()),
+          Text(HomeScreen.greeting(DateTime.now()),
               style: AppText.screenTitle(theme)),
           const SizedBox(height: Space.s6),
           // The online search entry point lives on Home (the start page)
@@ -119,16 +156,10 @@ class HomeScreen extends ConsumerWidget {
               title: 'MIXED FOR YOU · YT MUSIC',
               cards: ytFeed.playlists,
               theme: theme,
-              onTap: (card) async {
-                final ok = await playYtPlaylist(ref, card);
-                if (!ok && context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    behavior: SnackBarBehavior.floating,
-                    content: Text("Couldn't open ${card.title}",
-                        style: const TextStyle(fontFamily: 'Nunito')),
-                  ));
-                }
-              },
+              // Open the playlist as a browsable list instead of playing
+              // it blind — from there you can play, save it offline, or
+              // download every song. Renders in place (see _openCard).
+              onTap: (card) => setState(() => _openCard = card),
             ),
           ],
           // One-time doorway to YT Music sign-in; dismissible forever,

@@ -4,7 +4,6 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../library/media_store_channel.dart';
 import '../../platform/desktop/desktop_library.dart';
@@ -32,6 +31,7 @@ import '../../theme/theme_tokens.dart';
 import '../../theme/themes.dart';
 import '../components/mascot/buddies.dart';
 import '../components/mascot/hanamimi_widget.dart';
+import '../modals/about_dialog.dart';
 import '../modals/update_dialog.dart';
 import '../modals/yt_signin_dialog.dart';
 import 'stats_screen.dart';
@@ -394,19 +394,7 @@ class _MoreCard extends ConsumerWidget {
             subtitle: Text(
                 ref.watch(appVersionLabelProvider).value ?? 'Hanamimi+ 花耳',
                 style: AppText.caption(theme)),
-            onTap: () {
-              final unlocked =
-                  ref.read(devModeProvider.notifier).registerAboutTap();
-              if (unlocked) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(Radii.md)),
-                  content: const Text('🛠️ Developer mode unlocked',
-                      style: TextStyle(fontFamily: 'Nunito')),
-                ));
-              }
-            },
+            onTap: () => showAboutHanamimi(context),
           ),
           Divider(height: 0.5, color: theme.divider),
           ListTile(
@@ -438,36 +426,6 @@ class _MoreCard extends ConsumerWidget {
             Divider(height: 0.5, color: theme.divider),
             const _KeepPlayingRow(),
           ],
-          Divider(height: 0.5, color: theme.divider),
-          ListTile(
-            leading: Icon(Icons.description_outlined,
-                size: 20, color: theme.textMuted),
-            title: Text('Open-source licenses',
-                style: AppText.rowSongTitle(theme)),
-            subtitle:
-                Text('yt-dlp · oneko · GPLv3', style: AppText.caption(theme)),
-            onTap: () => _showLicenseDialog(context, theme),
-          ),
-          Divider(height: 0.5, color: theme.divider),
-          ListTile(
-            leading: const Text('🐙', style: TextStyle(fontSize: 16)),
-            title: Text('GitHub', style: AppText.rowSongTitle(theme)),
-            subtitle: Text('github.com/ShaptakNaskar',
-                style: AppText.caption(theme)),
-            onTap: () => launchUrl(
-                Uri.parse('https://github.com/ShaptakNaskar/'),
-                mode: LaunchMode.externalApplication),
-          ),
-          Divider(height: 0.5, color: theme.divider),
-          ListTile(
-            leading: const Text('🌸', style: TextStyle(fontSize: 16)),
-            title: Text('Made by Sappy', style: AppText.rowSongTitle(theme)),
-            subtitle: Text('sappy-dir.vercel.app',
-                style: AppText.caption(theme)),
-            onTap: () => launchUrl(
-                Uri.parse('https://sappy-dir.vercel.app/'),
-                mode: LaunchMode.externalApplication),
-          ),
           if (ref.watch(devModeProvider).enabled) ...[
             Divider(height: 0.5, color: theme.divider),
             const _DevOptions(),
@@ -510,46 +468,6 @@ class _KeepPlayingRow extends ConsumerWidget {
             },
     );
   }
-}
-
-/// GPLv3 notice for the plus build. Hanamimi+ links yt-dlp (via
-/// youtubedl-android) for YouTube resolution, so this build is licensed
-/// under GPLv3 — surfacing the notice here honors that at distribution.
-void _showLicenseDialog(BuildContext context, HanamimiTheme theme) {
-  showDialog<void>(
-    context: context,
-    builder: (context) => AlertDialog(
-      backgroundColor: theme.surface,
-      shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.lg)),
-      title: Text('Open-source licenses', style: AppText.rowSongTitle(theme)),
-      content: SingleChildScrollView(
-        child: Text(
-          'Hanamimi+ bundles yt-dlp through youtubedl-android '
-          '(io.github.junkfood02.youtubedl-android), which is licensed under '
-          'the GNU General Public License v3.\n\n'
-          'Because this build links that library, Hanamimi+ as a whole is '
-          'distributed under GPLv3. The corresponding source is available at '
-          'github.com/ShaptakNaskar/hanamimi (plus branch).\n\n'
-          'yt-dlp and youtubedl-android are © their respective authors.\n\n'
-          'The desktop cursor cat is oneko — ported from oneko.js by adryd '
-          '(adryd325/oneko.js), which revives the classic X11 "neko". Its '
-          'sprite sheet ships with the app. The idea to bring it into an app '
-          'comes from the Vencord oneko plugin by V '
-          '(vencord.dev/plugins/oneko), which is likewise GPLv3.',
-          style: AppText.caption(theme),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text('Close',
-              style: AppText.rowSongTitle(theme)
-                  .copyWith(color: theme.primary)),
-        ),
-      ],
-    ),
-  );
 }
 
 /// Desktop: manage the folders the library scans. Rescans on close if
