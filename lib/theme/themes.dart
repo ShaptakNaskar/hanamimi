@@ -108,6 +108,25 @@ const neutralAdaptiveAmoled = HanamimiTheme(
   brightness: HanamimiBrightness.dark,
 );
 
+/// Theme 6 — AMOLED. The non-adaptive sibling of Adaptive AMOLED: the
+/// same pitch-black chassis, but a fixed cherry-pink/lavender palette
+/// that never follows the art. Midnight kawaii.
+const amoled = HanamimiTheme(
+  id: 'amoled',
+  name: 'AMOLED',
+  emoji: '⚫',
+  background: Color(0xFF000000),
+  surface: Color(0xFF0E0D0F),
+  primary: Color(0xFFFF8FAB),
+  secondary: Color(0xFFD4A5E8),
+  accent: Color(0xFFFFC2D1),
+  textPrimary: Color(0xFFEDEDED),
+  textMuted: Color(0xFF8F8A93),
+  divider: Color(0xFF1C1B1E),
+  visualizerStyle: VisualizerStyle.bars,
+  brightness: HanamimiBrightness.dark,
+);
+
 /// Builds an Adaptive theme from a Material You [ColorScheme] extracted
 /// from album art. The scheme is generated at the variant's brightness
 /// (see adaptive_theme_provider), so [variant] supplies id/name — and,
@@ -141,6 +160,7 @@ const allThemes = [
   starryNight,
   adaptiveDark,
   neutralAdaptiveAmoled,
+  amoled,
 ];
 
 HanamimiTheme themeById(String id) {
