@@ -39,7 +39,7 @@ permissions:
   contents: write # create releases + tags
 
 jobs:
-  build-release:
+  build-android:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
