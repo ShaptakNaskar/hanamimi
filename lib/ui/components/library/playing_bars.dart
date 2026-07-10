@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../providers/audio_provider.dart';
+import '../../../providers/window_activity_provider.dart';
 
 /// Three softly rising-and-falling bars shown on the row of the
 /// currently playing track (DESIGN.md §9.1). Watches playback itself:
@@ -34,8 +35,10 @@ class _PlayingBarsState extends ConsumerState<PlayingBars>
 
   @override
   Widget build(BuildContext context) {
-    final playing =
-        ref.watch(audioStateProvider).value?.isPlaying ?? false;
+    final playing = (ref.watch(audioStateProvider).value?.isPlaying ??
+            false) &&
+        // Minimized: no point dancing at 60 fps for a hidden window.
+        ref.watch(windowVisibleProvider);
     if (playing && !_controller.isAnimating) {
       _controller.repeat();
     } else if (!playing && _controller.isAnimating) {

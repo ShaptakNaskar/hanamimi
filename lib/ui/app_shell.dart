@@ -12,6 +12,7 @@ import '../platform/gamepad_service.dart';
 import '../providers/audio_provider.dart';
 import '../providers/buddy_provider.dart';
 import '../providers/desktop_shell_provider.dart';
+import '../providers/window_activity_provider.dart';
 import '../providers/import_job_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/theme_provider.dart';
@@ -60,6 +61,10 @@ class _AppShellState extends ConsumerState<AppShell>
 
   // Couch-mode gamepad → focus/transport.
   GamepadService? _gamepad;
+
+  // Polls the minimized flag while unfocused (Linux never reports the
+  // `hidden` lifecycle state) — see didChangeAppLifecycleState.
+  Timer? _minimizePoll;
 
   /// True while Hanamimi is the active/focused window — gates gamepad
   /// input so a game in front can't drive the player. On desktop the
@@ -168,6 +173,7 @@ class _AppShellState extends ConsumerState<AppShell>
     WidgetsBinding.instance.removeObserver(this);
     _errorSub?.cancel();
     _resumeTimer?.cancel();
+    _minimizePoll?.cancel();
     _gamepad?.dispose();
     super.dispose();
   }
@@ -186,14 +192,28 @@ class _AppShellState extends ConsumerState<AppShell>
     await windowManager.destroy();
   }
 
-  // Window focus gates the gamepad on desktop: the joystick backend reads
-  // the device globally, so without this a controller aimed at a game in
-  // front would still skip Hanamimi's tracks.
+  // Window focus gates the gamepad on desktop (the joystick backend
+  // reads the device globally, so without this a controller aimed at a
+  // game in front would still skip Hanamimi's tracks) — and the ambient
+  // animations, via window_activity_provider.
   @override
-  void onWindowFocus() => _appActive = true;
+  void onWindowFocus() {
+    _appActive = true;
+    windowFocused.value = true;
+    windowVisible.value = true; // focus implies restored
+  }
 
   @override
-  void onWindowBlur() => _appActive = false;
+  void onWindowBlur() {
+    _appActive = false;
+    windowFocused.value = false;
+  }
+
+  @override
+  void onWindowMinimize() => windowVisible.value = false;
+
+  @override
+  void onWindowRestore() => windowVisible.value = true;
 
   /// Desktop shortcuts: space play/pause, ←/→ seek 5 s, Ctrl+←/→
   /// prev/next, Esc backs out of overlays, 1–5 jump tabs.
@@ -267,6 +287,27 @@ class _AppShellState extends ConsumerState<AppShell>
     // focus above): a backgrounded app shouldn't have its controller
     // still driving playback while you game.
     _appActive = state == AppLifecycleState.resumed;
+    // Desktop window activity (window_activity_provider): Flutter's
+    // lifecycle IS the focus signal here — resumed means focused.
+    // (window_manager's onWindowFocus/Blur/Minimize never fire on
+    // Linux — verified against KWin — so don't rely on them.) Linux
+    // also never reports the `hidden` state on iconify, so while
+    // unfocused we poll the minimized flag — a direct GDK state query
+    // that does work — to learn when the window can't be seen at all.
+    if (isDesktop) {
+      windowFocused.value = state == AppLifecycleState.resumed;
+      if (state == AppLifecycleState.resumed) {
+        _minimizePoll?.cancel();
+        _minimizePoll = null;
+        windowVisible.value = true;
+      } else {
+        _minimizePoll ??=
+            Timer.periodic(const Duration(seconds: 2), (_) async {
+          final minimized = await windowManager.isMinimized();
+          if (_minimizePoll != null) windowVisible.value = !minimized;
+        });
+      }
+    }
     if (state != AppLifecycleState.resumed) return;
     // Back to the foreground: an OEM battery freeze can leave the seek bar
     // stalled and the FFT extraction dead. Snap the position to truth and

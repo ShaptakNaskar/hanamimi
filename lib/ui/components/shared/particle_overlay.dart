@@ -1,8 +1,9 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 
+import '../../../providers/window_activity_provider.dart';
 import '../../../theme/hanamimi_theme.dart';
 
 /// Theme background particles (DESIGN.md §3/§12): drifting sakura
@@ -59,12 +60,12 @@ class _Particle {
   final double size, speed, drift, spin, opacity;
 }
 
-class _ParticleOverlayState extends State<ParticleOverlay>
-    with SingleTickerProviderStateMixin {
-  late final Ticker _ticker;
+class _ParticleOverlayState extends State<ParticleOverlay> {
+  Timer? _timer;
+  final _clock = Stopwatch();
   final _rng = math.Random();
   final _particles = <_Particle>[];
-  Duration _last = Duration.zero;
+  double _last = 0;
   double _time = 0;
 
   static const _count = 14;
@@ -80,40 +81,44 @@ class _ParticleOverlayState extends State<ParticleOverlay>
     for (var i = 0; i < _fireflyCount; i++) {
       _fireflies.add(_Firefly(_rng));
     }
-    _ticker = createTicker(_tick);
-    // Only tick when there's something to animate — an idle active
-    // ticker still forces an engine frame every vsync.
-    _syncTicker();
+    // Drive at ~30 fps with a timer, not a vsync ticker: a ticker that
+    // merely SKIPS odd frames still forces the engine to raster + swap
+    // every vsync (and NVIDIA's GL swap busy-waits on CPU — the desktop
+    // constant-CPU report). A timer schedules only the frames we paint.
+    _syncTimer();
   }
 
   @override
   void didUpdateWidget(ParticleOverlay old) {
     super.didUpdateWidget(old);
-    _syncTicker();
+    _syncTimer();
   }
 
-  void _syncTicker() {
+  void _syncTimer() {
     if (!mounted) return;
-    if (widget._enabled && !_ticker.isActive) {
-      _last = Duration.zero;
-      _ticker.start();
-    } else if (!widget._enabled && _ticker.isActive) {
-      _ticker.stop();
-      _last = Duration.zero;
+    if (widget._enabled && _timer == null) {
+      _clock.start();
+      _last = _clock.elapsedMicroseconds / 1e6;
+      _timer = Timer.periodic(
+          const Duration(milliseconds: 33), (_) => _tick());
+    } else if (!widget._enabled && _timer != null) {
+      _timer!.cancel();
+      _timer = null;
+      _clock.stop();
     }
   }
 
-  void _tick(Duration elapsed) {
-    // Ambient drift doesn't need 60 fps — repaint at ~30. On desktop
-    // this overlay covers the whole window and every saved frame is a
-    // full-layer paint (part of the high-CPU report).
-    if ((elapsed - _last).inMilliseconds < 32) return;
+  void _tick() {
+    if (!mounted || !widget._enabled) return;
+    // Ambient decor: freeze while another window has focus — nobody is
+    // watching petals drift, and each repaint keeps the render pipeline
+    // hot. The dt clamp below absorbs the frozen stretch on refocus.
+    if (!windowFocused.value) return;
+    final now = _clock.elapsedMicroseconds / 1e6;
     // Clamp dt: it spans the whole disabled/backgrounded stretch after
     // a theme switch or app resume, which would teleport every particle.
-    final dt =
-        ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 1 / 15);
-    _last = elapsed;
-    if (!widget._enabled) return;
+    final dt = (now - _last).clamp(0.0, 1 / 15);
+    _last = now;
     _time += dt;
     if (widget._classic) {
       final falling = widget.theme.id == 'cherry_blossom';
@@ -141,7 +146,7 @@ class _ParticleOverlayState extends State<ParticleOverlay>
 
   @override
   void dispose() {
-    _ticker.dispose();
+    _timer?.cancel();
     super.dispose();
   }
 

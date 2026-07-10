@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../../../providers/window_activity_provider.dart';
 import 'mascot_painter.dart';
 
 enum MascotState { idle, playing, paused, changing, sleeping, loading }
@@ -89,9 +90,24 @@ class _HanamimiMascotState extends State<HanamimiMascot>
   void initState() {
     super.initState();
     _ticker = createTicker(_tick)..start();
+    windowVisible.addListener(_onWindowVisible);
+  }
+
+  void _onWindowVisible() {
+    if (windowVisible.value && mounted && !_ticker.isActive) {
+      _last = Duration.zero;
+      _ticker.start();
+    }
   }
 
   void _tick(Duration elapsed) {
+    // Minimized: hold the pose — bobbing along to music nobody can see
+    // keeps the whole render pipeline hot. Restarted on restore.
+    if (!windowVisible.value) {
+      _ticker.stop();
+      _last = Duration.zero;
+      return;
+    }
     final dt = (elapsed - _last).inMicroseconds / 1e6;
     _last = elapsed;
     _time += dt;
@@ -155,6 +171,7 @@ class _HanamimiMascotState extends State<HanamimiMascot>
 
   @override
   void dispose() {
+    windowVisible.removeListener(_onWindowVisible);
     _wake?.cancel();
     _ticker.dispose();
     super.dispose();

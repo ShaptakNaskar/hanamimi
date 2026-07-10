@@ -10,6 +10,7 @@ import '../visualizer/fft_processor.dart';
 import 'audio_provider.dart';
 import 'library_provider.dart';
 import 'theme_provider.dart';
+import 'window_activity_provider.dart';
 
 /// User gain for the visualizer (soft songs barely register at 1×).
 /// Persisted; applied before the perceptual curve in [BandShaper].
@@ -182,7 +183,15 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   // ~60 fps drive for the renderers (the old Visualizer capture capped
   // this at 30 Hz, which looked steppy).
   var settled = false;
+  var tick = 0;
   final timer = Timer.periodic(const Duration(milliseconds: 16), (_) {
+    // Minimized: freeze the stream — every emission rebuilds all the
+    // band listeners and keeps the render pipeline hot for a window
+    // nobody can see. Unfocused (visible on a second monitor, another
+    // app in front): keep moving at half rate.
+    tick++;
+    if (!windowVisible.value) return;
+    if (!windowFocused.value && tick.isOdd) return;
     final playing = ref.read(audioStateProvider).value?.isPlaying ?? false;
     final position =
         playing ? lastPosition + sinceReport.elapsed : lastPosition;

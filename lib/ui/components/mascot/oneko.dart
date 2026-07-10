@@ -4,8 +4,9 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart' show rootBundle;
+
+import '../../../providers/window_activity_provider.dart';
 
 // oneko — cursor-chasing cat. Native Dart port of oneko.js by adryd
 // (https://github.com/adryd325/oneko.js), which revives the classic X11
@@ -145,11 +146,12 @@ class _OnekoPet extends StatefulWidget {
   State<_OnekoPet> createState() => _OnekoPetState();
 }
 
-class _OnekoPetState extends State<_OnekoPet>
-    with SingleTickerProviderStateMixin {
+class _OnekoPetState extends State<_OnekoPet> {
   static const double _speed = 10;
-  // oneko runs its logic on a 100 ms clock; we throttle the vsync ticker
-  // to match instead of stepping every frame.
+  // oneko runs its logic on a 100 ms clock — a plain timer, because a
+  // vsync ticker (even one that skips 5 of 6 callbacks) forces the
+  // engine to raster + swap every vsync, and NVIDIA's GL swap
+  // busy-waits on CPU (the desktop constant-CPU report).
   static const _stepEvery = Duration(milliseconds: 100);
 
   // The sheet is loaded once and shared across rebuilds.
@@ -157,8 +159,7 @@ class _OnekoPetState extends State<_OnekoPet>
   static Future<ui.Image>? _loading;
 
   final _rng = math.Random();
-  late final Ticker _ticker;
-  Duration _lastStep = Duration.zero;
+  Timer? _timer;
 
   Size _area = Size.zero;
   bool _placed = false;
@@ -182,29 +183,28 @@ class _OnekoPetState extends State<_OnekoPet>
   @override
   void initState() {
     super.initState();
-    _ticker = createTicker(_onTick);
     if (_sheet != null) {
-      _ticker.start();
+      _start();
     } else {
       _loadSheet().then((_) {
         if (mounted) {
           setState(() {});
-          _ticker.start();
+          _start();
         }
       });
     }
   }
 
-  @override
-  void dispose() {
-    _ticker.dispose();
-    super.dispose();
+  void _start() {
+    _timer = Timer.periodic(_stepEvery, (_) {
+      if (mounted) _step();
+    });
   }
 
-  void _onTick(Duration elapsed) {
-    if (elapsed - _lastStep < _stepEvery) return;
-    _lastStep = elapsed;
-    _step();
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
   }
 
   void _setPose(String name, int frame) {
@@ -214,6 +214,10 @@ class _OnekoPetState extends State<_OnekoPet>
 
   void _step() {
     if (!_placed) return;
+    // The cat naps while another window has focus (see
+    // window_activity_provider) — chasing a cursor nobody is steering
+    // kept the render pipeline hot.
+    if (!windowFocused.value) return;
     _frameCount++;
 
     final cursor = widget.cursor.value;
