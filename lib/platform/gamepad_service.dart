@@ -10,11 +10,20 @@ import 'package:gamepads/gamepads.dart';
 /// is reachable without touching the screen). A face button activates
 /// the focused control; another steps back.
 ///
-/// The `gamepads` plugin reports keys per-platform, so this handles both
-/// conventions: the **Linux joystick API** (numeric keys "0".."10",
-/// analog axes in ±32767 — this is the desktop path we test) and the
-/// **Android/SDL** naming ("button-0", "dpad-up", ±1.0). Degrades to a
-/// no-op when no controller is present.
+/// The `gamepads` plugin reports keys per-platform, so this handles three
+/// conventions (the ROG Ally's embedded pad is an XInput/Xbox-360 device
+/// on every OS, but each backend surfaces it differently):
+///
+///  * **Linux joydev** — numeric keys "0".."10", analog axes signed
+///    ±32767, D-pad = hat axes 6 (X) / 7 (Y). The desktop path we test.
+///  * **Windows WinMM** (`joyGetPosEx`) — buttons "button-N", analog axes
+///    UNSIGNED 0..65535 (centre ≈32767), and the **D-pad as a POV hat**
+///    (`key:"pov"`, an angle in centidegrees, NOT an axis). Both the
+///    unsigned range and the POV hat were unhandled originally, which
+///    left the whole thing dead on the Ally under Windows.
+///  * **Android/SDL** — named keys ("button-0", "dpad-up"), values ±1.0.
+///
+/// Degrades to a no-op when no controller is present.
 class GamepadService {
   GamepadService({
     required this.onDirection,
@@ -47,6 +56,11 @@ class GamepadService {
   bool _vActive = false;
   static const _deadzone = 0.55;
 
+  // Last cardinal fired by the Windows POV hat, or null when centred —
+  // a POV can swing straight between directions without recentring, so
+  // we fire on every direction *change*, not just on leaving centre.
+  TraversalDirection? _povDir;
+
   void start() {
     try {
       _sub = Gamepads.events.listen(_onEvent);
@@ -59,9 +73,15 @@ class GamepadService {
     _sub?.cancel();
   }
 
-  /// Linux js values are ±32767; SDL/Android are ±1.0. Fold both into
-  /// a −1..1 range so the deadzone logic is platform-independent.
-  double _norm(double v) => v.abs() > 1.5 ? v / 32767.0 : v;
+  /// Fold every backend's axis range into −1..1 so the deadzone logic is
+  /// platform-independent. Detected by key SHAPE (not `Platform`, so it
+  /// stays valid on web): Windows WinMM axes are named "dw…" and unsigned
+  /// 0..65535; Linux joydev axes are signed ±32767; SDL/Android are ±1.0.
+  double _norm(String key, double v) {
+    if (key.startsWith('dw')) return (v - 32767.5) / 32767.5; // Windows
+    if (v.abs() > 1.5) return v / 32767.0; // Linux joydev
+    return v; // SDL/Android already −1..1
+  }
 
   void _onEvent(GamepadEvent e) {
     // Ignore controller input unless Hanamimi is the active window —
@@ -70,7 +90,12 @@ class GamepadService {
     final key = e.key.toLowerCase();
 
     if (e.type == KeyType.analog) {
-      _handleAnalog(key, _norm(e.value));
+      // Windows surfaces the D-pad as a POV hat (an angle), not an axis.
+      if (key == 'pov') {
+        _handlePov(e.value);
+        return;
+      }
+      _handleAnalog(key, _norm(key, e.value));
       return;
     }
 
@@ -106,6 +131,35 @@ class GamepadService {
         if (key.contains('start') || key.contains('menu')) onPlayPause();
     }
   }
+
+  /// Windows POV hat (the D-pad): an angle in centidegrees — 0=up,
+  /// 9000=right, 18000=down, 27000=left — or 65535 (JOY_POVCENTERED)
+  /// when released. Snap 8-way angles to the nearest cardinal for focus
+  /// traversal and fire once per direction change.
+  void _handlePov(double raw) {
+    final v = raw.round();
+    // Anything outside a real 0..35999 angle means "centred".
+    if (v < 0 || v >= 36000) {
+      _povDir = null;
+      return;
+    }
+    final deg = v / 100.0;
+    final dir = (deg >= 315 || deg < 45)
+        ? TraversalDirection.up
+        : deg < 135
+            ? TraversalDirection.right
+            : deg < 225
+                ? TraversalDirection.down
+                : TraversalDirection.left;
+    if (dir == _povDir) return; // still held the same way — don't repeat
+    _povDir = dir;
+    onDirection(dir);
+  }
+
+  /// Test seam: drive a synthetic controller event through the mapping
+  /// (the real path is [Gamepads.events], which a test can't feed).
+  @visibleForTesting
+  void debugHandleEvent(GamepadEvent e) => _onEvent(e);
 
   void _handleAnalog(String key, double value) {
     final idx = int.tryParse(key.replaceAll(RegExp(r'[^0-9]'), ''));
