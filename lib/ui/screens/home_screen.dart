@@ -4,8 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../library/models/track.dart';
 import '../../online/models/online_search_result.dart';
 import '../../providers/audio_provider.dart';
+import '../../providers/buddy_provider.dart';
 import '../../providers/home_provider.dart';
 import '../../providers/library_provider.dart';
+import '../../providers/mascot_provider.dart';
+import '../../providers/update_provider.dart';
 import '../../providers/online_provider.dart';
 import '../../providers/online_settings_provider.dart';
 import '../../providers/reco_provider.dart';
@@ -18,6 +21,9 @@ import '../../theme/theme_tokens.dart';
 import '../../utils/back_stack.dart';
 import '../components/home/track_shelf.dart';
 import '../components/library/art_thumb.dart';
+import '../components/mascot/hanamimi_widget.dart';
+import '../components/mascot/buddies.dart';
+import '../components/mascot/oneko.dart';
 import '../modals/yt_signin_dialog.dart';
 import 'online_playlist_screen.dart';
 import 'online_search_screen.dart';
@@ -28,14 +34,6 @@ import 'online_search_screen.dart';
 /// your own music at the top.
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
-
-  static String greeting(DateTime now) {
-    final h = now.hour;
-    if (h < 5) return 'Up late ♪';
-    if (h < 12) return 'Good morning ♪';
-    if (h < 17) return 'Good afternoon ♪';
-    return 'Good evening ♪';
-  }
 
   @override
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
@@ -90,9 +88,41 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         padding: const EdgeInsets.symmetric(horizontal: Space.s4),
         children: [
           const SizedBox(height: Space.s6),
-          Text(HomeScreen.greeting(DateTime.now()),
-              style: AppText.screenTitle(theme)),
-          const SizedBox(height: Space.s6),
+          // The Hanamimi header replaced the time-of-day greeting
+          // (user request) — same identity row as the Library, hidden
+          // in the three-pane shell where the sidebar already wears it.
+          if (MediaQuery.sizeOf(context).width < 1240) ...[
+            Row(
+              children: [
+                if (ref.watch(buddyEnabledProvider('beagle'))) ...[
+                  HanamimiMascot(
+                      state: ref.watch(mascotStateProvider), size: 30),
+                  const SizedBox(width: Space.s2),
+                ],
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Text(
+                        ref.watch(editionNameProvider).value ?? 'Hanamimi',
+                        style: AppText.screenTitle(theme)
+                            .copyWith(fontSize: 22)),
+                    if (ref.watch(buddyEnabledProvider('parrot')))
+                      const Positioned(
+                          left: 0,
+                          right: 0,
+                          top: -15,
+                          child: HeaderParrot()),
+                  ],
+                ),
+                if (ref.watch(buddyEnabledProvider('cat')) &&
+                    !ref.watch(catFollowProvider)) ...[
+                  const SizedBox(width: Space.s1),
+                  const SleepingOneko(),
+                ],
+              ],
+            ),
+            const SizedBox(height: Space.s6),
+          ],
           // The online search entry point lives on Home (the start page)
           // so streaming search is one tap from launch — Library search
           // stays local. Only shown when online features are on.
