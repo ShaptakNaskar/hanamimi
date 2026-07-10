@@ -44,7 +44,7 @@ permissions:
   contents: write # create releases + tags
 
 jobs:
-  build-release:
+  build-android:
     runs-on: ubuntu-latest
     # Desktop jobs below attach their artifacts to the release this
     # job creates (M31 — plus ships APKs + AppImage + Windows setup).
@@ -244,13 +244,13 @@ jobs:
           echo "sent"
 
   # --- Desktop builds (M31, plus edition only) -------------------------
-  # Both attach to the release build-release just published, so one plus
+  # Both attach to the release build-android just published, so one plus
   # push ships APKs + Windows installer + Linux AppImage together. The
   # in-app desktop updater looks for 'setup.exe' / '.AppImage' assets.
 
   build-windows:
     if: github.ref_name == 'plus'
-    needs: build-release
+    needs: build-android
     runs-on: windows-2022 # windows-latest (2025 image) breaks Flutter 3.29 VS detection
     steps:
       - uses: actions/checkout@v4
@@ -264,7 +264,7 @@ jobs:
       - name: Build
         run: |
           flutter pub get
-          flutter build windows --release --build-name=${{ needs.build-release.outputs.semver }} --build-number=${{ needs.build-release.outputs.code }}
+          flutter build windows --release --build-name=${{ needs.build-android.outputs.semver }} --build-number=${{ needs.build-android.outputs.code }}
 
       # Slim on purpose: the app self-fetches yt-dlp and ffmpeg on first
       # run (DesktopBinaries), and Telegram bots cap uploads at 50 MB.
@@ -272,20 +272,20 @@ jobs:
         shell: pwsh
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
-            /DAppVersion=${{ needs.build-release.outputs.semver }} `
+            /DAppVersion=${{ needs.build-android.outputs.semver }} `
             /O"dist" packaging\windows\hanamimi.iss
 
       - name: Attach to release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.build-release.outputs.tag }}
+          tag_name: ${{ needs.build-android.outputs.tag }}
           files: dist/hanamimi-plus-setup.exe
           # Keep it a draft — publish-plus flips it live once all builds pass.
           draft: true
 
   build-linux:
     if: github.ref_name == 'plus'
-    needs: build-release
+    needs: build-android
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -309,8 +309,8 @@ jobs:
           # in-app update checker saw every release as newer (perpetual
           # "update available" even when fully up to date).
           flutter build linux --release \
-            --build-name=${{ needs.build-release.outputs.semver }} \
-            --build-number=${{ needs.build-release.outputs.code }}
+            --build-name=${{ needs.build-android.outputs.semver }} \
+            --build-number=${{ needs.build-android.outputs.code }}
 
       - name: Package AppImage
         env:
@@ -325,7 +325,7 @@ jobs:
           sudo apt-get install -y libarchive-tools zstd
           packaging/linux/make_archpkg.sh \
             build/linux/x64/release/bundle \
-            ${{ needs.build-release.outputs.semver }} dist
+            ${{ needs.build-android.outputs.semver }} dist
 
       - name: Package .deb + .rpm (fpm)
         run: |
@@ -334,12 +334,12 @@ jobs:
           sudo gem install --no-document fpm
           packaging/linux/make_fpm.sh \
             build/linux/x64/release/bundle \
-            ${{ needs.build-release.outputs.semver }} dist
+            ${{ needs.build-android.outputs.semver }} dist
 
       - name: Attach to release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.build-release.outputs.tag }}
+          tag_name: ${{ needs.build-android.outputs.tag }}
           # Keep it a draft — publish-plus flips it live once all builds pass.
           draft: true
           files: |
@@ -357,7 +357,7 @@ jobs:
     if: github.ref_name == 'plus'
     # Only reached when APK + Windows + Linux ALL succeed — that's the gate
     # for making the release public / posting it out.
-    needs: [build-release, build-windows, build-linux]
+    needs: [build-android, build-windows, build-linux]
     runs-on: ubuntu-latest
     steps:
       # Flip the draft live now that every artifact is attached. This is
@@ -367,7 +367,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release edit '${{ needs.build-release.outputs.tag }}' \
+          gh release edit '${{ needs.build-android.outputs.tag }}' \
             --repo '${{ github.repository }}' \
             --draft=false --latest
 
@@ -386,7 +386,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download '${{ needs.build-release.outputs.tag }}' \
+          gh release download '${{ needs.build-android.outputs.tag }}' \
             --repo '${{ github.repository }}' \
             -p 'hanamimi-plus-arm64-v8a.apk' \
             -p 'hanamimi-plus-setup.exe' \
@@ -398,9 +398,9 @@ jobs:
         env:
           BOT: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
-          NOTES: ${{ needs.build-release.outputs.notes }}
-          DIFFLINK: ${{ needs.build-release.outputs.difflink }}
-          DISPLAY: ${{ needs.build-release.outputs.display }}
+          NOTES: ${{ needs.build-android.outputs.notes }}
+          DIFFLINK: ${{ needs.build-android.outputs.difflink }}
+          DISPLAY: ${{ needs.build-android.outputs.display }}
         run: |
           NOTES=$(printf '%s' "$NOTES" \
             | sed -E 's/^[[:space:]]*[*-][[:space:]]+/• /' \
