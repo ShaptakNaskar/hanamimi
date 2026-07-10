@@ -18,15 +18,19 @@ import 'theme_provider.dart';
 /// fails — never a jarring default. Only consulted while the selected theme
 /// is one of the adaptive ids.
 final adaptiveThemeProvider = FutureProvider<HanamimiTheme>((ref) async {
-  final dark = ref.watch(selectedThemeIdProvider) == neutralAdaptiveDark.id;
-  final variant = dark ? neutralAdaptiveDark : neutralAdaptiveLight;
+  final id = ref.watch(selectedThemeIdProvider);
+  final variant = id == neutralAdaptiveAmoled.id
+      ? neutralAdaptiveAmoled
+      : id == neutralAdaptiveDark.id
+          ? neutralAdaptiveDark
+          : neutralAdaptiveLight;
   final track = ref.watch(_artKeyProvider);
   final provider = track?.$2;
   if (provider == null) return variant;
   try {
     final scheme = await ColorScheme.fromImageProvider(
       provider: provider,
-      brightness: dark ? Brightness.dark : Brightness.light,
+      brightness: variant.isDark ? Brightness.dark : Brightness.light,
     );
     return fromArtScheme(scheme, variant);
   } catch (_) {

@@ -83,29 +83,65 @@ const neutralAdaptiveDark = HanamimiTheme(
   brightness: HanamimiBrightness.dark,
 );
 
+/// Theme 5 — Adaptive AMOLED. Pitch-black canvas, art-derived jewelry.
+/// The neutral slots (background/surface/text/divider) are pinned — pure
+/// black stays pure black on every track — and only primary/secondary/
+/// accent follow the album art. These consts double as the no-art
+/// fallback, same role as [neutralAdaptiveDark].
+const neutralAdaptiveAmoled = HanamimiTheme(
+  id: 'adaptive_amoled',
+  name: 'Adaptive AMOLED',
+  emoji: '🖤',
+  background: Color(0xFF000000),
+  // Cards need a ~5% lift off true black or the layout dissolves;
+  // shadows are invisible here, so this + the hairline divider carry
+  // all the separation.
+  surface: Color(0xFF0E0D0F),
+  primary: Color(0xFFC9A9C4),
+  secondary: Color(0xFFB79AAE),
+  accent: Color(0xFFD9BAD2),
+  // Not pure white — #FFF on #000 halates/smears on OLED panels.
+  textPrimary: Color(0xFFEDEDED),
+  textMuted: Color(0xFF8F8A93),
+  divider: Color(0xFF1C1B1E),
+  visualizerStyle: VisualizerStyle.bars,
+  brightness: HanamimiBrightness.dark,
+);
+
 /// Builds an Adaptive theme from a Material You [ColorScheme] extracted
 /// from album art. The scheme is generated at the variant's brightness
-/// (see adaptive_theme_provider), so [variant] just supplies id/name.
-HanamimiTheme fromArtScheme(ColorScheme s, HanamimiTheme variant) =>
-    HanamimiTheme(
-      id: variant.id,
-      name: variant.name,
-      emoji: variant.emoji,
-      background: s.surface,
-      surface: s.surfaceContainerHigh,
-      primary: s.primary,
-      secondary: s.tertiary, // second bar colour / lerp target
-      accent: s.secondary,
-      textPrimary: s.onSurface,
-      textMuted: s.onSurfaceVariant,
-      divider: s.outlineVariant,
-      visualizerStyle: VisualizerStyle.bars,
-      brightness: s.brightness == Brightness.dark
-          ? HanamimiBrightness.dark
-          : HanamimiBrightness.light,
-    );
+/// (see adaptive_theme_provider), so [variant] supplies id/name — and,
+/// for AMOLED, the pinned neutral slots: there only the accents follow
+/// the art (dark-scheme tones ~80 read well on black), everything else
+/// stays black/grey so the colour pops by scarcity.
+HanamimiTheme fromArtScheme(ColorScheme s, HanamimiTheme variant) {
+  final amoled = variant.id == neutralAdaptiveAmoled.id;
+  return HanamimiTheme(
+    id: variant.id,
+    name: variant.name,
+    emoji: variant.emoji,
+    background: amoled ? variant.background : s.surface,
+    surface: amoled ? variant.surface : s.surfaceContainerHigh,
+    primary: s.primary,
+    secondary: s.tertiary, // second bar colour / lerp target
+    accent: s.secondary,
+    textPrimary: amoled ? variant.textPrimary : s.onSurface,
+    textMuted: amoled ? variant.textMuted : s.onSurfaceVariant,
+    divider: amoled ? variant.divider : s.outlineVariant,
+    visualizerStyle: VisualizerStyle.bars,
+    brightness: s.brightness == Brightness.dark
+        ? HanamimiBrightness.dark
+        : HanamimiBrightness.light,
+  );
+}
 
-const allThemes = [cherryBlossom, adaptiveLight, starryNight, adaptiveDark];
+const allThemes = [
+  cherryBlossom,
+  adaptiveLight,
+  starryNight,
+  adaptiveDark,
+  neutralAdaptiveAmoled,
+];
 
 HanamimiTheme themeById(String id) {
   // Retired themes land on a sensible survivor rather than a missing one:

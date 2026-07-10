@@ -48,11 +48,11 @@ final selectedThemeIdProvider =
 /// it resolves).
 final resolvedThemeProvider = Provider<HanamimiTheme>((ref) {
   final id = ref.watch(selectedThemeIdProvider);
-  if (id == neutralAdaptiveLight.id || id == neutralAdaptiveDark.id) {
-    return ref.watch(adaptiveThemeProvider).value ??
-        (id == neutralAdaptiveDark.id
-            ? neutralAdaptiveDark
-            : neutralAdaptiveLight);
+  if (id == neutralAdaptiveLight.id ||
+      id == neutralAdaptiveDark.id ||
+      id == neutralAdaptiveAmoled.id) {
+    // themeById(id) is the matching neutral fallback while extraction runs.
+    return ref.watch(adaptiveThemeProvider).value ?? themeById(id);
   }
   return themeById(id);
 });
