@@ -19,7 +19,7 @@ class BuddyInfo {
 const buddyCatalog = [
   BuddyInfo('beagle', 'Hanamimi', 'Header & Now Playing'),
   BuddyInfo('parrot', 'Parrot', 'Perches on the Library title'),
-  BuddyInfo('cat', 'Cat', 'Sleeps beside the logo'),
+  BuddyInfo('cat', 'Cat', 'Chases your pointer or touches · naps by the logo'),
   BuddyInfo('duck', 'Duck', 'Struts atop Liked songs'),
   BuddyInfo('fireflies', 'Fireflies', 'Glow on the dark themes'),
   BuddyInfo('rabbit', 'Rabbit', 'Hops along downloads'),

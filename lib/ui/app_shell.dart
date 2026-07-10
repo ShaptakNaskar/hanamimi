@@ -9,6 +9,7 @@ import '../library/models/track.dart';
 import '../platform/gamepad_service.dart';
 import '../providers/audio_provider.dart';
 import '../providers/buddy_provider.dart';
+import 'components/mascot/oneko.dart';
 import '../providers/session_provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/update_provider.dart';
@@ -226,6 +227,12 @@ class _AppShellState extends ConsumerState<AppShell>
       ),
     );
 
+    // The cat chases your taps and drags across the whole shell (the
+    // full oneko), napping where the finger last was — unless follow
+    // is off, in which case she sleeps beside the edition logo.
+    final onekoChase = ref.watch(buddyEnabledProvider('cat')) &&
+        ref.watch(catFollowProvider);
+
     if (!wide) {
       return PopScope(
         canPop: false,
@@ -233,7 +240,7 @@ class _AppShellState extends ConsumerState<AppShell>
           if (!didPop) _onSystemBack();
         },
         child: Scaffold(
-          body: content,
+          body: onekoChase ? OnekoLayer(child: content) : content,
           bottomNavigationBar: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -324,7 +331,10 @@ class _AppShellState extends ConsumerState<AppShell>
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _onSystemBack();
       },
-      child: Scaffold(body: wideBackground),
+      child: Scaffold(
+          body: onekoChase
+              ? OnekoLayer(child: wideBackground)
+              : wideBackground),
     );
   }
 }

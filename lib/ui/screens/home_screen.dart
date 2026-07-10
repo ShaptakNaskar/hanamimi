@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/audio_provider.dart';
+import '../../providers/buddy_provider.dart';
 import '../../providers/home_provider.dart';
+import '../../providers/mascot_provider.dart';
+import '../../providers/update_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/reco_provider.dart';
 import '../../providers/theme_provider.dart';
@@ -10,20 +13,15 @@ import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
 import '../components/home/track_shelf.dart';
+import '../components/mascot/buddies.dart';
+import '../components/mascot/hanamimi_widget.dart';
+import '../components/mascot/oneko.dart';
 
 /// Home — the start page (ARCHITECTURE-RECOMMENDATIONS.md §5). Shelves
 /// in trust order: your recents first, then the on-device picks. Base
 /// Hanamimi is local-only, so there are no online shelves here.
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
-
-  static String greeting(DateTime now) {
-    final h = now.hour;
-    if (h < 5) return 'Up late ♪';
-    if (h < 12) return 'Good morning ♪';
-    if (h < 17) return 'Good afternoon ♪';
-    return 'Good evening ♪';
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -39,9 +37,41 @@ class HomeScreen extends ConsumerWidget {
         padding: const EdgeInsets.symmetric(horizontal: Space.s4),
         children: [
           const SizedBox(height: Space.s6),
-          Text(greeting(DateTime.now()),
-              style: AppText.screenTitle(theme)),
-          const SizedBox(height: Space.s6),
+          // The Hanamimi header replaced the time-of-day greeting
+          // (user request) — same identity row as the Library, hidden
+          // in the three-pane shell where the sidebar already wears it.
+          if (MediaQuery.sizeOf(context).width < 1240) ...[
+            Row(
+              children: [
+                if (ref.watch(buddyEnabledProvider('beagle'))) ...[
+                  HanamimiMascot(
+                      state: ref.watch(mascotStateProvider), size: 30),
+                  const SizedBox(width: Space.s2),
+                ],
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Text(
+                        ref.watch(editionNameProvider).value ?? 'Hanamimi',
+                        style: AppText.screenTitle(theme)
+                            .copyWith(fontSize: 22)),
+                    if (ref.watch(buddyEnabledProvider('parrot')))
+                      const Positioned(
+                          left: 0,
+                          right: 0,
+                          top: -15,
+                          child: HeaderParrot()),
+                  ],
+                ),
+                if (ref.watch(buddyEnabledProvider('cat')) &&
+                    !ref.watch(catFollowProvider)) ...[
+                  const SizedBox(width: Space.s1),
+                  const SleepingOneko(),
+                ],
+              ],
+            ),
+            const SizedBox(height: Space.s6),
+          ],
           if (recent.isEmpty)
             _EmptyHome(theme: theme, libraryEmpty: libraryEmpty)
           else

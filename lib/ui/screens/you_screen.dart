@@ -64,7 +64,8 @@ class YouScreen extends ConsumerWidget {
                           child: HeaderParrot()),
                   ],
                 ),
-                if (ref.watch(buddyEnabledProvider('cat'))) ...[
+                if (ref.watch(buddyEnabledProvider('cat')) &&
+                    !ref.watch(catFollowProvider)) ...[
                   const SizedBox(width: Space.s1),
                   const SleepingOneko(),
                 ],
@@ -187,7 +188,7 @@ class _BuddiesCard extends ConsumerWidget {
       ),
       child: Column(
         children: [
-          for (final info in buddyCatalog)
+          for (final info in buddyCatalog) ...[
             SwitchListTile(
               secondary: SizedBox(
                 width: 34,
@@ -201,6 +202,21 @@ class _BuddiesCard extends ConsumerWidget {
                   .read(buddyTogglesProvider.notifier)
                   .setEnabled(info.id, on),
             ),
+            // Cat sub-toggle: chase your touches (the full oneko), or
+            // asleep beside the logo.
+            if (info.id == 'cat' && !disabled.contains('cat'))
+              SwitchListTile(
+                contentPadding:
+                    const EdgeInsets.only(left: Space.s8, right: 16),
+                title: Text('Chase your touches',
+                    style: AppText.rowSongTitle(theme)),
+                subtitle: Text('Off: she sleeps beside the logo',
+                    style: AppText.caption(theme)),
+                value: ref.watch(catFollowProvider),
+                onChanged: (on) =>
+                    ref.read(catFollowProvider.notifier).set(on),
+              ),
+          ],
         ],
       ),
     );

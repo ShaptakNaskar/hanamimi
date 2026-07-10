@@ -161,9 +161,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                                   child: HeaderParrot()),
                           ],
                         ),
-                        // The cat sleeps beside the logo (the Vencord
-                        // look) — the oneko sprite's sleep frames.
-                        if (ref.watch(buddyEnabledProvider('cat'))) ...[
+                        // Follow off: the cat sleeps beside the logo
+                        // instead of chasing your touches.
+                        if (ref.watch(buddyEnabledProvider('cat')) &&
+                            !ref.watch(catFollowProvider)) ...[
                           const SizedBox(width: Space.s1),
                           const SleepingOneko(),
                         ],

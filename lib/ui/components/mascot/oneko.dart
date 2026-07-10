@@ -14,10 +14,10 @@ import '../../../providers/window_activity_provider.dart';
 // project. Brought in as an app buddy after the Vencord oneko plugin by
 // V (https://vencord.dev/plugins/oneko). Both are GPLv3, as is this app.
 
-/// oneko — the classic cursor-chasing cat (adryd325/oneko.js, itself the
-/// X11 `neko`). On mobile the "cat" buddy naps on the mini player; the
-/// desktop shell has no mini player, so here the same buddy wakes up and
-/// chases the mouse pointer around the window.
+/// oneko — the classic pointer-chasing cat (adryd325/oneko.js, itself
+/// the X11 `neko`). On desktop she chases the mouse; on touch screens
+/// she chases your taps and drags, reaches the last spot your finger
+/// touched, gets bored, and naps there.
 ///
 /// Faithful port of oneko.js: 32px sprites lifted from the 256x128 sheet,
 /// 10px per step at 10 fps, with the alert / idle / tired / sleeping /
@@ -55,6 +55,9 @@ class _OnekoLayerState extends State<OnekoLayer> {
           behavior: HitTestBehavior.translucent,
           onPointerHover: (e) => _cursor.value = e.localPosition,
           onPointerMove: (e) => _cursor.value = e.localPosition,
+          // Touch screens have no hover — taps are how the cat learns
+          // where your finger went.
+          onPointerDown: (e) => _cursor.value = e.localPosition,
           child: widget.child,
         ),
         // The cat is decoration — never let it eat a tap.
@@ -365,6 +368,13 @@ class _OnekoPetState extends State<_OnekoPet> {
       if (_x > _area.width - 32) avail.add('scratchWallE');
       if (_y > _area.height - 32) avail.add('scratchWallS');
       _idleAnimation = avail[_rng.nextInt(avail.length)];
+    }
+    // The real neko is a sleepy one: the dice above only MAYBE pick an
+    // idle animation (1/200 a tick, sleeping just one option among the
+    // scratches), so she could fidget for minutes without nodding off
+    // (user report). ~8 s of stillness now guarantees a nap.
+    if (_idleAnimation == null && _idleTime > 80) {
+      _idleAnimation = 'sleeping';
     }
 
     switch (_idleAnimation) {
