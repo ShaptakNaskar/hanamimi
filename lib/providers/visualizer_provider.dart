@@ -284,7 +284,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
 
   List<double> synth(bool playing) {
     final t = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    return [
+    final out = [
       for (var i = 0; i < outCount; i++)
         playing
             ? (0.12 +
@@ -293,6 +293,28 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
                 .clamp(0.02, 1.0)
             : 0.0,
     ];
+    if (playing && outCount >= 14) {
+      // The sine ripple reads fine as bars, but the VU styles drive
+      // their needles/LEDs from the L/R slots — where the ripple turns
+      // into two rigid metronomes (user report). Meters expect a
+      // loudness ENVELOPE, so fake a groove instead: a decaying kick,
+      // a softer offbeat hat, per-beat accent variation, a slow swell,
+      // and a small L/R skew so the channels breathe independently.
+      const bps = 104 / 60; // unhurried; doesn't race whatever's loading
+      final beat = t * bps;
+      final ph = beat - beat.floorToDouble();
+      // Cheap deterministic per-beat "randomness" (shader-style hash).
+      final accent =
+          0.7 + 0.3 * ((math.sin(beat.floorToDouble() * 12.9898) * 43758.5453) % 1.0);
+      final kick = accent * math.exp(-ph * 6.5);
+      final hat = 0.35 * math.exp(-((ph + 0.5) % 1.0) * 9.0);
+      final swell = 0.8 + 0.2 * math.sin(t * 0.31);
+      final rms = (0.16 + 0.55 * kick + 0.18 * hat) * swell;
+      final skew = 0.08 * math.sin(t * 1.7);
+      out[12] = (rms * (1 + skew)).clamp(0.02, 1.0);
+      out[13] = (rms * (1 - skew)).clamp(0.02, 1.0);
+    }
+    return out;
   }
 
   // ~60 fps drive for the renderers (the old Visualizer capture capped
