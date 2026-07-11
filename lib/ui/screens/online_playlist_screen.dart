@@ -15,6 +15,7 @@ import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
 import '../components/library/art_thumb.dart';
+import '../components/library/playlist_hero_header.dart';
 import '../components/library/track_row.dart';
 import '../modals/download_quality_sheet.dart';
 import '../modals/playlist_picker_sheet.dart';
@@ -64,17 +65,6 @@ class _OnlinePlaylistViewState extends ConsumerState<OnlinePlaylistView> {
     await ref
         .read(audioHandlerProvider)
         .playTracks(tracks, startIndex: index, mode: QueueMode.sequential);
-  }
-
-  Future<void> _shuffle(List<OnlineSearchResult> results) async {
-    if (_working) return;
-    setState(() => _working = true);
-    final tracks = await _materialize(results);
-    if (!mounted) return;
-    setState(() => _working = false);
-    final handler = ref.read(audioHandlerProvider);
-    await handler.playTracks(tracks);
-    handler.engine.setMode(QueueMode.shuffle);
   }
 
   /// Saves the playlist into the user's own library as a new offline
@@ -234,86 +224,32 @@ class _OnlinePlaylistViewState extends ConsumerState<OnlinePlaylistView> {
     // gap below the header before the first row.
     return Padding(
       padding: const EdgeInsets.only(bottom: Space.s4),
-      child: Column(
-        children: [
-          ArtThumb(
-            title: widget.card.title,
-            artUrl: widget.card.artUrl,
-            size: 180,
-            radius: Radii.md,
-          ),
-          const SizedBox(height: Space.s4),
-          Text(widget.card.title,
-              style: AppText.screenTitle(theme),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis),
-          const SizedBox(height: Space.s1),
-          Text(
+      child: PlaylistHeroHeader(
+        theme: theme,
+        cover: ArtThumb(
+          title: widget.card.title,
+          artUrl: widget.card.artUrl,
+          size: 180,
+          radius: Radii.md,
+        ),
+        title: widget.card.title,
+        meta:
             '${results.length} song${results.length == 1 ? '' : 's'} · YouTube Music',
-            style: AppText.caption(theme),
-          ),
-          const SizedBox(height: Space.s4),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _headerAction(
-                icon: Icons.library_add_outlined,
-                label: 'Save',
-                onTap: () => _saveToLibrary(results),
-                theme: theme,
-              ),
-              const SizedBox(width: Space.s4),
-              _headerAction(
-                icon: Icons.download_for_offline_outlined,
-                label: 'Download',
-                onTap: () => _downloadAll(results),
-                theme: theme,
-              ),
-              const SizedBox(width: Space.s4),
-              _headerAction(
-                icon: Icons.shuffle,
-                label: 'Shuffle',
-                onTap: () => _shuffle(results),
-                theme: theme,
-              ),
-              const SizedBox(width: Space.s4),
-              InkResponse(
-                onTap: () => _playFrom(results, 0),
-                radius: 30,
-                child: Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                      color: theme.primary, shape: BoxShape.circle),
-                  child: const Icon(Icons.play_arrow,
-                      color: Colors.white, size: 32),
-                ),
-              ),
-            ],
+        leading: [
+          HeroAction(
+            theme: theme,
+            icon: Icons.library_add_outlined,
+            onTap: () => _saveToLibrary(results),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _headerAction({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-    required HanamimiTheme theme,
-  }) {
-    return InkResponse(
-      onTap: onTap,
-      radius: 26,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 24, color: theme.textMuted),
-          const SizedBox(height: Space.s1),
-          Text(label,
-              style: AppText.caption(theme).copyWith(fontSize: 10)),
+        trailing: [
+          HeroAction(
+            theme: theme,
+            icon: Icons.download_for_offline_outlined,
+            onTap: () => _downloadAll(results),
+          ),
         ],
+        onPlay: () => _playFrom(results, 0),
       ),
     );
   }

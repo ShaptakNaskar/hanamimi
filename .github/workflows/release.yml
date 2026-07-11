@@ -111,6 +111,13 @@ jobs:
           PATCH=$((MAXP + 1))
           SEMVER="${MM}.${PATCH}"
           EDITION=$([ "$BRANCH" = "plus" ] && echo "Hanamimi+" || echo "Hanamimi")
+          # Newest existing tag of this edition (max run-number suffix) —
+          # the patch-notes step diffs the release against it, so notes
+          # cover everything since the LAST RELEASE, not just the commit
+          # that happened to trigger this run.
+          PREVTAG=$(gh api "repos/${{ github.repository }}/tags?per_page=100" --paginate \
+            --jq "[.[] | select(.name | startswith(\"${BRANCH}-v\"))] | max_by(.name | split(\"-\") | last | tonumber) | .name // empty" 2>/dev/null || echo "")
+          echo "prevtag=${PREVTAG}" >> "$GITHUB_OUTPUT"
           echo "semver=${SEMVER}" >> "$GITHUB_OUTPUT"
           echo "code=${RUN}" >> "$GITHUB_OUTPUT"
           echo "tag=${BRANCH}-v${SEMVER}-${RUN}" >> "$GITHUB_OUTPUT"
@@ -139,9 +146,31 @@ jobs:
         id: notes
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          COMMIT_MSG=$(git log -1 --pretty=format:'%s%n%n%b')
-          DIFF=$( (git diff HEAD~1 --stat; git diff HEAD~1 | head -c 6000) 2>/dev/null || echo "(no diff available)")
+          # Notes must cover everything since the PREVIOUS RELEASE, not
+          # just the triggering commit — 2.5.0's notes once described a CI
+          # rename and missed the two theme commits shipped in cancelled
+          # runs before it. Diff via the compare API (the checkout is too
+          # shallow to see the previous tag). Guard rails: no previous tag,
+          # a compare failure, or an absurd commit span (a pre-fix tag that
+          # points at the wrong branch — see target_commitish above) all
+          # fall back to the old single-commit behaviour.
+          PREV="${{ steps.ver.outputs.prevtag }}"
+          RANGE="repos/${{ github.repository }}/compare/${PREV}...${{ github.sha }}"
+          COMMIT_MSG=""
+          DIFF=""
+          if [ -n "$PREV" ]; then
+            N=$(gh api "$RANGE" --jq '.commits | length' 2>/dev/null || echo 0)
+            if [ "$N" -ge 1 ] && [ "$N" -le 40 ]; then
+              COMMIT_MSG=$(gh api "$RANGE" --jq '[.commits[].commit.message] | join("\n\n")')
+              DIFF=$( { gh api "$RANGE" --jq '.files[] | "\(.filename) | +\(.additions) -\(.deletions)"'; gh api "$RANGE" --jq '[.files[].patch // empty] | join("\n")' | head -c 6000; } 2>/dev/null || echo "" )
+            fi
+          fi
+          if [ -z "$COMMIT_MSG" ]; then
+            COMMIT_MSG=$(git log -1 --pretty=format:'%s%n%n%b')
+            DIFF=$( (git diff HEAD~1 --stat; git diff HEAD~1 | head -c 6000) 2>/dev/null || echo "(no diff available)")
+          fi
           NOTES=""
           if [ -n "$GROQ_API_KEY" ]; then
             BODY=$(jq -n \
@@ -181,6 +210,11 @@ jobs:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: ${{ steps.ver.outputs.display }}
           body_path: release_body.md
+          # Without this, GitHub mints a missing tag from the DEFAULT
+          # branch — every plus tag used to land on whatever main's HEAD
+          # was at release time (found when tag-based changelogs diffed
+          # nonsense). Pin the tag to the commit that was actually built.
+          target_commitish: ${{ github.sha }}
           files: build/app/outputs/flutter-apk/hanamimi-*.apk
           # plus ships APKs + Linux AppImage + Windows installer together.
           # Create the release as a DRAFT so it stays invisible (and its

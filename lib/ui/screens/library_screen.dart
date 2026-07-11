@@ -29,6 +29,7 @@ import '../components/mascot/hanamimi_widget.dart';
 import '../components/mascot/oneko.dart';
 import '../components/library/playlist_card.dart';
 import '../components/library/playlist_cover.dart';
+import '../components/library/playlist_hero_header.dart';
 import '../components/library/track_row.dart';
 import '../components/shared/pill_tab_bar.dart';
 import '../modals/download_quality_sheet.dart';
@@ -1029,79 +1030,42 @@ class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
         : '${totalDur.inMinutes} min';
     final header = Padding(
       padding: const EdgeInsets.fromLTRB(Space.s4, 0, Space.s4, Space.s4),
-      child: Column(
-        children: [
-          // Tap the cover to pick a custom image (or reset it).
-          GestureDetector(
-            onTap: () => _pickCover(playlist, theme),
-            child:
-                PlaylistCover(playlist: playlist, size: 180, fontSize: 56),
-          ),
-          const SizedBox(height: Space.s4),
-          Text(playlist.name,
-              style: AppText.screenTitle(theme),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis),
-          const SizedBox(height: Space.s1),
-          Text(
+      child: PlaylistHeroHeader(
+        theme: theme,
+        // Tap the cover to pick a custom image (or reset it).
+        cover: GestureDetector(
+          onTap: () => _pickCover(playlist, theme),
+          child: PlaylistCover(playlist: playlist, size: 180, fontSize: 56),
+        ),
+        title: playlist.name,
+        meta:
             '${tracks.length} song${tracks.length == 1 ? '' : 's'} · $totalLabel',
-            style: AppText.caption(theme),
-          ),
-          Text('swipe left to remove · hold to reorder',
-              style: AppText.caption(theme).copyWith(fontSize: 10)),
-          const SizedBox(height: Space.s3),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Online tracks not yet saved offline → "download all".
-              if (tracks.any((t) => !t.isLocal && !t.isPlayableOffline))
-                InkResponse(
-                  onTap: () => _downloadAll(tracks, theme),
-                  radius: 22,
-                  child: SizedBox(
-                    width: Sizes.minTouchTarget,
-                    height: Sizes.minTouchTarget,
-                    child: Icon(Icons.download_for_offline_outlined,
-                        size: 24, color: theme.textMuted),
-                  ),
-                ),
-              const SizedBox(width: Space.s4),
-              InkResponse(
-                onTap: tracks.isEmpty
-                    ? null
-                    : () {
-                        final handler = ref.read(audioHandlerProvider);
-                        handler.playTracks(tracks);
-                        handler.engine.setMode(QueueMode.shuffle);
-                      },
-                radius: 22,
-                child: SizedBox(
-                  width: Sizes.minTouchTarget,
-                  height: Sizes.minTouchTarget,
-                  child:
-                      Icon(Icons.shuffle, size: 24, color: theme.textMuted),
-                ),
-              ),
-              const SizedBox(width: Space.s4),
-              InkResponse(
-                onTap: tracks.isEmpty
-                    ? null
-                    : () =>
-                        ref.read(audioHandlerProvider).playTracks(tracks),
-                radius: 30,
-                child: Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                      color: theme.primary, shape: BoxShape.circle),
-                  child: const Icon(Icons.play_arrow,
-                      color: Colors.white, size: 32),
-                ),
-              ),
-            ],
+        hint: 'swipe left to remove · hold to reorder',
+        leading: [
+          HeroAction(
+            theme: theme,
+            icon: Icons.shuffle,
+            onTap: tracks.isEmpty
+                ? null
+                : () {
+                    final handler = ref.read(audioHandlerProvider);
+                    handler.playTracks(tracks);
+                    handler.engine.setMode(QueueMode.shuffle);
+                  },
           ),
         ],
+        trailing: [
+          // Online tracks not yet saved offline → "download all".
+          if (tracks.any((t) => !t.isLocal && !t.isPlayableOffline))
+            HeroAction(
+              theme: theme,
+              icon: Icons.download_for_offline_outlined,
+              onTap: () => _downloadAll(tracks, theme),
+            ),
+        ],
+        onPlay: tracks.isEmpty
+            ? null
+            : () => ref.read(audioHandlerProvider).playTracks(tracks),
       ),
     );
 
