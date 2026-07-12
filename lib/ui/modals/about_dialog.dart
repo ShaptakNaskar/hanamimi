@@ -155,7 +155,8 @@ void _showLicenseDialog(BuildContext context, HanamimiTheme theme) {
         child: Text(
           'Hanamimi is free software, distributed under GPLv3. The source '
           'is available at github.com/ShaptakNaskar/hanamimi.\n\n'
-          'The sleeping cat by the logo is oneko — its sprite sheet comes '
+          'The cat that chases your taps and naps by the logo is oneko — '
+          'its sprite sheet comes '
           'from oneko.js by adryd (adryd325/oneko.js), which revives the '
           'classic X11 "neko". The idea to bring it into an app comes from '
           'the Vencord oneko plugin by V (vencord.dev/plugins/oneko), '

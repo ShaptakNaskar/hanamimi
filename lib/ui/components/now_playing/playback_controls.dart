@@ -12,16 +12,21 @@ import '../../../theme/theme_tokens.dart';
 /// Main control row + secondary row (shuffle / repeat / sleep / queue)
 /// per DESIGN.md §9.6.
 class PlaybackControls extends ConsumerStatefulWidget {
-  const PlaybackControls(
-      {super.key,
-      this.onSleepTimer,
-      this.onQueue,
-      this.onAddToPlaylist,
-      this.onStartRadio});
+  const PlaybackControls({
+    super.key,
+    this.onSleepTimer,
+    this.onQueue,
+    this.onAddToPlaylist,
+    this.onStartRadio,
+    this.onBlackout,
+  });
 
   final VoidCallback? onSleepTimer;
   final VoidCallback? onQueue;
   final VoidCallback? onAddToPlaylist;
+
+  /// Blackout Mode (3.0 #3) — the bedside-amp screen.
+  final VoidCallback? onBlackout;
 
   /// Song radio (M38c): rebuild the queue as a station flowing out of
   /// the current track.
@@ -46,9 +51,10 @@ class _PlaybackControlsState extends ConsumerState<PlaybackControls>
 
   Future<void> _seekRelative(int seconds) async {
     final handler = ref.read(audioHandlerProvider);
-    final pos = handler.engine.state.duration == Duration.zero
-        ? Duration.zero
-        : await handler.engine.positionStream.first;
+    final pos =
+        handler.engine.state.duration == Duration.zero
+            ? Duration.zero
+            : await handler.engine.positionStream.first;
     var target = pos + Duration(seconds: seconds);
     if (target < Duration.zero) target = Duration.zero;
     await handler.seek(target);
@@ -79,16 +85,23 @@ class _PlaybackControlsState extends ConsumerState<PlaybackControls>
               background: theme.surface,
               borderColor: theme.divider,
               onTap: handler.skipToPrevious,
-              child: Icon(Icons.skip_previous_outlined,
-                  size: 24, color: theme.textPrimary),
+              child: Icon(
+                Icons.skip_previous_outlined,
+                size: 24,
+                color: theme.textPrimary,
+              ),
             ),
             const SizedBox(width: Space.s6),
             ScaleTransition(
               scale: TweenSequence([
                 TweenSequenceItem(
-                    tween: Tween(begin: 1.0, end: 1.08), weight: 1),
+                  tween: Tween(begin: 1.0, end: 1.08),
+                  weight: 1,
+                ),
                 TweenSequenceItem(
-                    tween: Tween(begin: 1.08, end: 1.0), weight: 1),
+                  tween: Tween(begin: 1.08, end: 1.0),
+                  weight: 1,
+                ),
               ]).animate(_pulse),
               child: _CircleButton(
                 size: Sizes.playButton,
@@ -96,35 +109,40 @@ class _PlaybackControlsState extends ConsumerState<PlaybackControls>
                 // While a track resolves/buffers, tapping play does
                 // nothing useful — show a spinner so the art/title swap
                 // doesn't read as "stuck, not playing".
-                onTap: isLoading
-                    ? () {} // spinner showing; tap is a no-op
-                    : () {
-                        _pulse.forward(from: 0);
-                        isPlaying ? handler.pause() : handler.play();
-                      },
+                onTap:
+                    isLoading
+                        ? () {} // spinner showing; tap is a no-op
+                        : () {
+                          _pulse.forward(from: 0);
+                          isPlaying ? handler.pause() : handler.play();
+                        },
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 180),
-                  transitionBuilder: (child, anim) => FadeTransition(
-                    opacity: anim,
-                    child: ScaleTransition(
-                      scale: Tween(begin: 0.8, end: 1.0).animate(anim),
-                      child: child,
-                    ),
-                  ),
-                  child: isLoading
-                      ? const SizedBox(
-                          key: ValueKey('loading'),
-                          width: 26,
-                          height: 26,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2.6, color: Colors.white),
-                        )
-                      : Icon(
-                          isPlaying ? Icons.pause : Icons.play_arrow,
-                          key: ValueKey(isPlaying),
-                          size: 28,
-                          color: Colors.white,
+                  transitionBuilder:
+                      (child, anim) => FadeTransition(
+                        opacity: anim,
+                        child: ScaleTransition(
+                          scale: Tween(begin: 0.8, end: 1.0).animate(anim),
+                          child: child,
                         ),
+                      ),
+                  child:
+                      isLoading
+                          ? const SizedBox(
+                            key: ValueKey('loading'),
+                            width: 26,
+                            height: 26,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.6,
+                              color: Colors.white,
+                            ),
+                          )
+                          : Icon(
+                            isPlaying ? Icons.pause : Icons.play_arrow,
+                            key: ValueKey(isPlaying),
+                            size: 28,
+                            color: Colors.white,
+                          ),
                 ),
               ),
             ),
@@ -134,8 +152,11 @@ class _PlaybackControlsState extends ConsumerState<PlaybackControls>
               background: theme.surface,
               borderColor: theme.divider,
               onTap: handler.skipToNext,
-              child: Icon(Icons.skip_next_outlined,
-                  size: 24, color: theme.textPrimary),
+              child: Icon(
+                Icons.skip_next_outlined,
+                size: 24,
+                color: theme.textPrimary,
+              ),
             ),
             const SizedBox(width: Space.s4),
             _IconOnly(
@@ -152,30 +173,30 @@ class _PlaybackControlsState extends ConsumerState<PlaybackControls>
             _IconOnly(
               icon: Icons.shuffle,
               size: 20,
-              color: mode == QueueMode.shuffle
-                  ? theme.primary
-                  : theme.textMuted,
-              onTap: () => handler.engine.setMode(
-                mode == QueueMode.shuffle
-                    ? QueueMode.sequential
-                    : QueueMode.shuffle,
-              ),
+              color:
+                  mode == QueueMode.shuffle ? theme.primary : theme.textMuted,
+              onTap:
+                  () => handler.engine.setMode(
+                    mode == QueueMode.shuffle
+                        ? QueueMode.sequential
+                        : QueueMode.shuffle,
+                  ),
             ),
             _IconOnly(
-              icon: mode == QueueMode.repeatOne
-                  ? Icons.repeat_one
-                  : Icons.repeat,
+              icon:
+                  mode == QueueMode.repeatOne ? Icons.repeat_one : Icons.repeat,
               size: 20,
-              color: mode == QueueMode.repeatAll ||
-                      mode == QueueMode.repeatOne
-                  ? theme.primary
-                  : theme.textMuted,
-              onTap: () => handler.engine.setMode(switch (mode) {
-                QueueMode.sequential || QueueMode.shuffle =>
-                  QueueMode.repeatAll,
-                QueueMode.repeatAll => QueueMode.repeatOne,
-                QueueMode.repeatOne => QueueMode.sequential,
-              }),
+              color:
+                  mode == QueueMode.repeatAll || mode == QueueMode.repeatOne
+                      ? theme.primary
+                      : theme.textMuted,
+              onTap:
+                  () => handler.engine.setMode(switch (mode) {
+                    QueueMode.sequential ||
+                    QueueMode.shuffle => QueueMode.repeatAll,
+                    QueueMode.repeatAll => QueueMode.repeatOne,
+                    QueueMode.repeatOne => QueueMode.sequential,
+                  }),
             ),
             // Straight into a playlist from the player (community ask).
             _IconOnly(
@@ -195,17 +216,20 @@ class _PlaybackControlsState extends ConsumerState<PlaybackControls>
             _IconOnly(
               icon: Icons.coffee_outlined,
               size: 20,
-              color: ref.watch(caffeineProvider)
-                  ? theme.primary
-                  : theme.textMuted,
+              color:
+                  ref.watch(caffeineProvider) ? theme.primary : theme.textMuted,
               onTap: () => ref.read(caffeineProvider.notifier).toggle(),
             ),
+            // Zzz-clock, NOT a moon — the moon next door is Blackout
+            // Mode and two crescents in one row read as one feature
+            // (user report).
             _IconOnly(
-              icon: Icons.nightlight_outlined,
+              icon: Icons.snooze_rounded,
               size: 20,
-              color: ref.watch(sleepTimerProvider).isActive
-                  ? theme.primary
-                  : theme.textMuted,
+              color:
+                  ref.watch(sleepTimerProvider).isActive
+                      ? theme.primary
+                      : theme.textMuted,
               onTap: widget.onSleepTimer ?? () {},
             ),
             _IconOnly(
@@ -214,6 +238,13 @@ class _PlaybackControlsState extends ConsumerState<PlaybackControls>
               color: theme.textMuted,
               onTap: widget.onQueue ?? () {},
             ),
+            if (widget.onBlackout != null)
+              _IconOnly(
+                icon: Icons.bedtime_outlined,
+                size: 20,
+                color: theme.textMuted,
+                onTap: widget.onBlackout!,
+              ),
           ],
         ),
       ],
@@ -246,9 +277,10 @@ class _CircleButton extends StatelessWidget {
         decoration: BoxDecoration(
           color: background,
           shape: BoxShape.circle,
-          border: borderColor == null
-              ? null
-              : Border.all(color: borderColor!, width: 0.5),
+          border:
+              borderColor == null
+                  ? null
+                  : Border.all(color: borderColor!, width: 0.5),
         ),
         child: Center(child: child),
       ),

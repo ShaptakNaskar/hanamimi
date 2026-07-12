@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 2.5.0 # only major.minor matters — CI auto-increments the patch per release
+version: 3.0.0 # only major.minor matters — CI auto-increments the patch per release
 
 environment:
   sdk: ^3.7.2
@@ -47,6 +47,8 @@ dependencies:
   url_launcher: ^6.3.1 # maker links in About
   package_info_plus: ^8.3.0 # versionCode for the update checker
   path_provider: ^2.1.5 # temp dir for the update APK download
+  archive: ^4.0.9 # 3.0 backup ZIP bundle
+  file_selector: ^1.0.3 # 3.0 backup import file picker
   image_picker: ^1.2.1 # custom playlist covers (Android Photo Picker)
   share_plus: ^12.0.1 # lyrics cards
   gamepads: ^0.1.7 # couch-mode controller navigation (handhelds)

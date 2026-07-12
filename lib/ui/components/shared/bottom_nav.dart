@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../providers/night_mode_provider.dart';
 import '../../../theme/hanamimi_theme.dart';
 import '../../../theme/theme_tokens.dart';
 
@@ -21,7 +23,7 @@ const _items = [
 /// [HanamimiBottomNav], stood up as a left rail. In the three-pane
 /// layout Now Playing lives in its own permanent panel, so [showPlaying]
 /// drops that destination (index 2) from the rail.
-class HanamimiSideRail extends StatelessWidget {
+class HanamimiSideRail extends ConsumerWidget {
   const HanamimiSideRail({
     super.key,
     required this.activeIndex,
@@ -36,7 +38,8 @@ class HanamimiSideRail extends StatelessWidget {
   final bool showPlaying;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final night = ref.watch(nightModeActiveProvider);
     return Container(
       width: 76,
       decoration: BoxDecoration(
@@ -82,7 +85,7 @@ class HanamimiSideRail extends StatelessWidget {
                                 ? theme.primary
                                 : theme.textMuted.withValues(alpha: 0.85),
                           ),
-                          child: Text(_items[i].label),
+                          child: Text(_items[i].label.whisper(night)),
                         ),
                       ],
                     ),
@@ -95,7 +98,7 @@ class HanamimiSideRail extends StatelessWidget {
   }
 }
 
-class HanamimiBottomNav extends StatelessWidget {
+class HanamimiBottomNav extends ConsumerWidget {
   const HanamimiBottomNav({
     super.key,
     required this.activeIndex,
@@ -108,7 +111,8 @@ class HanamimiBottomNav extends StatelessWidget {
   final HanamimiTheme theme;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final night = ref.watch(nightModeActiveProvider);
     return Container(
       decoration: BoxDecoration(
         color: theme.surface,
@@ -150,7 +154,7 @@ class HanamimiBottomNav extends StatelessWidget {
                                 ? theme.primary
                                 : theme.textMuted.withValues(alpha: 0.85),
                           ),
-                          child: Text(_items[i].label),
+                          child: Text(_items[i].label.whisper(night)),
                         ),
                       ],
                     ),

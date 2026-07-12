@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../providers/night_mode_provider.dart';
 import '../../../library/models/track.dart';
 import '../../../theme/app_theme.dart';
 import '../../../theme/hanamimi_theme.dart';
@@ -8,7 +10,7 @@ import '../library/art_thumb.dart';
 
 /// A horizontal card shelf of tracks — the Home building block ("Jump
 /// back in", "For you", "Discover" all render through this).
-class TrackShelf extends StatelessWidget {
+class TrackShelf extends ConsumerWidget {
   const TrackShelf({
     super.key,
     required this.title,
@@ -34,15 +36,17 @@ class TrackShelf extends StatelessWidget {
   static const _cardWidth = 132.0;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (tracks.isEmpty) return const SizedBox.shrink();
+    final night = ref.watch(nightModeActiveProvider);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
             Expanded(
-                child: Text(title, style: AppText.sectionLabel(theme))),
+                child: Text(title.whisper(night),
+                    style: AppText.sectionLabel(theme))),
             if (trailing != null) trailing!,
           ],
         ),

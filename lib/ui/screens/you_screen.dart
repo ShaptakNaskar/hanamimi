@@ -10,7 +10,9 @@ import '../../providers/companion_provider.dart';
 import '../../providers/dev_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
+import '../../providers/mystery_date_provider.dart';
 import '../../providers/nerd_provider.dart';
+import '../../providers/night_mode_provider.dart';
 import '../../providers/reco_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
@@ -25,8 +27,10 @@ import '../components/mascot/buddies.dart';
 import '../components/mascot/hanamimi_widget.dart';
 import '../components/mascot/oneko.dart';
 import '../modals/about_dialog.dart';
+import '../modals/backup_sheet.dart';
 import '../modals/update_dialog.dart';
 import '../components/mascot/mascot_painter.dart';
+import 'history_screen.dart';
 
 class YouScreen extends ConsumerWidget {
   const YouScreen({super.key});
@@ -34,6 +38,7 @@ class YouScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = ref.watch(currentThemeProvider);
+    final night = ref.watch(nightModeActiveProvider);
 
     return SafeArea(
       bottom: false,
@@ -53,7 +58,8 @@ class YouScreen extends ConsumerWidget {
                   clipBehavior: Clip.none,
                   children: [
                     Text(
-                        ref.watch(editionNameProvider).value ?? 'Hanamimi',
+                        (ref.watch(editionNameProvider).value ?? 'Hanamimi')
+                            .whisper(night),
                         style: AppText.screenTitle(theme)
                             .copyWith(fontSize: 22)),
                     if (ref.watch(buddyEnabledProvider('parrot')))
@@ -72,7 +78,7 @@ class YouScreen extends ConsumerWidget {
               ],
             ),
           const SizedBox(height: Space.s6),
-          Text('MOOD', style: AppText.sectionLabel(theme)),
+          Text('MOOD'.whisper(night), style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
           GridView.count(
             crossAxisCount: 2,
@@ -93,19 +99,28 @@ class YouScreen extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: Space.s8),
-          Text('YOUR COMPANION', style: AppText.sectionLabel(theme)),
+          Text('YOUR COMPANION'.whisper(night), style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
           const _CompanionCard(),
           const SizedBox(height: Space.s8),
-          Text('BUDDIES', style: AppText.sectionLabel(theme)),
+          Text('BUDDIES'.whisper(night), style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
           const _BuddiesCard(),
           const SizedBox(height: Space.s8),
-          Text('SOUND', style: AppText.sectionLabel(theme)),
+          Text('SOUND'.whisper(night), style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
           const _SoundSettings(),
           const SizedBox(height: Space.s8),
-          Text('MORE', style: AppText.sectionLabel(theme)),
+          Text('NIGHT'.whisper(night), style: AppText.sectionLabel(theme)),
+          const SizedBox(height: Space.s3),
+          const _NightSettings(),
+          const SizedBox(height: Space.s8),
+          Text('YOUR DATA'.whisper(night),
+              style: AppText.sectionLabel(theme)),
+          const SizedBox(height: Space.s3),
+          const _DataCard(),
+          const SizedBox(height: Space.s8),
+          Text('MORE'.whisper(night), style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
           const _MoreCard(),
           const SizedBox(height: Space.s12),
@@ -230,7 +245,9 @@ class _BuddiesCard extends ConsumerWidget {
       case 'parrot':
         return CustomPaint(painter: ParrotPainter(0.75));
       case 'cat':
-        return CustomPaint(painter: CatPainter(0.25));
+        // The "cat" buddy IS oneko — show her real sprite, not the old
+        // hand-drawn loaf that used to stand in for her here.
+        return const OnekoStill(size: 30);
       case 'duck':
         return CustomPaint(painter: DuckPainter(0));
       case 'fireflies':
@@ -793,6 +810,50 @@ class _SoundSettings extends ConsumerWidget {
             ],
           ),
           Divider(height: Space.s6, color: theme.divider),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Slow dance',
+                        style: AppText.rowSongTitle(theme)),
+                    Text(
+                        'Crossfades read where a song\'s energy dies and '
+                        'fade there — no fixed timer',
+                        style: AppText.caption(theme)),
+                  ],
+                ),
+              ),
+              Switch(
+                value: ref.watch(slowDanceProvider),
+                onChanged: (_) =>
+                    ref.read(slowDanceProvider.notifier).toggle(),
+              ),
+            ],
+          ),
+          Divider(height: Space.s6, color: theme.divider),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Mystery date',
+                        style: AppText.rowSongTitle(theme)),
+                    Text('Hide what plays next — just trust the queue',
+                        style: AppText.caption(theme)),
+                  ],
+                ),
+              ),
+              Switch(
+                value: ref.watch(mysteryDateProvider),
+                onChanged: (_) =>
+                    ref.read(mysteryDateProvider.notifier).toggle(),
+              ),
+            ],
+          ),
+          Divider(height: Space.s6, color: theme.divider),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1045,6 +1106,163 @@ class _QualityRow extends StatelessWidget {
               style: AppText.rowSongTitle(theme)
                   .copyWith(color: theme.primary)),
           Icon(Icons.chevron_right, size: 18, color: theme.textMuted),
+        ],
+      ),
+    );
+  }
+}
+
+/// Night Mode + Melt away + Blackout meters (3.0).
+class _NightSettings extends ConsumerWidget {
+  const _NightSettings();
+
+  static const _nightNames = <NightModeSetting, String>{
+    NightModeSetting.auto: 'Auto (after midnight)',
+    NightModeSetting.always: 'Always on',
+    NightModeSetting.never: 'Never',
+  };
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    final setting = ref.watch(nightModeSettingProvider);
+    final blackoutStyle = ref.watch(blackoutStyleProvider);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+          horizontal: Space.s4, vertical: Space.s2),
+      decoration: BoxDecoration(
+        color: theme.surface,
+        borderRadius: BorderRadius.circular(Radii.md),
+        border: Border.all(color: theme.divider, width: 0.5),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('After-midnight mode',
+                        style: AppText.rowSongTitle(theme)),
+                    Text('Embers palette, softer copy, gentler volume',
+                        style: AppText.caption(theme)),
+                  ],
+                ),
+              ),
+              DropdownButton<NightModeSetting>(
+                value: setting,
+                underline: const SizedBox.shrink(),
+                style: AppText.caption(theme)
+                    .copyWith(color: theme.textPrimary),
+                dropdownColor: theme.surface,
+                items: [
+                  for (final e in _nightNames.entries)
+                    DropdownMenuItem(value: e.key, child: Text(e.value)),
+                ],
+                onChanged: (v) {
+                  if (v != null) {
+                    ref.read(nightModeSettingProvider.notifier).set(v);
+                  }
+                },
+              ),
+            ],
+          ),
+          Divider(height: Space.s6, color: theme.divider),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Melt away', style: AppText.rowSongTitle(theme)),
+                    Text(
+                        'Idle Now Playing fades to just art, visualizer '
+                        'and the mascot',
+                        style: AppText.caption(theme)),
+                  ],
+                ),
+              ),
+              Switch(
+                value: ref.watch(meltAwayProvider),
+                onChanged: (_) =>
+                    ref.read(meltAwayProvider.notifier).toggle(),
+              ),
+            ],
+          ),
+          Divider(height: Space.s6, color: theme.divider),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Blackout meters',
+                        style: AppText.rowSongTitle(theme)),
+                    Text('Which visualizer the bedside screen shows',
+                        style: AppText.caption(theme)),
+                  ],
+                ),
+              ),
+              DropdownButton<VisualizerStyle>(
+                value: blackoutStyle,
+                underline: const SizedBox.shrink(),
+                style: AppText.caption(theme)
+                    .copyWith(color: theme.textPrimary),
+                dropdownColor: theme.surface,
+                items: [
+                  for (final e in _visualizerStyleNames.entries)
+                    DropdownMenuItem(value: e.key, child: Text(e.value)),
+                ],
+                onChanged: (v) {
+                  if (v != null) {
+                    ref.read(blackoutStyleProvider.notifier).set(v);
+                  }
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// History + Backup entries (3.0 #7/#8).
+class _DataCard extends ConsumerWidget {
+  const _DataCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.surface,
+        borderRadius: BorderRadius.circular(Radii.md),
+        border: Border.all(color: theme.divider, width: 0.5),
+      ),
+      child: Column(
+        children: [
+          ListTile(
+            leading: Icon(Icons.history_rounded,
+                size: 20, color: theme.textMuted),
+            title: Text('Listening history',
+                style: AppText.rowSongTitle(theme)),
+            subtitle: Text('Every play, newest first',
+                style: AppText.caption(theme)),
+            onTap: () => Navigator.of(context).push(HistoryScreen.route()),
+          ),
+          Divider(height: 0.5, color: theme.divider),
+          ListTile(
+            leading: Icon(Icons.backup_outlined,
+                size: 20, color: theme.textMuted),
+            title: Text('Backup & restore',
+                style: AppText.rowSongTitle(theme)),
+            subtitle: Text('History, playlists, favorites and settings',
+                style: AppText.caption(theme)),
+            onTap: () => showBackupSheet(context),
+          ),
         ],
       ),
     );

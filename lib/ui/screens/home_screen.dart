@@ -5,6 +5,7 @@ import '../../providers/audio_provider.dart';
 import '../../providers/buddy_provider.dart';
 import '../../providers/home_provider.dart';
 import '../../providers/mascot_provider.dart';
+import '../../providers/night_mode_provider.dart';
 import '../../providers/update_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/reco_provider.dart';
@@ -52,7 +53,8 @@ class HomeScreen extends ConsumerWidget {
                   clipBehavior: Clip.none,
                   children: [
                     Text(
-                        ref.watch(editionNameProvider).value ?? 'Hanamimi',
+                        (ref.watch(editionNameProvider).value ?? 'Hanamimi')
+                            .whisper(ref.watch(nightModeActiveProvider)),
                         style: AppText.screenTitle(theme)
                             .copyWith(fontSize: 22)),
                     if (ref.watch(buddyEnabledProvider('parrot')))
@@ -70,6 +72,13 @@ class HomeScreen extends ConsumerWidget {
                 ],
               ],
             ),
+            // Night Mode whispers instead of announcing (3.0 #2).
+            if (ref.watch(nightModeActiveProvider)) ...[
+              const SizedBox(height: Space.s1),
+              Text('shh. just us. ♪',
+                  style: AppText.caption(theme)
+                      .copyWith(fontStyle: FontStyle.italic)),
+            ],
             const SizedBox(height: Space.s6),
           ],
           if (recent.isEmpty)

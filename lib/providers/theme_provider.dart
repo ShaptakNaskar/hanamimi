@@ -4,8 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../theme/hanamimi_theme.dart';
+import '../theme/night_shift.dart';
 import '../theme/themes.dart';
 import 'adaptive_theme_provider.dart';
+import 'night_mode_provider.dart';
 
 /// Injected in main() with the loaded instance.
 final sharedPrefsProvider = Provider<SharedPreferences>(
@@ -48,13 +50,20 @@ final selectedThemeIdProvider =
 /// it resolves).
 final resolvedThemeProvider = Provider<HanamimiTheme>((ref) {
   final id = ref.watch(selectedThemeIdProvider);
+  HanamimiTheme theme;
   if (id == neutralAdaptiveLight.id ||
       id == neutralAdaptiveDark.id ||
       id == neutralAdaptiveAmoled.id) {
     // themeById(id) is the matching neutral fallback while extraction runs.
-    return ref.watch(adaptiveThemeProvider).value ?? themeById(id);
+    theme = ref.watch(adaptiveThemeProvider).value ?? themeById(id);
+  } else {
+    theme = themeById(id);
   }
-  return themeById(id);
+  // Night Mode composits on top of whatever theme won — static or
+  // adaptive — and ThemeAnimator lerps the shift in like any other
+  // palette change.
+  if (ref.watch(nightModeActiveProvider)) theme = nightShift(theme);
+  return theme;
 });
 
 /// The theme the UI actually renders. It's seeded from the resolved target

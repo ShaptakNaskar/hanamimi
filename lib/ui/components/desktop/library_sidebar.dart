@@ -5,6 +5,7 @@ import '../../../providers/buddy_provider.dart';
 import '../../../providers/desktop_shell_provider.dart';
 import '../../../providers/library_provider.dart';
 import '../../../providers/mascot_provider.dart';
+import '../../../providers/night_mode_provider.dart';
 import '../../../providers/theme_provider.dart';
 import '../../../providers/update_provider.dart';
 import '../../../theme/app_theme.dart';
@@ -84,7 +85,10 @@ class LibrarySidebar extends ConsumerWidget {
                       clipBehavior: Clip.none,
                       children: [
                         Text(
-                          ref.watch(editionNameProvider).value ?? 'Hanamimi',
+                          (ref.watch(editionNameProvider).value ??
+                                  'Hanamimi')
+                              .whisper(
+                                  ref.watch(nightModeActiveProvider)),
                           style: AppText.screenTitle(theme)
                               .copyWith(fontSize: 20),
                           maxLines: 1,
@@ -147,7 +151,10 @@ class LibrarySidebar extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(
                   Space.s4, Space.s2, Space.s4, Space.s2),
-              child: Text('YOUR LIBRARY', style: AppText.sectionLabel(theme)),
+              child: Text(
+                  'YOUR LIBRARY'
+                      .whisper(ref.watch(nightModeActiveProvider)),
+                  style: AppText.sectionLabel(theme)),
             ),
             Expanded(
               child: ListView(

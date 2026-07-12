@@ -113,6 +113,29 @@ final visualizerStyleOverrideProvider =
         VisualizerStyleOverrideNotifier.new);
 
 /// The style renderers should draw: the user override, else the theme's.
+/// Blackout Mode's own style (3.0 feedback): the bedside screen isn't
+/// married to the in-app pick — analog needles by default, but bars
+/// and LED meters are one setting away.
+class BlackoutStyleNotifier extends Notifier<VisualizerStyle> {
+  static const _key = 'blackout_style';
+
+  @override
+  VisualizerStyle build() {
+    final name = ref.watch(sharedPrefsProvider).getString(_key);
+    return VisualizerStyle.values.asNameMap()[name] ??
+        VisualizerStyle.vuMeters;
+  }
+
+  void set(VisualizerStyle style) {
+    state = style;
+    ref.read(sharedPrefsProvider).setString(_key, style.name);
+  }
+}
+
+final blackoutStyleProvider =
+    NotifierProvider<BlackoutStyleNotifier, VisualizerStyle>(
+        BlackoutStyleNotifier.new);
+
 final effectiveVisualizerStyleProvider = Provider<VisualizerStyle>((ref) =>
     ref.watch(visualizerStyleOverrideProvider) ??
     ref.watch(currentThemeProvider).visualizerStyle);
@@ -143,6 +166,17 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   var stride = bandCount; // floats per frame in [frames]
   var extractionDone = false;
 
+  // Crossfade prewarm: a second buffer that decodes the INCOMING track
+  // during the fade so the meters (and the mascot) never drop to the
+  // synth fallback at the handoff — startFor promotes it in place. There
+  // is one native extractor; pointing it at the incoming track is safe
+  // because the outgoing track's frames are already fully buffered.
+  String? prewarmKey;
+  int? prewarmTrackId;
+  var prewarmFrames = <double>[];
+  var prewarmStride = bandCount;
+  var prewarmDone = false;
+
   // Watchdog state: extraction can die without producing a frame —
   // e.g. MediaCodec is exhausted while ANOTHER app still holds the
   // hardware decoders during a cross-app playback handoff. One-shot
@@ -150,8 +184,9 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   // track. Retried (bounded) from the render timer below.
   String? retryKey;
   var retries = 0;
-  var noFramesSince = 0; // ms epoch; 0 = clock not running
+  var noFramesSince = 0; // monotonic ms; 0 = clock not running
   var lastResumeTick = 0; // detects app-resume to re-arm the watchdog
+  final monotonic = Stopwatch()..start(); // immune to device-clock edits
 
   // Position extrapolation between player reports (same pattern as the
   // lyrics sheet) so sampling doesn't step at the stream's rate.
@@ -167,13 +202,60 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     }
   });
 
+  // v3: frames carry L/R RMS after the bands (v2 fixed fractional-hop
+  // frame timing). The new prefix misses the old 12-float cache files,
+  // which age out of the extractor's LRU.
+  String keyFor(Track track) =>
+      'v3_${track.mediaId}_${track.filePath.hashCode}_${track.duration.inMilliseconds}';
+
+  // M38a: the decode we pay for doubles as the content-similarity source
+  // — summarize the full frame run into the track's feature vector (once
+  // per track per layout version). Strip the RMS columns first: vectors
+  // must stay comparable with the 12-band ones already in the library.
+  void saveFeatures(int tid, List<double> buf, int s) {
+    if (buf.isEmpty) return;
+    final snapshot = s == bandCount
+        ? List<double>.from(buf)
+        : <double>[
+            for (var f = 0; f + s <= buf.length; f += s)
+              ...buf.getRange(f, f + bandCount),
+          ];
+    Future(() async {
+      final repo = await ref.read(libraryRepositoryProvider.future);
+      if (await repo.hasTrackFeatures(tid, trackFeaturesVersion)) return;
+      final vector = summarizeFrames(snapshot);
+      if (vector.isEmpty) return;
+      await repo.saveTrackFeatures(
+          tid, trackFeaturesVersion, vector.buffer.asUint8List());
+    });
+  }
+
   void startFor(Track track) {
-    // v3: frames carry L/R RMS after the bands (v2 fixed fractional-hop
-    // frame timing). The new prefix misses the old 12-float cache
-    // files, which age out of the extractor's LRU.
-    final key =
-        'v3_${track.mediaId}_${track.filePath.hashCode}_${track.duration.inMilliseconds}';
+    final key = keyFor(track);
     if (key == currentKey) return;
+
+    // Crossfade prewarm hit: the incoming track was decoded ahead of the
+    // handoff into the prewarm buffer, so promote it in place instead of
+    // re-extracting from scratch — no synth-pulse gap, no mascot-loading
+    // flash. Frames still arriving keep landing under this key (now the
+    // primary key), so an unfinished prewarm simply continues.
+    if (key == prewarmKey) {
+      currentKey = key;
+      currentTrackId = track.id;
+      frames = prewarmFrames;
+      stride = prewarmStride;
+      extractionDone = prewarmDone;
+      retryKey = key;
+      retries = 0;
+      noFramesSince = 0;
+      prewarmKey = null;
+      prewarmFrames = <double>[];
+      prewarmStride = bandCount;
+      prewarmDone = false;
+      prewarmTrackId = null;
+      return;
+    }
+
     currentKey = key;
     currentTrackId = track.id;
     frames = <double>[];
@@ -188,73 +270,105 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     FftChannel.start(track.filePath, key);
   }
 
+  /// Decode the crossfade's incoming track ahead of the handoff. Safe to
+  /// point the single native extractor at it because the outgoing track's
+  /// frames are already fully buffered (extraction outruns playback, so
+  /// it's long done by end-of-track) — we only start once the outgoing is
+  /// done or was never decodable.
+  void prewarm(Track track) {
+    final key = keyFor(track);
+    if (key == currentKey || key == prewarmKey) return;
+    if (frames.isNotEmpty && !extractionDone) return; // don't truncate
+    prewarmKey = key;
+    prewarmTrackId = track.id;
+    prewarmFrames = <double>[];
+    prewarmStride = bandCount;
+    prewarmDone = false;
+    FftChannel.start(track.filePath, key);
+  }
+
+  void discardPrewarm() {
+    prewarmKey = null;
+    prewarmFrames = <double>[];
+    prewarmStride = bandCount;
+    prewarmDone = false;
+    prewarmTrackId = null;
+  }
+
   final frameSub = FftChannel.frames.listen((event) {
-    if (event['key'] != currentKey) return; // stale job
-    // Both extractors flag 14-float frames; no flag means legacy 12.
-    stride = (event['stride'] as int?) ?? bandCount;
-    final offset = (event['offset'] as int) * stride;
+    final key = event['key'];
+    final s = (event['stride'] as int?) ?? bandCount;
+    final offset = (event['offset'] as int) * s;
     final bands = (event['bands'] as List).cast<double>();
-    // Chunks arrive in order; tolerate a gap by zero-filling.
-    if (frames.length < offset) {
-      frames.addAll(List.filled(offset - frames.length, 0.0));
-    }
-    frames.addAll(bands);
-    if (event['done'] == true) {
-      extractionDone = true;
-      // M38a: the decode we just paid for doubles as the content-
-      // similarity source — summarize the full frame run into the
-      // track's feature vector (once per track per layout version).
-      // Strip the RMS columns first: vectors must stay comparable with
-      // the 12-band ones already in the library.
-      final tid = currentTrackId;
-      if (tid != null && frames.isNotEmpty) {
-        final s = stride;
-        final snapshot = s == bandCount
-            ? List<double>.from(frames)
-            : <double>[
-                for (var f = 0; f + s <= frames.length; f += s)
-                  ...frames.getRange(f, f + bandCount),
-              ];
-        Future(() async {
-          final repo = await ref.read(libraryRepositoryProvider.future);
-          if (await repo.hasTrackFeatures(tid, trackFeaturesVersion)) {
-            return;
-          }
-          final vector = summarizeFrames(snapshot);
-          if (vector.isEmpty) return;
-          await repo.saveTrackFeatures(
-              tid, trackFeaturesVersion, vector.buffer.asUint8List());
-        });
+    final done = event['done'] == true;
+
+    if (key == currentKey) {
+      stride = s;
+      if (frames.length < offset) {
+        frames.addAll(List.filled(offset - frames.length, 0.0));
+      }
+      frames.addAll(bands);
+      if (done) {
+        extractionDone = true;
+        final tid = currentTrackId;
+        if (tid != null) saveFeatures(tid, frames, stride);
+      }
+    } else if (key == prewarmKey) {
+      // Buffer the incoming track's frames without touching the meters
+      // that are still reading the outgoing track.
+      prewarmStride = s;
+      if (prewarmFrames.length < offset) {
+        prewarmFrames
+            .addAll(List.filled(offset - prewarmFrames.length, 0.0));
+      }
+      prewarmFrames.addAll(bands);
+      if (done) {
+        prewarmDone = true;
+        final tid = prewarmTrackId;
+        if (tid != null) saveFeatures(tid, prewarmFrames, prewarmStride);
       }
     }
+    // else: stale job from a cancelled extraction — drop it.
   });
 
   ref.listen(audioStateProvider, (_, next) {
-    final track = next.value?.currentTrack;
+    final s = next.value;
+    final track = s?.currentTrack;
     if (track != null) startFor(track);
+    // Kick off the incoming track's decode the moment a crossfade begins.
+    final incoming = s?.crossfadeIncomingTrack;
+    if (incoming != null) {
+      prewarm(incoming);
+    } else if (prewarmKey != null) {
+      // Fade ended/aborted without landing on the prewarmed track (a
+      // manual skip elsewhere) — startFor already promoted a hit, so a
+      // leftover buffer here is a miss: drop it.
+      discardPrewarm();
+    }
   });
   final initial = ref.read(audioStateProvider).value?.currentTrack;
   if (initial != null) startFor(initial);
 
-  /// Frame at [position], linearly interpolated between neighbors.
-  /// Always [outCount] values: 12-float frames get a lows/highs
-  /// pseudo-split appended in place of the missing channel RMS.
-  List<double>? sample(Duration position) {
-    final s = stride;
-    final frameCount = frames.length ~/ s;
+  /// Frame at [position] within [buf] (stride [s]), linearly interpolated
+  /// between neighbors. Always [outCount] values: 12-float frames get a
+  /// lows/highs pseudo-split appended for the missing channel RMS. Null
+  /// when there's no data yet; zeros past the end once [done].
+  List<double>? sampleBuf(
+      Duration position, List<double> buf, int s, bool done) {
+    final frameCount = buf.length ~/ s;
     if (frameCount == 0) return null;
     final exact = position.inMilliseconds * frameRate / 1000;
     final lo = exact.floor();
     if (lo >= frameCount) {
       // Past the analyzed range: silence tail if extraction finished,
       // not-yet-decoded if it's still running.
-      return extractionDone ? List.filled(outCount, 0.0) : null;
+      return done ? List.filled(outCount, 0.0) : null;
     }
     final hi = math.min(lo + 1, frameCount - 1);
     final t = exact - lo;
     final raw = [
       for (var b = 0; b < s; b++)
-        frames[lo * s + b] * (1 - t) + frames[hi * s + b] * t,
+        buf[lo * s + b] * (1 - t) + buf[hi * s + b] * t,
     ];
     if (s < outCount) {
       raw
@@ -267,6 +381,9 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     }
     return raw;
   }
+
+  List<double>? sample(Duration position) =>
+      sampleBuf(position, frames, stride, extractionDone);
 
   List<double> synth(bool playing) {
     final t = DateTime.now().millisecondsSinceEpoch / 1000.0;
@@ -315,9 +432,11 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     tick++;
     if (!windowVisible.value) return;
     if (!windowFocused.value && tick.isOdd) return;
-    final playing = ref.read(audioStateProvider).value?.isPlaying ?? false;
+    final audio = ref.read(audioStateProvider).value;
+    final playing = audio?.isPlaying ?? false;
     final position =
         playing ? lastPosition + sinceReport.elapsed : lastPosition;
+    final xf = audio?.crossfadeProgress;
 
     // Coming back from the background can leave a dead FFT extraction
     // (MediaCodec was reclaimed while frozen) with the retry budget spent,
@@ -335,7 +454,9 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     // Watchdog: playing but no real frame has landed → the extraction
     // died (codec busy, stream hiccup). Re-kick it, up to 3 times.
     if (playing && frames.isEmpty && currentKey != null && retries < 3) {
-      final now = DateTime.now().millisecondsSinceEpoch;
+      // Monotonic clock — a device-time change must not freeze (backward
+      // jump) or spuriously fire (forward jump) the retry window.
+      final now = monotonic.elapsedMilliseconds;
       if (noFramesSince == 0) {
         noFramesSince = now;
       } else if (now - noFramesSince > 4000) {
@@ -347,7 +468,33 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     } else if (frames.isNotEmpty) {
       noFramesSince = 0;
     }
-    final raw = playing ? (sample(position) ?? synth(true)) : synth(false);
+    List<double> raw;
+    if (!playing) {
+      raw = synth(false);
+    } else if (xf != null) {
+      // Mid-crossfade: the outgoing track is in its silent tail (past its
+      // frames → zeros), so sampling it alone reads as dead. Blend the
+      // outgoing and the pre-warmed incoming by the same eased curve the
+      // audio uses, so the meters ramp INTO the new song as it fades in
+      // instead of waiting for the handoff.
+      final e = xf * xf * (3 - 2 * xf); // smoothstep — matches the audio ramp
+      final inPos =
+          Duration(milliseconds: audio!.crossfadeIncomingPositionMs);
+      final outRaw = sample(position);
+      final inRaw =
+          sampleBuf(inPos, prewarmFrames, prewarmStride, prewarmDone);
+      if (inRaw == null && outRaw == null) {
+        raw = synth(true);
+      } else {
+        final a = outRaw ?? List.filled(outCount, 0.0);
+        final b = inRaw ?? List.filled(outCount, 0.0);
+        raw = [
+          for (var i = 0; i < outCount; i++) a[i] * (1 - e) + b[i] * e,
+        ];
+      }
+    } else {
+      raw = sample(position) ?? synth(true);
+    }
     final sensitivity = ref.read(visualizerSensitivityProvider);
     final reactivity = ref.read(visualizerReactivityProvider);
     final bands = shaper.shape(raw, sensitivity, reactivity);

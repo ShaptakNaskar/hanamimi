@@ -8,6 +8,7 @@ import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
 import '../../utils/duration_ext.dart';
 import '../components/mascot/hanamimi_widget.dart';
+import '../screens/blackout_screen.dart';
 
 /// Bottom sheet with the 2×2 moon presets (DESIGN.md §9.8).
 /// Moon phases scale with duration: crescent = short, full = long.
@@ -40,6 +41,23 @@ class _SleepTimerBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = ref.watch(currentThemeProvider);
     final timer = ref.watch(sleepTimerProvider);
+    final alsoBlackout = ref.watch(blackoutOnSleepProvider);
+
+    void start(_Preset p) {
+      final notifier = ref.read(sleepTimerProvider.notifier);
+      if (p.duration == null) {
+        notifier.startEndOfTrack();
+      } else {
+        notifier.startCountdown(p.duration!);
+      }
+      // Fall into the bedside-amp screen if they've opted in. Pop the
+      // sheet first, then push Blackout onto the same navigator.
+      if (ref.read(blackoutOnSleepProvider)) {
+        final nav = Navigator.of(context);
+        nav.pop();
+        nav.push(BlackoutScreen.route());
+      }
+    }
 
     return Padding(
       padding: EdgeInsets.only(
@@ -87,17 +105,16 @@ class _SleepTimerBody extends ConsumerWidget {
                   preset: p,
                   theme: theme,
                   active: _isActive(timer, p),
-                  onTap: () {
-                    final notifier =
-                        ref.read(sleepTimerProvider.notifier);
-                    if (p.duration == null) {
-                      notifier.startEndOfTrack();
-                    } else {
-                      notifier.startCountdown(p.duration!);
-                    }
-                  },
+                  onTap: () => start(p),
                 ),
             ],
+          ),
+          const SizedBox(height: Space.s3),
+          _BlackoutToggle(
+            theme: theme,
+            value: alsoBlackout,
+            onChanged: (v) =>
+                ref.read(blackoutOnSleepProvider.notifier).set(v),
           ),
           AnimatedSize(
             duration: Anim.minTransition,
@@ -152,6 +169,58 @@ class _SleepTimerBody extends ConsumerWidget {
             q.duration != null &&
             q.duration! < p.duration! &&
             s.remaining! <= q.duration!);
+  }
+}
+
+class _BlackoutToggle extends StatelessWidget {
+  const _BlackoutToggle({
+    required this.theme,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final HanamimiTheme theme;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(Radii.md),
+      onTap: () => onChanged(!value),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+            horizontal: Space.s2, vertical: Space.s2),
+        child: Row(
+          children: [
+            Icon(Icons.bedtime_rounded,
+                size: 20,
+                color: value ? theme.primary : theme.textMuted),
+            const SizedBox(width: Space.s3),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Fade into Blackout',
+                      style: AppText.button(theme).copyWith(
+                          color: value
+                              ? theme.primary
+                              : theme.textPrimary)),
+                  const SizedBox(height: 2),
+                  Text('A dark clock and VU meters while it winds down',
+                      style: AppText.caption(theme)),
+                ],
+              ),
+            ),
+            Switch(
+              value: value,
+              activeColor: theme.primary,
+              onChanged: onChanged,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

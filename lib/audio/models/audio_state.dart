@@ -14,6 +14,8 @@ class AudioState {
     this.duration = Duration.zero,
     this.queueMode = QueueMode.sequential,
     this.crossfadeProgress,
+    this.crossfadeIncomingTrack,
+    this.crossfadeIncomingPositionMs = 0,
     this.audioSessionId,
   });
 
@@ -25,6 +27,17 @@ class AudioState {
 
   /// null when idle, 0.0–1.0 while a crossfade is running (M9).
   final double? crossfadeProgress;
+
+  /// The track fading IN during a crossfade — [currentTrack] stays the
+  /// outgoing one until the fade completes, so the UI needs both to
+  /// dissolve the art and title from one to the other in lockstep with
+  /// the audio. Null outside a crossfade.
+  final Track? crossfadeIncomingTrack;
+
+  /// The incoming player's live position during a crossfade — it's been
+  /// playing since the fade began, so the seek bar can roll smoothly to
+  /// where the new song already is instead of snapping at the handoff.
+  final int crossfadeIncomingPositionMs;
 
   /// Android audio session id, consumed by the visualizer channel (M8).
   final int? audioSessionId;
@@ -39,6 +52,8 @@ class AudioState {
     Duration? duration,
     QueueMode? queueMode,
     double? crossfadeProgress,
+    Track? crossfadeIncomingTrack,
+    int? crossfadeIncomingPositionMs,
     bool clearCrossfade = false,
     int? audioSessionId,
   }) =>
@@ -52,6 +67,12 @@ class AudioState {
         crossfadeProgress: clearCrossfade
             ? null
             : crossfadeProgress ?? this.crossfadeProgress,
+        crossfadeIncomingTrack: clearCrossfade
+            ? null
+            : crossfadeIncomingTrack ?? this.crossfadeIncomingTrack,
+        crossfadeIncomingPositionMs: clearCrossfade
+            ? 0
+            : crossfadeIncomingPositionMs ?? this.crossfadeIncomingPositionMs,
         audioSessionId: audioSessionId ?? this.audioSessionId,
       );
 }

@@ -54,6 +54,7 @@ class VisualizerPainter extends CustomPainter {
     this.reactivity = 1.0,
     this.vuSplit = false,
     this.ledDiscrete = true,
+    this.muted = false,
   });
 
   final List<double> bands;
@@ -62,6 +63,12 @@ class VisualizerPainter extends CustomPainter {
   final double time;
   final VisualizerSim sim;
   final double reactivity;
+
+  /// Blackout Mode: fixed dark palette instead of theme/album accents.
+  /// The zone floors below exist to keep meters VIVID on any adaptive
+  /// palette — exactly wrong for a bedside screen ("muted enough to not
+  /// burn my retinas", user request). Hues still read safe/mid/hot.
+  final bool muted;
 
   /// True: needles show a bass/treble split; false: L/R loudness.
   final bool vuSplit;
@@ -97,8 +104,25 @@ class VisualizerPainter extends CustomPainter {
         .toColor();
   }
 
-  Color get _safeColor => _zone(theme.primary, 0.55, 0.45, 0.62);
-  Color get _midColor => _zone(theme.secondary, 0.68, 0.45, 0.60);
+  // The bedside palette: same hue language (green-safe, amber-mid,
+  // red-hot) at night-light energy — low lightness, restrained chroma.
+  static final _mutedSafe =
+      const HSLColor.fromAHSL(1, 150, 0.28, 0.30).toColor();
+  static final _mutedMid =
+      const HSLColor.fromAHSL(1, 45, 0.40, 0.32).toColor();
+  static final _mutedHot =
+      const HSLColor.fromAHSL(1, 8, 0.45, 0.36).toColor();
+  static final _mutedHotLit =
+      const HSLColor.fromAHSL(1, 8, 0.40, 0.44).toColor();
+  static final _mutedBarLo =
+      const HSLColor.fromAHSL(1, 340, 0.30, 0.34).toColor();
+  static final _mutedBarHi =
+      const HSLColor.fromAHSL(1, 260, 0.30, 0.42).toColor();
+
+  Color get _safeColor =>
+      muted ? _mutedSafe : _zone(theme.primary, 0.55, 0.45, 0.62);
+  Color get _midColor =>
+      muted ? _mutedMid : _zone(theme.secondary, 0.68, 0.45, 0.60);
 
   /// Hot must out-punch mid on ANY palette: saturation floored at 0.9,
   /// lightness pinned near 0.5 where chroma peaks (a 0.66 ceiling let
@@ -106,6 +130,7 @@ class VisualizerPainter extends CustomPainter {
   /// than the lime mid zone), and the hue leaned 40% toward red so the
   /// top of the meter always speaks "danger" in any theme.
   Color get _hotColor {
+    if (muted) return _mutedHot;
     final hsl = HSLColor.fromColor(theme.accent);
     final h = hsl.hue;
     final toRed = h <= 180 ? -h : 360 - h;
@@ -128,7 +153,7 @@ class VisualizerPainter extends CustomPainter {
         style: TextStyle(
           fontSize: 9,
           fontWeight: FontWeight.w800,
-          color: theme.textMuted,
+          color: muted ? Colors.white38 : theme.textMuted,
         ),
       ),
       textDirection: TextDirection.ltr,
@@ -170,9 +195,11 @@ class VisualizerPainter extends CustomPainter {
         Rect.fromLTWH(x, size.height - h, barW, h),
         Radius.circular(barW / 2),
       );
-      // Shorter bars pinker, taller shift toward lavender.
-      final color =
-          Color.lerp(theme.primary, theme.secondary, bands[i])!;
+      // Shorter bars pinker, taller shift toward lavender. Blackout
+      // swaps in the dusty fixed pair.
+      final color = muted
+          ? Color.lerp(_mutedBarLo, _mutedBarHi, bands[i])!
+          : Color.lerp(theme.primary, theme.secondary, bands[i])!;
       canvas.drawRRect(rect, Paint()..color = color);
     }
   }
@@ -224,7 +251,11 @@ class VisualizerPainter extends CustomPainter {
           pivot + dirT * (arcR - (major ? 7 : 4)),
           pivot + dirT * arcR,
           Paint()
-            ..color = f > 0.72 ? hotZone : theme.textMuted
+            ..color = f > 0.72
+                ? hotZone
+                : muted
+                    ? Colors.white24
+                    : theme.textMuted
             ..strokeWidth = major ? 2 : 1
             ..strokeCap = StrokeCap.round,
         );
@@ -237,13 +268,16 @@ class VisualizerPainter extends CustomPainter {
       // Peaking must read at a glance: the needle brightens toward a
       // lit-up shade of the (vivid) accent and gains a glow halo.
       final hsl = HSLColor.fromColor(hotZone);
-      final hotAccent = hsl
-          .withLightness(
-              (hsl.lightness + (1 - hsl.lightness) * 0.45).clamp(0.0, 1.0))
-          .withSaturation((hsl.saturation * 1.2).clamp(0.0, 1.0))
-          .toColor();
+      final hotAccent = muted
+          ? _mutedHotLit
+          : hsl
+              .withLightness((hsl.lightness + (1 - hsl.lightness) * 0.45)
+                  .clamp(0.0, 1.0))
+              .withSaturation((hsl.saturation * 1.2).clamp(0.0, 1.0))
+              .toColor();
       final hot = ((needle - 0.7) / 0.3).clamp(0.0, 1.0);
-      final needleColor = Color.lerp(theme.primary, hotAccent, hot)!;
+      final needleColor = Color.lerp(
+          muted ? Colors.white38 : theme.primary, hotAccent, hot)!;
       final tip = pivot + nd * (arcR - 2);
 
       // Peak LED in the dial's dead space — centered, just below the
@@ -271,11 +305,16 @@ class VisualizerPainter extends CustomPainter {
         2.6,
         Paint()
           ..color = Color.lerp(
-              theme.divider.withValues(alpha: 0.6), hotAccent, glow)!,
+              muted
+                  ? Colors.white12
+                  : theme.divider.withValues(alpha: 0.6),
+              hotAccent,
+              glow)!,
       );
 
       // Pivot dot below the needle too — the needle sweeps over both.
-      canvas.drawCircle(pivot, 3.2, Paint()..color = theme.secondary);
+      canvas.drawCircle(pivot, 3.2,
+          Paint()..color = muted ? Colors.white30 : theme.secondary);
       if (hot > 0.05) {
         canvas.drawLine(
           pivot + nd * 4.0,
@@ -363,7 +402,9 @@ class VisualizerPainter extends CustomPainter {
           final on = i < lit;
           final isPeak = i == peakIdx && peak > 0.02;
           final color = isPeak
-              ? theme.textPrimary.withValues(alpha: 0.9)
+              ? (muted
+                  ? Colors.white.withValues(alpha: 0.55)
+                  : theme.textPrimary.withValues(alpha: 0.9))
               : on
                   ? zoneColor(f)
                   : dimColor(zoneColor(f));
@@ -405,7 +446,10 @@ class VisualizerPainter extends CustomPainter {
                 top,
                 2,
                 rowH),
-            Paint()..color = theme.textPrimary.withValues(alpha: 0.9),
+            Paint()
+              ..color = muted
+                  ? Colors.white.withValues(alpha: 0.55)
+                  : theme.textPrimary.withValues(alpha: 0.9),
           );
         }
         canvas.restore();
@@ -421,5 +465,6 @@ class VisualizerPainter extends CustomPainter {
       old.style != style ||
       old.reactivity != reactivity ||
       old.vuSplit != vuSplit ||
-      old.ledDiscrete != ledDiscrete;
+      old.ledDiscrete != ledDiscrete ||
+      old.muted != muted;
 }
