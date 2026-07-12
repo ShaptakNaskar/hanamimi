@@ -17,6 +17,7 @@ class SeekBarWidget extends StatefulWidget {
     required this.theme,
     required this.onSeek,
     this.buffered = Duration.zero,
+    this.partnerPosition,
   });
 
   final Duration position;
@@ -25,6 +26,10 @@ class SeekBarWidget extends StatefulWidget {
   /// How much of the track has buffered — drawn as a lighter overlay
   /// ahead of the played portion.
   final Duration buffered;
+
+  /// Long-Distance Date (3.0 #6): where the partner is in this track —
+  /// a tiny heart under the bar. Null when not in a room.
+  final Duration? partnerPosition;
   final HanamimiTheme theme;
   final ValueChanged<Duration> onSeek;
 
@@ -87,6 +92,12 @@ class _SeekBarWidgetState extends State<SeekBarWidget> {
                 painter: _CaterpillarPainter(
                   progress: _progress,
                   buffered: _bufferedFraction,
+                  partner: widget.partnerPosition == null ||
+                          widget.duration == Duration.zero
+                      ? null
+                      : (widget.partnerPosition!.inMilliseconds /
+                              widget.duration.inMilliseconds)
+                          .clamp(0.0, 1.0),
                   theme: widget.theme,
                   thumbScale: _dragging ? 20 / 14 : 1.0,
                 ),
@@ -119,12 +130,16 @@ class _CaterpillarPainter extends CustomPainter {
   _CaterpillarPainter({
     required this.progress,
     required this.buffered,
+    this.partner,
     required this.theme,
     required this.thumbScale,
   });
 
   final double progress;
   final double buffered;
+
+  /// Partner's position 0–1 (date mode), or null.
+  final double? partner;
   final HanamimiTheme theme;
   final double thumbScale;
 
@@ -187,12 +202,24 @@ class _CaterpillarPainter extends CustomPainter {
     final eyePaint = Paint()..color = theme.textPrimary;
     canvas.drawCircle(head + Offset(r * 0.25, -r * 0.25), 1.4, eyePaint);
     canvas.drawCircle(head + Offset(r * 0.65, -r * 0.1), 1.4, eyePaint);
+
+    // Date mode: the partner rides along as a small accent dot under
+    // the track — you can see each other approach the same beat.
+    final p = partner;
+    if (p != null) {
+      final px = (size.width * p).clamp(3.0, size.width - 3.0);
+      canvas.drawCircle(
+          Offset(px, cy + trackH + 3),
+          2.5,
+          Paint()..color = theme.accent);
+    }
   }
 
   @override
   bool shouldRepaint(_CaterpillarPainter old) =>
       old.progress != progress ||
       old.buffered != buffered ||
+      old.partner != partner ||
       old.thumbScale != thumbScale ||
       old.theme != theme;
 }

@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 2.5.0 # only major.minor matters — CI auto-increments the patch per release
+version: 3.0.0 # only major.minor matters — CI auto-increments the patch per release
 
 environment:
   sdk: ^3.7.2
@@ -71,6 +71,7 @@ dependencies:
   smtc_windows: ^1.1.0
   gamepads: ^0.1.7
   device_info_plus: ^12.4.0 # device make/model for the opt-in stats leaderboard
+  archive: ^4.0.9
 
 # smtc_windows 1.1.0 ships Rust code generated with flutter_rust_bridge
 # 2.11.1 but allows ^2.11.1, and the 2.12.0 runtime pub picks refuses a
@@ -90,6 +91,8 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
   flutter_launcher_icons: ^0.14.4
+  path_provider_platform_interface: ^2.1.2
+  plugin_platform_interface: ^2.1.8
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

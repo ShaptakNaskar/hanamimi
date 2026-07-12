@@ -13,10 +13,13 @@ import '../../online/ytdlp_channel.dart';
 import '../../providers/buddy_provider.dart';
 import '../../providers/cat_mode_provider.dart';
 import '../../providers/companion_provider.dart';
+import '../../date/date_room.dart';
 import '../../providers/dev_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
+import '../../providers/mystery_date_provider.dart';
+import '../../providers/night_mode_provider.dart';
 import '../../providers/nerd_provider.dart';
 import '../../providers/reco_provider.dart';
 import '../../providers/yt_account_provider.dart';
@@ -34,8 +37,11 @@ import '../components/mascot/buddies.dart';
 import '../components/mascot/hanamimi_widget.dart';
 import '../components/mascot/oneko.dart';
 import '../modals/about_dialog.dart';
+import '../modals/backup_sheet.dart';
+import '../modals/date_room_sheet.dart';
 import '../modals/update_dialog.dart';
 import '../modals/yt_signin_dialog.dart';
+import 'history_screen.dart';
 import 'stats_screen.dart';
 import '../components/mascot/mascot_painter.dart';
 
@@ -45,6 +51,7 @@ class YouScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = ref.watch(currentThemeProvider);
+    final night = ref.watch(nightModeActiveProvider);
 
     return SafeArea(
       bottom: false,
@@ -68,7 +75,8 @@ class YouScreen extends ConsumerWidget {
                   clipBehavior: Clip.none,
                   children: [
                     Text(
-                        ref.watch(editionNameProvider).value ?? 'Hanamimi',
+                        (ref.watch(editionNameProvider).value ?? 'Hanamimi')
+                            .whisper(night),
                         style: AppText.screenTitle(theme)
                             .copyWith(fontSize: 22)),
                     if (ref.watch(buddyEnabledProvider('parrot')))
@@ -88,7 +96,7 @@ class YouScreen extends ConsumerWidget {
             ),
             const SizedBox(height: Space.s6),
           ],
-          Text('MOOD', style: AppText.sectionLabel(theme)),
+          Text('MOOD'.whisper(night), style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
           // Max-extent, not fixed-count: a 2-column grid across a wide
           // desktop pane inflated each theme card to phone-screen size
@@ -112,23 +120,39 @@ class YouScreen extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: Space.s8),
-          Text('YOUR COMPANION', style: AppText.sectionLabel(theme)),
+          Text('YOUR COMPANION'.whisper(night), style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
           const _CompanionCard(),
           const SizedBox(height: Space.s8),
-          Text('BUDDIES', style: AppText.sectionLabel(theme)),
+          Text('BUDDIES'.whisper(night), style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
           const _BuddiesCard(),
           const SizedBox(height: Space.s8),
-          Text('SOUND', style: AppText.sectionLabel(theme)),
+          Text('PLAYBACK'.whisper(night), style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
-          const _SoundSettings(),
+          const _PlaybackSettings(),
           const SizedBox(height: Space.s8),
-          Text('ONLINE', style: AppText.sectionLabel(theme)),
+          Text('VISUALIZER'.whisper(night), style: AppText.sectionLabel(theme)),
+          const SizedBox(height: Space.s3),
+          const _VisualizerSettings(),
+          const SizedBox(height: Space.s8),
+          Text('NIGHT'.whisper(night), style: AppText.sectionLabel(theme)),
+          const SizedBox(height: Space.s3),
+          const _NightSettings(),
+          const SizedBox(height: Space.s8),
+          Text('ONLINE'.whisper(night), style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
           const _OnlineSettings(),
           const SizedBox(height: Space.s8),
-          Text('MORE', style: AppText.sectionLabel(theme)),
+          Text('LIBRARY'.whisper(night), style: AppText.sectionLabel(theme)),
+          const SizedBox(height: Space.s3),
+          const _LibraryCard(),
+          const SizedBox(height: Space.s8),
+          Text('YOUR DATA'.whisper(night), style: AppText.sectionLabel(theme)),
+          const SizedBox(height: Space.s3),
+          const _DataCard(),
+          const SizedBox(height: Space.s8),
+          Text('MORE'.whisper(night), style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
           const _MoreCard(),
           const SizedBox(height: Space.s12),
@@ -254,7 +278,9 @@ class _BuddiesCard extends ConsumerWidget {
       case 'parrot':
         return CustomPaint(painter: ParrotPainter(0.75));
       case 'cat':
-        return CustomPaint(painter: CatPainter(0.25));
+        // The "cat" buddy IS oneko — show her real sprite, not the old
+        // hand-drawn loaf that used to stand in for her here.
+        return const OnekoStill(size: 30);
       case 'duck':
         return CustomPaint(painter: DuckPainter(0));
       case 'fireflies':
@@ -375,59 +401,8 @@ class _MoreCard extends ConsumerWidget {
       ),
       child: Column(
         children: [
-          ListTile(
-            leading: Icon(Icons.bar_chart_rounded,
-                size: 20, color: theme.textMuted),
-            title: Text('Listening stats',
-                style: AppText.rowSongTitle(theme)),
-            subtitle: Text('Your minutes & songs, and the leaderboard',
-                style: AppText.caption(theme)),
-            onTap: () =>
-                Navigator.of(context).push(StatsScreen.route()),
-          ),
-          Divider(height: 0.5, color: theme.divider),
-          ListTile(
-            leading:
-                Icon(Icons.refresh, size: 20, color: theme.textMuted),
-            title: Text('Rescan library',
-                style: AppText.rowSongTitle(theme)),
-            onTap: () {
-              ref.read(libraryProvider.notifier).rescan();
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(Radii.md)),
-                content: const Text('Scanning your music…',
-                    style: TextStyle(fontFamily: 'Nunito')),
-              ));
-            },
-          ),
-          // Desktop points at folders (no MediaStore to index for us).
-          if (!Platform.isAndroid) ...[
-            Divider(height: 0.5, color: theme.divider),
-            ListTile(
-              leading: Icon(Icons.create_new_folder_outlined,
-                  size: 20, color: theme.textMuted),
-              title: Text('Music folders',
-                  style: AppText.rowSongTitle(theme)),
-              subtitle: Text('Folders the library scans',
-                  style: AppText.caption(theme)),
-              onTap: () => _showMusicFoldersSheet(context, ref, theme),
-            ),
-          ],
-          Divider(height: 0.5, color: theme.divider),
-          ListTile(
-            leading: Icon(Icons.folder_off_outlined,
-                size: 20, color: theme.textMuted),
-            title: Text('Excluded folders',
-                style: AppText.rowSongTitle(theme)),
-            subtitle: Text('Hide folders from your library',
-                style: AppText.caption(theme)),
-            onTap: () => _showExcludedFoldersSheet(context, ref, theme),
-          ),
           // Hidden until unlocked by tapping the mascot 7 times.
           if (ref.watch(catModeProvider).unlocked) ...[
-            Divider(height: 0.5, color: theme.divider),
             ListTile(
               leading: const Text('🐱', style: TextStyle(fontSize: 16)),
               title: Text('Cat Mode', style: AppText.rowSongTitle(theme)),
@@ -437,8 +412,8 @@ class _MoreCard extends ConsumerWidget {
                     ref.read(catModeProvider.notifier).setEnabled(on),
               ),
             ),
+            Divider(height: 0.5, color: theme.divider),
           ],
-          Divider(height: 0.5, color: theme.divider),
           ListTile(
             leading: Icon(Icons.info_outline,
                 size: 20, color: theme.textMuted),
@@ -878,34 +853,60 @@ class _OnlineSettings extends ConsumerWidget {
                 : Column(
                     children: [
                       Divider(height: Space.s6, color: theme.divider),
-                      _QualityRow(
+                      // Long-Distance Date Mode (3.0 #6).
+                      InkWell(
+                        borderRadius: BorderRadius.circular(Radii.sm),
+                        onTap: () => showDateRoomSheet(context),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  Text('Long-distance date 💞',
+                                      style:
+                                          AppText.rowSongTitle(theme)),
+                                  Text(
+                                      ref.watch(dateRoomProvider).inRoom
+                                          ? 'In room ${ref.watch(dateRoomProvider).code} — tap to manage'
+                                          : 'Listen together over a room code, in lockstep',
+                                      style: AppText.caption(theme)),
+                                ],
+                              ),
+                            ),
+                            Icon(Icons.chevron_right,
+                                size: 20, color: theme.textMuted),
+                          ],
+                        ),
+                      ),
+                      Divider(height: Space.s6, color: theme.divider),
+                      _DropdownRow<StreamQuality>(
                         label: 'Streaming quality',
                         subtitle: 'Higher uses more data',
-                        value: quality == StreamQuality.high ? 'High' : 'Low',
-                        onTap: () => ref
+                        value: quality,
+                        options: const {
+                          StreamQuality.low: 'Low',
+                          StreamQuality.high: 'High',
+                        },
+                        onChanged: (v) => ref
                             .read(streamQualityProvider.notifier)
-                            .set(quality == StreamQuality.high
-                                ? StreamQuality.low
-                                : StreamQuality.high),
+                            .set(v),
                         theme: theme,
                       ),
                       Divider(height: Space.s6, color: theme.divider),
-                      _QualityRow(
+                      _DropdownRow<MeteredQuality>(
                         label: 'On mobile data',
                         subtitle: 'Quality when off Wi-Fi',
-                        value: switch (meteredQuality) {
-                          MeteredQuality.low => 'Low',
-                          MeteredQuality.high => 'High',
-                          MeteredQuality.matchWifi => 'Use Wi-Fi setting',
+                        value: meteredQuality,
+                        options: const {
+                          MeteredQuality.low: 'Low',
+                          MeteredQuality.high: 'High',
+                          MeteredQuality.matchWifi: 'Use Wi-Fi setting',
                         },
-                        onTap: () {
-                          const order = MeteredQuality.values;
-                          final next = order[
-                              (meteredQuality.index + 1) % order.length];
-                          ref
-                              .read(meteredQualityProvider.notifier)
-                              .set(next);
-                        },
+                        onChanged: (v) => ref
+                            .read(meteredQualityProvider.notifier)
+                            .set(v),
                         theme: theme,
                       ),
                       Divider(height: Space.s6, color: theme.divider),
@@ -947,23 +948,18 @@ class _OnlineSettings extends ConsumerWidget {
                         ],
                       ),
                       Divider(height: Space.s6, color: theme.divider),
-                      _QualityRow(
+                      _DropdownRow<StreamQuality?>(
                         label: 'Download quality',
                         subtitle: 'Used when saving songs offline',
-                        value: switch (ref.watch(downloadQualityProvider)) {
-                          null => 'Ask every time',
-                          StreamQuality.low => 'Low',
-                          StreamQuality.high => 'High',
+                        value: ref.watch(downloadQualityProvider),
+                        options: const {
+                          null: 'Ask every time',
+                          StreamQuality.low: 'Low',
+                          StreamQuality.high: 'High',
                         },
-                        onTap: () {
-                          final current = ref.read(downloadQualityProvider);
-                          ref.read(downloadQualityProvider.notifier).set(
-                              switch (current) {
-                            null => StreamQuality.low,
-                            StreamQuality.low => StreamQuality.high,
-                            StreamQuality.high => null,
-                          });
-                        },
+                        onChanged: (v) => ref
+                            .read(downloadQualityProvider.notifier)
+                            .set(v),
                         theme: theme,
                       ),
                       Divider(height: Space.s6, color: theme.divider),
@@ -1136,56 +1132,112 @@ class _YtMusicTile extends ConsumerWidget {
   }
 }
 
-class _QualityRow extends StatelessWidget {
-  const _QualityRow({
+/// Settings row with a real dropdown — every enumerated choice uses
+/// this now (3.0 feedback: the old tap-to-cycle rows read as labels,
+/// not controls, and nobody found the third option).
+class _DropdownRow<T> extends StatelessWidget {
+  const _DropdownRow({
     required this.label,
     required this.subtitle,
     required this.value,
-    required this.onTap,
+    required this.options,
+    required this.onChanged,
     required this.theme,
   });
 
   final String label;
   final String subtitle;
-  final String value;
-  final VoidCallback onTap;
+  final T value;
+
+  /// Insertion order = menu order.
+  final Map<T, String> options;
+  final ValueChanged<T> onChanged;
   final HanamimiTheme theme;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(Radii.sm),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: AppText.rowSongTitle(theme)),
-                Text(subtitle, style: AppText.caption(theme)),
-              ],
-            ),
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: AppText.rowSongTitle(theme)),
+              Text(subtitle, style: AppText.caption(theme)),
+            ],
           ),
-          Text(value,
-              style: AppText.rowSongTitle(theme)
-                  .copyWith(color: theme.primary)),
-          Icon(Icons.chevron_right, size: 18, color: theme.textMuted),
-        ],
-      ),
+        ),
+        const SizedBox(width: Space.s3),
+        DropdownButton<T>(
+          value: value,
+          underline: const SizedBox.shrink(),
+          dropdownColor: theme.surface,
+          borderRadius: BorderRadius.circular(Radii.md),
+          style: AppText.rowSongTitle(theme).copyWith(color: theme.primary),
+          items: [
+            for (final e in options.entries)
+              DropdownMenuItem(value: e.key, child: Text(e.value)),
+          ],
+          // null is a legitimate selection when the options map says so
+          // (e.g. download quality's "Ask every time").
+          onChanged: (v) {
+            if (v != null || options.containsKey(null)) onChanged(v as T);
+          },
+        ),
+      ],
     );
   }
 }
 
-class _SoundSettings extends ConsumerWidget {
-  const _SoundSettings();
+/// Plain toggle row — label, explainer, switch.
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({
+    required this.label,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+    required this.theme,
+  });
+
+  final String label;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+  final HanamimiTheme theme;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = ref.watch(currentThemeProvider);
-    final crossfadeSeconds = ref.watch(crossfadeProvider);
-    final enabled = crossfadeSeconds > 0;
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: AppText.rowSongTitle(theme)),
+              Text(subtitle, style: AppText.caption(theme)),
+            ],
+          ),
+        ),
+        Switch(value: value, onChanged: onChanged),
+      ],
+    );
+  }
+}
 
+/// Card container all the settings sections share.
+class _SettingsCard extends StatelessWidget {
+  const _SettingsCard({required this.theme, required this.children});
+
+  final HanamimiTheme theme;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = <Widget>[];
+    for (var i = 0; i < children.length; i++) {
+      if (i > 0) rows.add(Divider(height: Space.s6, color: theme.divider));
+      rows.add(children[i]);
+    }
     return Container(
       padding: const EdgeInsets.all(Space.s4),
       decoration: BoxDecoration(
@@ -1193,247 +1245,366 @@ class _SoundSettings extends ConsumerWidget {
         borderRadius: BorderRadius.circular(Radii.md),
         border: Border.all(color: theme.divider, width: 0.5),
       ),
+      child: Column(children: rows),
+    );
+  }
+}
+
+/// PLAYBACK — how songs flow into each other and what plays next.
+class _PlaybackSettings extends ConsumerWidget {
+  const _PlaybackSettings();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    final crossfadeSeconds = ref.watch(crossfadeProvider);
+    final crossfadeOn = crossfadeSeconds > 0;
+
+    return _SettingsCard(
+      theme: theme,
+      children: [
+        Column(
+          children: [
+            _SwitchRow(
+              label: 'Crossfade',
+              subtitle: 'Blend the end of a song into the next',
+              value: crossfadeOn,
+              onChanged: (on) =>
+                  ref.read(crossfadeProvider.notifier).set(on ? 6 : 0),
+              theme: theme,
+            ),
+            AnimatedSize(
+              duration: Anim.minTransition,
+              child: !crossfadeOn
+                  ? const SizedBox(width: double.infinity)
+                  : Row(
+                      children: [
+                        Icon(Icons.pets, size: 16, color: theme.primary),
+                        Expanded(
+                          child: Slider(
+                            value: crossfadeSeconds.toDouble(),
+                            min: 2,
+                            max: 12,
+                            divisions: 10,
+                            onChanged: (v) => ref
+                                .read(crossfadeProvider.notifier)
+                                .set(v.round()),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 28,
+                          child: Text('${crossfadeSeconds}s',
+                              style: AppText.caption(theme)),
+                        ),
+                      ],
+                    ),
+            ),
+          ],
+        ),
+        _SwitchRow(
+          label: 'Slow dance',
+          subtitle: 'Crossfade with eyes open — the next song starts '
+              'right where this one\'s energy dies',
+          value: ref.watch(slowDanceProvider),
+          onChanged: (_) => ref.read(slowDanceProvider.notifier).toggle(),
+          theme: theme,
+        ),
+        _SwitchRow(
+          label: 'Mystery date',
+          subtitle: 'The queue keeps its secrets — no peeking at what '
+              'plays next (also the eye on the queue sheet)',
+          value: ref.watch(mysteryDateProvider),
+          onChanged: (_) =>
+              ref.read(mysteryDateProvider.notifier).toggle(),
+          theme: theme,
+        ),
+        _SwitchRow(
+          label: 'Autoplay',
+          subtitle: 'When the queue ends, keep going with similar songs',
+          value: ref.watch(autoplayProvider),
+          onChanged: (_) => ref.read(autoplayProvider.notifier).toggle(),
+          theme: theme,
+        ),
+        _SwitchRow(
+          label: 'Smart shuffle',
+          subtitle: 'Shuffle leans toward your favorites — computed on '
+              'this device',
+          value: ref.watch(smartShuffleProvider),
+          onChanged: (_) =>
+              ref.read(smartShuffleProvider.notifier).toggle(),
+          theme: theme,
+        ),
+        _SwitchRow(
+          label: 'Equalizer',
+          subtitle: 'Coming soon',
+          value: false,
+          onChanged: null,
+          theme: theme,
+        ),
+      ],
+    );
+  }
+}
+
+/// VISUALIZER — every knob for the dancing pixels, in one place.
+class _VisualizerSettings extends ConsumerWidget {
+  const _VisualizerSettings();
+
+  Widget _slider({
+    required HanamimiTheme theme,
+    required String label,
+    required String subtitle,
+    required IconData icon,
+    required double value,
+    required ValueChanged<double> onChanged,
+  }) =>
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: AppText.rowSongTitle(theme)),
+          Text(subtitle, style: AppText.caption(theme)),
+          Row(
+            children: [
+              Icon(icon, size: 16, color: theme.primary),
+              Expanded(
+                child: Slider(
+                  value: value.clamp(0.5, 3.0),
+                  min: 0.5,
+                  max: 3.0,
+                  divisions: 10,
+                  onChanged: onChanged,
+                ),
+              ),
+              SizedBox(
+                width: 40,
+                child: Text('${value.toStringAsFixed(2)}×',
+                    style: AppText.caption(theme)),
+              ),
+            ],
+          ),
+        ],
+      );
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    final style = ref.watch(effectiveVisualizerStyleProvider);
+
+    return _SettingsCard(
+      theme: theme,
+      children: [
+        _DropdownRow<VisualizerStyle>(
+          label: 'Style',
+          subtitle: 'How the music dances',
+          value: style,
+          options: _visualizerStyleNames,
+          onChanged: (v) =>
+              ref.read(visualizerStyleOverrideProvider.notifier).set(v),
+          theme: theme,
+        ),
+        if (style != VisualizerStyle.bars)
+          _DropdownRow<bool>(
+            label: 'VU source',
+            subtitle: 'What the meters listen to',
+            value: ref.watch(vuSplitProvider),
+            options: const {false: 'Loudness', true: 'Bass & treble'},
+            onChanged: (v) => ref.read(vuSplitProvider.notifier).set(v),
+            theme: theme,
+          ),
+        if (style == VisualizerStyle.ledVu)
+          _DropdownRow<bool>(
+            label: 'LED look',
+            subtitle: 'Segmented or smooth',
+            value: ref.watch(ledVuDiscreteProvider),
+            options: const {true: 'Discrete LEDs', false: 'Continuous bar'},
+            onChanged: (v) =>
+                ref.read(ledVuDiscreteProvider.notifier).set(v),
+            theme: theme,
+          ),
+        _slider(
+          theme: theme,
+          label: 'Sensitivity',
+          subtitle: 'Turn up for songs that barely move it',
+          icon: Icons.graphic_eq,
+          value: ref.watch(visualizerSensitivityProvider),
+          onChanged: (v) =>
+              ref.read(visualizerSensitivityProvider.notifier).set(v),
+        ),
+        _slider(
+          theme: theme,
+          label: 'Reactivity',
+          subtitle: 'Jumpy needle up high, silky-smooth down low',
+          icon: Icons.bolt,
+          value: ref.watch(visualizerReactivityProvider),
+          onChanged: (v) =>
+              ref.read(visualizerReactivityProvider.notifier).set(v),
+        ),
+        _SwitchRow(
+          label: 'Nerd mode',
+          subtitle: 'Show codec, bitrate & audio output on Now Playing',
+          value: ref.watch(nerdModeProvider),
+          onChanged: (on) => ref.read(nerdModeProvider.notifier).set(on),
+          theme: theme,
+        ),
+      ],
+    );
+  }
+}
+
+/// NIGHT — everything that happens after dark, together (3.0 feedback:
+/// these were scattered across three sections).
+class _NightSettings extends ConsumerWidget {
+  const _NightSettings();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+
+    return _SettingsCard(
+      theme: theme,
+      children: [
+        _DropdownRow<NightModeSetting>(
+          label: 'Night mode 🌙',
+          subtitle: 'after midnight, it whispers — embers palette, '
+              'gentler volume',
+          value: ref.watch(nightModeSettingProvider),
+          options: const {
+            NightModeSetting.auto: 'Auto',
+            NightModeSetting.always: 'Always',
+            NightModeSetting.never: 'Never',
+          },
+          onChanged: (v) =>
+              ref.read(nightModeSettingProvider.notifier).set(v),
+          theme: theme,
+        ),
+        _SwitchRow(
+          label: 'Melt away',
+          subtitle: 'Listen without touching and the player fades to '
+              'just art, visualizer & mascot — touch brings it back',
+          value: ref.watch(meltAwayProvider),
+          onChanged: (_) => ref.read(meltAwayProvider.notifier).toggle(),
+          theme: theme,
+        ),
+        _DropdownRow<VisualizerStyle>(
+          label: 'Blackout meters',
+          subtitle: 'The visualizer on the bedside Blackout screen',
+          value: ref.watch(blackoutStyleProvider),
+          options: _visualizerStyleNames,
+          onChanged: (v) =>
+              ref.read(blackoutStyleProvider.notifier).set(v),
+          theme: theme,
+        ),
+      ],
+    );
+  }
+}
+
+/// LIBRARY — where the songs come from.
+class _LibraryCard extends ConsumerWidget {
+  const _LibraryCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.surface,
+        borderRadius: BorderRadius.circular(Radii.md),
+        border: Border.all(color: theme.divider, width: 0.5),
+      ),
       child: Column(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Crossfade',
-                        style: AppText.rowSongTitle(theme)),
-                    Text('Blend the end of a song into the next',
-                        style: AppText.caption(theme)),
-                  ],
-                ),
-              ),
-              Switch(
-                value: enabled,
-                onChanged: (on) =>
-                    ref.read(crossfadeProvider.notifier).set(on ? 6 : 0),
-              ),
-            ],
-          ),
-          AnimatedSize(
-            duration: Anim.minTransition,
-            child: !enabled
-                ? const SizedBox(width: double.infinity)
-                : Column(
-                    children: [
-                      const SizedBox(height: Space.s2),
-                      Row(
-                        children: [
-                          Icon(Icons.pets,
-                              size: 16, color: theme.primary),
-                          Expanded(
-                            child: Slider(
-                              value: crossfadeSeconds.toDouble(),
-                              min: 2,
-                              max: 12,
-                              divisions: 10,
-                              onChanged: (v) => ref
-                                  .read(crossfadeProvider.notifier)
-                                  .set(v.round()),
-                            ),
-                          ),
-                          SizedBox(
-                            width: 28,
-                            child: Text('${crossfadeSeconds}s',
-                                style: AppText.caption(theme)),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-          ),
-          Divider(height: Space.s6, color: theme.divider),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Visualizer sensitivity',
-                  style: AppText.rowSongTitle(theme)),
-              Text('Turn up for songs that barely move it',
-                  style: AppText.caption(theme)),
-              Row(
-                children: [
-                  Icon(Icons.graphic_eq, size: 16, color: theme.primary),
-                  Expanded(
-                    child: Slider(
-                      value: ref
-                          .watch(visualizerSensitivityProvider)
-                          .clamp(0.5, 3.0)
-                          .toDouble(),
-                      min: 0.5,
-                      max: 3.0,
-                      divisions: 10,
-                      onChanged: (v) => ref
-                          .read(visualizerSensitivityProvider.notifier)
-                          .set(v),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 40,
-                    child: Text(
-                      '${ref.watch(visualizerSensitivityProvider).toStringAsFixed(2)}×',
-                      style: AppText.caption(theme),
-                    ),
-                  ),
-                ],
-              ),
-              Text('Reactivity', style: AppText.rowSongTitle(theme)),
-              Text('Jumpy needle up high, silky-smooth down low',
-                  style: AppText.caption(theme)),
-              Row(
-                children: [
-                  Icon(Icons.bolt, size: 16, color: theme.primary),
-                  Expanded(
-                    child: Slider(
-                      value: ref
-                          .watch(visualizerReactivityProvider)
-                          .clamp(0.5, 3.0)
-                          .toDouble(),
-                      min: 0.5,
-                      max: 3.0,
-                      divisions: 10,
-                      onChanged: (v) => ref
-                          .read(visualizerReactivityProvider.notifier)
-                          .set(v),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 40,
-                    child: Text(
-                      '${ref.watch(visualizerReactivityProvider).toStringAsFixed(2)}×',
-                      style: AppText.caption(theme),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          Divider(height: Space.s6, color: theme.divider),
-          _QualityRow(
-            label: 'Visualizer style',
-            subtitle: 'How the music dances',
-            value: _visualizerStyleNames[
-                ref.watch(effectiveVisualizerStyleProvider)]!,
-            theme: theme,
+          ListTile(
+            leading:
+                Icon(Icons.refresh, size: 20, color: theme.textMuted),
+            title: Text('Rescan library',
+                style: AppText.rowSongTitle(theme)),
             onTap: () {
-              const order = VisualizerStyle.values;
-              final current = ref.read(effectiveVisualizerStyleProvider);
-              ref.read(visualizerStyleOverrideProvider.notifier).set(
-                  order[(order.indexOf(current) + 1) % order.length]);
+              ref.read(libraryProvider.notifier).rescan();
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(Radii.md)),
+                content: const Text('Scanning your music…',
+                    style: TextStyle(fontFamily: 'Nunito')),
+              ));
             },
           ),
-          if (ref.watch(effectiveVisualizerStyleProvider) !=
-              VisualizerStyle.bars) ...[
-            Divider(height: Space.s6, color: theme.divider),
-            _QualityRow(
-              label: 'VU source',
-              subtitle: 'What the meters listen to',
-              value: ref.watch(vuSplitProvider)
-                  ? 'Bass & treble'
-                  : 'Loudness',
-              theme: theme,
-              onTap: () => ref
-                  .read(vuSplitProvider.notifier)
-                  .set(!ref.read(vuSplitProvider)),
+          // Desktop points at folders (no MediaStore to index for us).
+          if (!Platform.isAndroid) ...[
+            Divider(height: 0.5, color: theme.divider),
+            ListTile(
+              leading: Icon(Icons.create_new_folder_outlined,
+                  size: 20, color: theme.textMuted),
+              title: Text('Music folders',
+                  style: AppText.rowSongTitle(theme)),
+              subtitle: Text('Folders the library scans',
+                  style: AppText.caption(theme)),
+              onTap: () => _showMusicFoldersSheet(context, ref, theme),
             ),
           ],
-          if (ref.watch(effectiveVisualizerStyleProvider) ==
-              VisualizerStyle.ledVu) ...[
-            Divider(height: Space.s6, color: theme.divider),
-            _QualityRow(
-              label: 'LED look',
-              subtitle: 'Segmented or smooth',
-              value: ref.watch(ledVuDiscreteProvider)
-                  ? 'Discrete LEDs'
-                  : 'Continuous bar',
-              theme: theme,
-              onTap: () => ref
-                  .read(ledVuDiscreteProvider.notifier)
-                  .set(!ref.read(ledVuDiscreteProvider)),
-            ),
-          ],
-          Divider(height: Space.s6, color: theme.divider),
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Autoplay', style: AppText.rowSongTitle(theme)),
-                    Text(
-                        'When the queue ends, keep going with '
-                        'similar songs',
-                        style: AppText.caption(theme)),
-                  ],
-                ),
-              ),
-              Switch(
-                value: ref.watch(autoplayProvider),
-                onChanged: (_) =>
-                    ref.read(autoplayProvider.notifier).toggle(),
-              ),
-            ],
+          Divider(height: 0.5, color: theme.divider),
+          ListTile(
+            leading: Icon(Icons.folder_off_outlined,
+                size: 20, color: theme.textMuted),
+            title: Text('Excluded folders',
+                style: AppText.rowSongTitle(theme)),
+            subtitle: Text('Hide folders from your library',
+                style: AppText.caption(theme)),
+            onTap: () => _showExcludedFoldersSheet(context, ref, theme),
           ),
-          Divider(height: Space.s6, color: theme.divider),
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Smart shuffle', style: AppText.rowSongTitle(theme)),
-                    Text(
-                        'Shuffle leans toward your favorites — '
-                        'computed on this device',
-                        style: AppText.caption(theme)),
-                  ],
-                ),
-              ),
-              Switch(
-                value: ref.watch(smartShuffleProvider),
-                onChanged: (_) =>
-                    ref.read(smartShuffleProvider.notifier).toggle(),
-              ),
-            ],
+        ],
+      ),
+    );
+  }
+}
+
+/// YOUR DATA — what the app remembers about your listening, and how it
+/// travels with you.
+class _DataCard extends ConsumerWidget {
+  const _DataCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.surface,
+        borderRadius: BorderRadius.circular(Radii.md),
+        border: Border.all(color: theme.divider, width: 0.5),
+      ),
+      child: Column(
+        children: [
+          ListTile(
+            leading: Icon(Icons.bar_chart_rounded,
+                size: 20, color: theme.textMuted),
+            title: Text('Listening stats',
+                style: AppText.rowSongTitle(theme)),
+            subtitle: Text('Your minutes & songs, and the leaderboard',
+                style: AppText.caption(theme)),
+            onTap: () =>
+                Navigator.of(context).push(StatsScreen.route()),
           ),
-          Divider(height: Space.s6, color: theme.divider),
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Nerd mode', style: AppText.rowSongTitle(theme)),
-                    Text('Show codec, bitrate & audio output on Now Playing',
-                        style: AppText.caption(theme)),
-                  ],
-                ),
-              ),
-              Switch(
-                value: ref.watch(nerdModeProvider),
-                onChanged: (on) =>
-                    ref.read(nerdModeProvider.notifier).set(on),
-              ),
-            ],
+          Divider(height: 0.5, color: theme.divider),
+          ListTile(
+            leading: Icon(Icons.history_rounded,
+                size: 20, color: theme.textMuted),
+            title: Text('Listening history',
+                style: AppText.rowSongTitle(theme)),
+            subtitle: Text('Every play, kept on this device',
+                style: AppText.caption(theme)),
+            onTap: () =>
+                Navigator.of(context).push(HistoryScreen.route()),
           ),
-          Divider(height: Space.s6, color: theme.divider),
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Equalizer', style: AppText.rowSongTitle(theme)),
-                    Text('Coming soon', style: AppText.caption(theme)),
-                  ],
-                ),
-              ),
-              Switch(value: false, onChanged: null),
-            ],
+          Divider(height: 0.5, color: theme.divider),
+          ListTile(
+            leading: Icon(Icons.sync_rounded,
+                size: 20, color: theme.textMuted),
+            title: Text('Backup & restore',
+                style: AppText.rowSongTitle(theme)),
+            subtitle: Text('Take your history to a new device',
+                style: AppText.caption(theme)),
+            onTap: () => showBackupSheet(context),
           ),
         ],
       ),

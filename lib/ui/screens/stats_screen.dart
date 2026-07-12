@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../library/models/track.dart';
 import '../../providers/leaderboard_provider.dart';
+import '../../providers/night_mode_provider.dart';
 import '../../providers/stats_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../theme/app_theme.dart';
@@ -35,7 +36,10 @@ class StatsScreen extends ConsumerWidget {
       backgroundColor: theme.background,
       appBar: AppBar(
         backgroundColor: theme.surface,
-        title: Text('Listening stats', style: AppText.rowSongTitle(theme)),
+        title: Text(
+            'Listening stats'
+                .whisper(ref.watch(nightModeActiveProvider)),
+            style: AppText.rowSongTitle(theme)),
       ),
       body: ListView(
         padding: const EdgeInsets.all(Space.s4),
@@ -263,7 +267,15 @@ class _LeaderboardList extends ConsumerWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          Text('${rows[i].totalSongs} songs',
+                          // Taste compatibility (3.0 #5): estimated from
+                          // opt-in MinHash fingerprints, % only.
+                          Text(
+                              rows[i].isSelf
+                                  ? '${rows[i].totalSongs} songs · you!'
+                                  : rows[i].compat != null
+                                      ? '${rows[i].totalSongs} songs · '
+                                          '${rows[i].compat}% taste match'
+                                      : '${rows[i].totalSongs} songs',
                               style: AppText.caption(theme)),
                         ],
                       ),

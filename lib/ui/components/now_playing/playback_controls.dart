@@ -17,11 +17,15 @@ class PlaybackControls extends ConsumerStatefulWidget {
       this.onSleepTimer,
       this.onQueue,
       this.onAddToPlaylist,
-      this.onStartRadio});
+      this.onStartRadio,
+      this.onBlackout});
 
   final VoidCallback? onSleepTimer;
   final VoidCallback? onQueue;
   final VoidCallback? onAddToPlaylist;
+
+  /// Blackout Mode (3.0 #3) — the bedside-amp screen.
+  final VoidCallback? onBlackout;
 
   /// Song radio (M38c): rebuild the queue as a station flowing out of
   /// the current track.
@@ -200,8 +204,11 @@ class _PlaybackControlsState extends ConsumerState<PlaybackControls>
                   : theme.textMuted,
               onTap: () => ref.read(caffeineProvider.notifier).toggle(),
             ),
+            // Zzz-clock, NOT a moon — the moon next door is Blackout
+            // Mode and two crescents in one row read as one feature
+            // (user report).
             _IconOnly(
-              icon: Icons.nightlight_outlined,
+              icon: Icons.snooze_rounded,
               size: 20,
               color: ref.watch(sleepTimerProvider).isActive
                   ? theme.primary
@@ -214,6 +221,13 @@ class _PlaybackControlsState extends ConsumerState<PlaybackControls>
               color: theme.textMuted,
               onTap: widget.onQueue ?? () {},
             ),
+            if (widget.onBlackout != null)
+              _IconOnly(
+                icon: Icons.bedtime_outlined,
+                size: 20,
+                color: theme.textMuted,
+                onTap: widget.onBlackout!,
+              ),
           ],
         ),
       ],

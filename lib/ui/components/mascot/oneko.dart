@@ -145,6 +145,82 @@ const _sprites = <String, List<List<int>>>{
 /// switched off on desktop, or always on mobile, where there is no
 /// pointer to chase. Same sprite sheet, just the two sleeping frames
 /// on a slow blink.
+/// Blackout Mode's corner cat (3.0 #3): asleep by default, and *she* is
+/// the track-change cue — bump [stir] and she startles awake, scratches,
+/// and settles back down. No toast, no text, just the cat.
+class StirringOneko extends StatefulWidget {
+  const StirringOneko({super.key, this.size = 36, required this.stir});
+
+  final double size;
+
+  /// Increment to wake her briefly (typically on track change).
+  final int stir;
+
+  @override
+  State<StirringOneko> createState() => _StirringOnekoState();
+}
+
+class _StirringOnekoState extends State<StirringOneko> {
+  Timer? _timer;
+  var _frame = 0;
+  var _awakeTicks = 0; // >0 while stirred; counts down per tick
+
+  @override
+  void initState() {
+    super.initState();
+    if (_OnekoPetState._sheet == null) {
+      _OnekoPetState._loadSheet().then((_) {
+        if (mounted) setState(() {});
+      });
+    }
+    _timer = Timer.periodic(const Duration(milliseconds: 400), (_) {
+      if (!mounted || !windowVisible.value) return;
+      setState(() {
+        _frame++;
+        if (_awakeTicks > 0) _awakeTicks--;
+      });
+    });
+  }
+
+  @override
+  void didUpdateWidget(StirringOneko old) {
+    super.didUpdateWidget(old);
+    if (widget.stir != old.stir) {
+      setState(() {
+        _awakeTicks = 10; // ~4 s: alert, a scratch, back to sleep
+        _frame = 0;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sheet = _OnekoPetState._sheet;
+    if (sheet == null) return SizedBox(width: widget.size);
+    final pose = _awakeTicks > 7
+        ? _sprites['alert']![0]
+        : _awakeTicks > 0
+            ? _sprites['scratchSelf']![_frame % 3]
+            : _sprites['sleeping']![(_frame ~/ 2) % 2];
+    return RepaintBoundary(
+      child: CustomPaint(
+        size: Size(widget.size, widget.size),
+        painter: _SleepingOnekoPainter(
+          sheet: sheet,
+          pose: pose,
+          size: widget.size,
+        ),
+      ),
+    );
+  }
+}
+
 class SleepingOneko extends StatefulWidget {
   const SleepingOneko({super.key, this.size = 28});
 
@@ -198,6 +274,52 @@ class _SleepingOnekoState extends State<SleepingOneko> {
             pose: frames[_frame % frames.length],
             size: widget.size,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A single still oneko sprite — for previews and chips where the live
+/// pointer-chasing cat would be overkill (e.g. the buddy picker row).
+/// Reuses the one shared sprite sheet; paints nothing until it loads.
+class OnekoStill extends StatefulWidget {
+  const OnekoStill({super.key, this.size = 30, this.pose = 'idle'});
+
+  final double size;
+
+  /// Key into the sprite table — 'idle' (sitting, facing you) by default.
+  final String pose;
+
+  @override
+  State<OnekoStill> createState() => _OnekoStillState();
+}
+
+class _OnekoStillState extends State<OnekoStill> {
+  @override
+  void initState() {
+    super.initState();
+    if (_OnekoPetState._sheet == null) {
+      _OnekoPetState._loadSheet().then((_) {
+        if (mounted) setState(() {});
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sheet = _OnekoPetState._sheet;
+    if (sheet == null) {
+      return SizedBox(width: widget.size, height: widget.size);
+    }
+    final pose = (_sprites[widget.pose] ?? _sprites['idle']!).first;
+    return RepaintBoundary(
+      child: CustomPaint(
+        size: Size(widget.size, widget.size),
+        painter: _SleepingOnekoPainter(
+          sheet: sheet,
+          pose: pose,
+          size: widget.size,
         ),
       ),
     );
@@ -361,20 +483,27 @@ class _OnekoPetState extends State<_OnekoPet> {
 
   void _idle() {
     _idleTime++;
-    if (_idleTime > 10 && _rng.nextInt(200) == 0 && _idleAnimation == null) {
-      final avail = <String>['sleeping', 'scratchSelf'];
-      if (_x < 32) avail.add('scratchWallW');
-      if (_y < 32) avail.add('scratchWallN');
-      if (_x > _area.width - 32) avail.add('scratchWallE');
-      if (_y > _area.height - 32) avail.add('scratchWallS');
+    // Fidget dice. oneko.js rolls 1/200 a tick, but combined with the
+    // guaranteed 8 s nap below that meant the scratch poses effectively
+    // never showed — she was only ever seen waiting, yawning, sleeping
+    // (user report). 1/45 over the ~7 s pre-nap window makes "do a cat
+    // thing, then curl up" the normal sequence, wall scratches included
+    // whenever she settled near an edge. Edge margin widened to 48 px
+    // (the strict 32 px required pixel-perfect cornering to ever see).
+    if (_idleTime > 10 && _rng.nextInt(45) == 0 && _idleAnimation == null) {
+      final avail = <String>['scratchSelf', 'scratchSelf', 'sleeping'];
+      if (_x < 48) avail.add('scratchWallW');
+      if (_y < 48) avail.add('scratchWallN');
+      if (_x > _area.width - 48) avail.add('scratchWallE');
+      if (_y > _area.height - 48) avail.add('scratchWallS');
       _idleAnimation = avail[_rng.nextInt(avail.length)];
     }
-    // The real neko is a sleepy one: the dice above only MAYBE pick an
-    // idle animation (1/200 a tick, sleeping just one option among the
-    // scratches), so she could fidget for minutes without nodding off
-    // (user report). ~8 s of stillness now guarantees a nap.
+    // ~8 s of stillness still guarantees a nap — but a long sleeper now
+    // stirs once in a while (a sleepy scratch between sleep cycles)
+    // instead of freezing on the sleep loop forever.
     if (_idleAnimation == null && _idleTime > 80) {
-      _idleAnimation = 'sleeping';
+      _idleAnimation =
+          _idleTime > 200 && _rng.nextInt(4) == 0 ? 'scratchSelf' : 'sleeping';
     }
 
     switch (_idleAnimation) {

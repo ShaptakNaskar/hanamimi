@@ -11,6 +11,7 @@ import 'models/audio_state.dart';
 import 'models/playback_session.dart';
 import 'models/queue_mode.dart';
 import 'player_port.dart';
+import 'slow_dance.dart';
 
 /// Owns the players and the queue. Crossfade uses the two-player model
 /// from ARCHITECTURE.md §6.1: [_primary] is audible; [_incoming] exists
@@ -107,7 +108,7 @@ class QueueManager {
       switch (event.type) {
         case AudioInterruptionType.duck:
           // Nav prompt / notification — duck rather than silence.
-          if (!_crossfading) _primary.setVolume(0.3);
+          if (!_crossfading) _setPrimaryVolume(0.3);
         case AudioInterruptionType.pause:
         case AudioInterruptionType.unknown:
           // A call or another media app took focus — pause, remember.
@@ -117,7 +118,7 @@ class QueueManager {
     } else {
       switch (event.type) {
         case AudioInterruptionType.duck:
-          if (!_crossfading) _primary.setVolume(1);
+          if (!_crossfading) _setPrimaryVolume(1);
         case AudioInterruptionType.pause:
           // Transient loss ended (call over) — resume what we paused.
           if (_interrupted) play();
@@ -137,6 +138,34 @@ class QueueManager {
 
   /// User setting; Duration.zero = crossfade off.
   Duration crossfadeDuration = Duration.zero;
+
+  /// Slow Dance (3.0 #4): when set, crossfades are *sighted* — the
+  /// planner reads the outgoing track's cached loudness frames and says
+  /// where its energy dies and how long the fade should be. Null plan
+  /// (no cache yet) falls back to the classic timer. Pushed by the
+  /// slow-dance provider; null = feature off.
+  Future<SlowDancePlan?> Function(Track track)? slowDancePlanner;
+  SlowDancePlan? _dancePlan;
+  int? _dancePlanTrackId;
+  bool _dancePlanLoading = false;
+
+  /// Night Mode's gentler master gain (3.0). Every volume write — sleep
+  /// fade, ducking, crossfade ramps, MPRIS — is a 0–1 *intent*; the gain
+  /// scales it at the port boundary so the systems compose instead of
+  /// fighting over the knob.
+  double _gainScale = 1.0;
+  double _volumeIntent = 1.0;
+
+  Future<void> setGainScale(double gain) async {
+    if (gain == _gainScale) return;
+    _gainScale = gain;
+    if (!_crossfading) await _primary.setVolume(_volumeIntent * gain);
+  }
+
+  Future<void> _setPrimaryVolume(double intent) {
+    _volumeIntent = intent;
+    return _primary.setVolume(intent * _gainScale);
+  }
 
   /// Smart shuffle (M38c): when set, shuffle orders are sampled with
   /// probability ∝ weight(track) instead of uniformly — favorites come
@@ -201,9 +230,16 @@ class QueueManager {
     for (final s in _subs) {
       s.cancel();
     }
+    PortState? lastPs;
     _subs = [
+      // Transition-edge only: some backends re-emit `completed` on
+      // unrelated player events while still sitting at the end, and
+      // each duplicate used to re-run the completion path.
       player.processingStateStream.listen((ps) {
-        if (ps == PortState.completed) _onTrackCompleted();
+        if (ps == PortState.completed && lastPs != PortState.completed) {
+          _onTrackCompleted();
+        }
+        lastPs = ps;
       }),
       // playerStateStream fires on BOTH playing and processingState
       // changes. playingStream alone misses track switches while already
@@ -289,7 +325,7 @@ class QueueManager {
     ));
     try {
       await _loadInto(_primary, track);
-      await _primary.setVolume(1);
+      await _setPrimaryVolume(1);
       if (session.position > Duration.zero) {
         await _primary.seek(session.position);
       }
@@ -329,8 +365,15 @@ class QueueManager {
     if (current != null) _history.add(current);
 
     if (!byUser && _mode == QueueMode.repeatOne) {
+      _repeatRestartedAt
+        ..reset()
+        ..start();
       await _primary.seek(Duration.zero);
       await _primary.play();
+      // Each loop is a fresh listen: without this, a song on repeat
+      // for an hour counted as ONE song in stats/history (the restart
+      // path skips _playCurrent, which normally announces the start).
+      if (current != null) trackStarted.add(current);
       return;
     }
 
@@ -512,8 +555,8 @@ class QueueManager {
     ));
   }
 
-  /// For the sleep timer's fade-out (M11).
-  Future<void> setVolume(double volume) => _primary.setVolume(volume);
+  /// For the sleep timer's fade-out (M11) and MPRIS.
+  Future<void> setVolume(double volume) => _setPrimaryVolume(volume);
 
   Future<void> dispose() async {
     _crossfadeTimer?.cancel();
@@ -533,8 +576,9 @@ class QueueManager {
   // --- Crossfade ---
 
   void _maybeStartCrossfade(Duration pos) {
+    final sighted = slowDancePlanner != null;
     if (_crossfading ||
-        crossfadeDuration == Duration.zero ||
+        (!sighted && crossfadeDuration == Duration.zero) ||
         !_primary.playing ||
         pauseAtTrackEnd ||
         _mode == QueueMode.repeatOne) {
@@ -542,8 +586,36 @@ class QueueManager {
     }
     final duration = _primary.duration;
     if (duration == null || duration == Duration.zero) return;
-    final remaining = duration - pos;
-    if (remaining > crossfadeDuration + const Duration(seconds: 10)) return;
+
+    // Slow Dance: read the plan for the current track ahead of the
+    // window so it's ready by the time the fade could start.
+    final current = _currentTrack;
+    if (sighted &&
+        current != null &&
+        _dancePlanTrackId != current.id &&
+        !_dancePlanLoading &&
+        duration - pos < const Duration(seconds: 60)) {
+      _dancePlanLoading = true;
+      slowDancePlanner!(current).then((plan) {
+        _dancePlan = plan;
+        _dancePlanTrackId = current.id;
+        _dancePlanLoading = false;
+      });
+    }
+    final plan = (sighted && current != null &&
+            _dancePlanTrackId == current.id)
+        ? _dancePlan
+        : null;
+
+    // Sighted but planless (first play, undecodable stream): a gentle
+    // default so Slow Dance works standalone with crossfade off.
+    final fade = plan?.fade ??
+        (crossfadeDuration == Duration.zero
+            ? const Duration(seconds: 6)
+            : crossfadeDuration);
+    final startAt = plan?.startAt ?? duration - fade;
+    final untilStart = startAt - pos;
+    if (untilStart > const Duration(seconds: 10)) return;
 
     // Where would we land? Only crossfade when there's a definite next.
     int? nextCursor;
@@ -554,17 +626,17 @@ class QueueManager {
     }
     if (nextCursor == null) return;
 
-    if (remaining > crossfadeDuration) {
+    if (untilStart > Duration.zero) {
       // Streams take ~1–2 s to resolve; warm the URL cache ahead of
       // the ramp so resolution latency doesn't eat into it. Idempotent.
       unawaited(_resolver.preResolve(_source[_order[nextCursor]]));
       return;
     }
 
-    _startCrossfade(nextCursor);
+    _startCrossfade(nextCursor, fade);
   }
 
-  Future<void> _startCrossfade(int nextCursor) async {
+  Future<void> _startCrossfade(int nextCursor, Duration fade) async {
     final track = _source[_order[nextCursor]];
     final incoming = AudioPlayerPort.create();
     _incoming = incoming; // claims the crossfade slot immediately
@@ -581,7 +653,11 @@ class QueueManager {
     await incoming.setVolume(0);
     unawaited(incoming.play());
 
-    final total = crossfadeDuration.inMilliseconds;
+    // Announce the incoming track so the UI can dissolve art/title from
+    // the outgoing one to this in step with the audio ramp below.
+    _state.add(state.copyWith(crossfadeProgress: 0, crossfadeIncomingTrack: track));
+
+    final total = fade.inMilliseconds;
     final stopwatch = Stopwatch()..start();
     _crossfadeTimer =
         Timer.periodic(const Duration(milliseconds: 16), (timer) {
@@ -589,9 +665,12 @@ class QueueManager {
           (stopwatch.elapsedMilliseconds / total).clamp(0.0, 1.0);
       // Smoothstep — equal-power feel, no mid-fade loudness bump.
       final e = t * t * (3 - 2 * t);
-      _primary.setVolume(1 - e);
-      incoming.setVolume(e);
-      _state.add(state.copyWith(crossfadeProgress: t));
+      _primary.setVolume((1 - e) * _gainScale);
+      incoming.setVolume(e * _gainScale);
+      _state.add(state.copyWith(
+        crossfadeProgress: t,
+        crossfadeIncomingPositionMs: incoming.position.inMilliseconds,
+      ));
       if (t >= 1) _finishCrossfade();
     });
   }
@@ -614,7 +693,7 @@ class QueueManager {
 
     _wirePlayer(_primary);
     old.dispose();
-    _primary.setVolume(1);
+    _setPrimaryVolume(1);
 
     _state.add(state.copyWith(
       currentTrack: track,
@@ -636,7 +715,7 @@ class QueueManager {
     _pendingCursor = null;
     _pendingTrack = null;
     await incoming?.dispose();
-    await _primary.setVolume(1);
+    await _setPrimaryVolume(1);
     _state.add(state.copyWith(clearCrossfade: true));
   }
 
@@ -691,11 +770,28 @@ class QueueManager {
     return out;
   }
 
+  /// Started on each repeat-one restart; see the guard below.
+  final _repeatRestartedAt = Stopwatch();
+
   Future<void> _onTrackCompleted() async {
     // The old track can run out a beat before the crossfade ramp ends —
     // hand over immediately instead of double-advancing.
     if (_crossfading) {
       _finishCrossfade();
+      return;
+    }
+    // Repeat-one restarts by seeking the SAME source back to zero. On a
+    // network stream that seek takes a beat, and the player can surface
+    // its end-of-track state again before the seek lands — which
+    // re-restarted the song ("plays for a second, restarts",
+    // user-reported, intermittent). A real re-completion can't happen
+    // this soon after a restart unless the track is seconds long, so
+    // ignore completions inside the window for tracks with any length.
+    if (_mode == QueueMode.repeatOne &&
+        _repeatRestartedAt.isRunning &&
+        _repeatRestartedAt.elapsed < const Duration(seconds: 5) &&
+        (_primary.duration ?? Duration.zero) >
+            const Duration(seconds: 10)) {
       return;
     }
     if (pauseAtTrackEnd) {
@@ -739,7 +835,7 @@ class QueueManager {
     try {
       await _loadInto(_primary, track, generation: generation);
       if (generation != _playGeneration) return; // superseded mid-load
-      await _primary.setVolume(1);
+      await _setPrimaryVolume(1);
       await _activateFocus();
       await _primary.play();
       _loadFailures = 0;

@@ -5,6 +5,7 @@ import '../../providers/library_provider.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
 import '../components/library/playlist_card.dart';
+import '../components/shared/app_toast.dart';
 
 /// "Add to playlist" bottom sheet — shared by library track rows and
 /// Now Playing. Extracted from library_screen so any surface with a
@@ -61,13 +62,6 @@ Future<void> showPlaylistPicker(BuildContext context, WidgetRef ref,
   );
 }
 
-void _toast(BuildContext context, String message) {
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    behavior: SnackBarBehavior.floating,
-    duration: const Duration(seconds: 1),
-    shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(Radii.md)),
-    content:
-        Text(message, style: const TextStyle(fontFamily: 'Nunito')),
-  ));
-}
+// Root-overlay toast — SnackBars hide behind modal sheets.
+void _toast(BuildContext context, String message) =>
+    showAppToast(context, message);

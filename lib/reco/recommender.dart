@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../library/models/track.dart';
+import '../utils/track_identity.dart';
 import 'feature_extractor.dart';
 
 /// Everything the on-device recommender reads, loaded in one shot from
@@ -12,6 +13,7 @@ class RecoData {
     required this.coPlay,
     required this.skips,
     required this.features,
+    this.hourSeconds = const {},
   });
 
   final List<Track> tracks;
@@ -24,6 +26,12 @@ class RecoData {
 
   /// track id → raw float32 feature vector (only decoded tracks).
   final Map<int, Uint8List> features;
+
+  /// 3.0 #5: identity_key → seconds listened during the current
+  /// hour-of-day window, straight off the listen_history log. "3am-you
+  /// has different taste than 3pm-you" — the cheapest context signal
+  /// there is. Empty on fresh installs; the boost simply contributes 0.
+  final Map<String, int> hourSeconds;
 
   static const empty = RecoData(
       tracks: [], coPlay: {}, skips: {}, features: {});
@@ -54,6 +62,21 @@ class Recommender {
 
   double _skipPenalty(int id) =>
       math.min((data.skips[id] ?? 0) * 0.25, 1.0);
+
+  /// Hour-of-day affinity, 0–1: how much this song belongs to *this*
+  /// hour, log-scaled so one long night doesn't dominate forever.
+  /// Identity keys are cached per track id — normalization is regex
+  /// work and forYou() touches every library row.
+  final _identityCache = <int, String>{};
+  double _hourBoost(Track t) {
+    if (data.hourSeconds.isEmpty) return 0;
+    final key = _identityCache[t.id] ??= identityKey(
+        title: t.title, artist: t.artist, duration: t.duration);
+    final s = data.hourSeconds[key];
+    if (s == null || s <= 0) return 0;
+    // ~200s in-window ≈ 0.5, saturating toward 1 around ~2h.
+    return math.min(math.log(1 + s / 60) / math.log(1 + 120), 1.0);
+  }
 
   /// The user's current taste anchors: heavy rotation + likes.
   List<Track> anchors({int limit = 12}) {
@@ -143,6 +166,7 @@ class Recommender {
       final score = co * 1.0 +
           content * 0.8 +
           meta * 0.5 +
+          _hourBoost(t) * 0.35 + // this hour's regulars bubble up
           (dormant ? 0.25 : 0.0) +
           (fresh ? 0.15 : 0.0) -
           _skipPenalty(t.id);
@@ -196,8 +220,11 @@ class Recommender {
         meta += 0.3;
       }
       if (t.liked) meta += 0.1;
-      final score =
-          co * 1.0 + content + meta - _skipPenalty(t.id);
+      final score = co * 1.0 +
+          content +
+          meta +
+          _hourBoost(t) * 0.2 -
+          _skipPenalty(t.id);
       if (score > 0.02) scored.add((t, score));
     }
     if (scored.isEmpty) return null;

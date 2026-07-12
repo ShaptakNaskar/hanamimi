@@ -16,7 +16,10 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.hanamimi.app"
-    compileSdk = flutter.compileSdkVersion
+    // Pinned above flutter.compileSdkVersion (35): screen_brightness_android
+    // 2.x compiles against SDK 36. compileSdk is backward compatible and
+    // changes nothing at runtime — targetSdk below still rules behaviour.
+    compileSdk = 36
     ndkVersion = "27.0.12077973" // highest required by plugins
 
     compileOptions {

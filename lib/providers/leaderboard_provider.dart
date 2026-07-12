@@ -6,6 +6,8 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
+import '../reco/taste_fingerprint.dart';
+import 'library_provider.dart';
 import 'stats_provider.dart';
 import 'theme_provider.dart';
 
@@ -22,6 +24,8 @@ class LeaderboardEntry {
     required this.localSeconds,
     required this.youtubeSeconds,
     required this.saavnSeconds,
+    this.compat,
+    this.isSelf = false,
   });
 
   final String nickname;
@@ -32,7 +36,13 @@ class LeaderboardEntry {
   final int youtubeSeconds;
   final int saavnSeconds;
 
-  factory LeaderboardEntry.fromJson(Map<String, dynamic> j) => LeaderboardEntry(
+  /// Taste compatibility with the caller, 0–100 (3.0 #5). Null when
+  /// either side hasn't shared a fingerprint (or this row is you).
+  final int? compat;
+  final bool isSelf;
+
+  factory LeaderboardEntry.fromJson(Map<String, dynamic> j) =>
+      LeaderboardEntry(
         nickname: j['nickname'] as String? ?? 'Anonymous',
         device: j['device'] as String? ?? '',
         totalSeconds: (j['totalSeconds'] as num?)?.toInt() ?? 0,
@@ -40,6 +50,8 @@ class LeaderboardEntry {
         localSeconds: (j['localSeconds'] as num?)?.toInt() ?? 0,
         youtubeSeconds: (j['youtubeSeconds'] as num?)?.toInt() ?? 0,
         saavnSeconds: (j['saavnSeconds'] as num?)?.toInt() ?? 0,
+        compat: (j['compat'] as num?)?.toInt(),
+        isSelf: j['self'] == true,
       );
 }
 
@@ -89,13 +101,23 @@ Future<String> deviceMakeModel() async {
 class LeaderboardOptIn {
   static const _nickKey = 'leaderboard_nickname';
   static const _shareDeviceKey = 'leaderboard_share_device';
+  static const _shareTasteKey = 'leaderboard_share_taste';
 }
 
 /// Current opt-in state, exposed to the UI.
 class LeaderboardAccount {
-  const LeaderboardAccount({required this.nickname, required this.shareDevice});
+  const LeaderboardAccount({
+    required this.nickname,
+    required this.shareDevice,
+    this.shareTaste = false,
+  });
   final String nickname; // '' = not opted in
   final bool shareDevice;
+
+  /// 3.0 #5: consent to upload the MinHash taste fingerprint (never
+  /// artist names) for the compatibility feature. Its own consent line
+  /// on top of the leaderboard opt-in.
+  final bool shareTaste;
   bool get optedIn => nickname.isNotEmpty;
 
   static const none = LeaderboardAccount(nickname: '', shareDevice: false);
@@ -108,18 +130,25 @@ class LeaderboardNotifier extends Notifier<LeaderboardAccount> {
     return LeaderboardAccount(
       nickname: prefs.getString(LeaderboardOptIn._nickKey) ?? '',
       shareDevice: prefs.getBool(LeaderboardOptIn._shareDeviceKey) ?? false,
+      shareTaste: prefs.getBool(LeaderboardOptIn._shareTasteKey) ?? false,
     );
   }
 
-  /// Opts in and uploads immediately. [shareDevice] adds the make/model.
+  /// Opts in and uploads immediately. [shareDevice] adds the make/model;
+  /// [shareTaste] adds the irreversible taste fingerprint.
   /// Returns true on a successful upload.
-  Future<bool> connect(String nickname, {required bool shareDevice}) async {
+  Future<bool> connect(String nickname,
+      {required bool shareDevice, bool shareTaste = false}) async {
     final prefs = ref.read(sharedPrefsProvider);
     final trimmed = nickname.trim();
     if (trimmed.isEmpty) return false;
     await prefs.setString(LeaderboardOptIn._nickKey, trimmed);
     await prefs.setBool(LeaderboardOptIn._shareDeviceKey, shareDevice);
-    state = LeaderboardAccount(nickname: trimmed, shareDevice: shareDevice);
+    await prefs.setBool(LeaderboardOptIn._shareTasteKey, shareTaste);
+    state = LeaderboardAccount(
+        nickname: trimmed,
+        shareDevice: shareDevice,
+        shareTaste: shareTaste);
     return upload();
   }
 
@@ -129,6 +158,7 @@ class LeaderboardNotifier extends Notifier<LeaderboardAccount> {
     final prefs = ref.read(sharedPrefsProvider);
     await prefs.remove(LeaderboardOptIn._nickKey);
     await prefs.remove(LeaderboardOptIn._shareDeviceKey);
+    await prefs.remove(LeaderboardOptIn._shareTasteKey);
     state = LeaderboardAccount.none;
   }
 
@@ -141,11 +171,22 @@ class LeaderboardNotifier extends Notifier<LeaderboardAccount> {
       final prefs = ref.read(sharedPrefsProvider);
       final stats = ref.read(listenStatsProvider);
       final device = account.shareDevice ? await deviceMakeModel() : '';
+
+      // Taste fingerprint: built fresh off the local history log at
+      // upload time — no separate stored aggregate to drift out of
+      // sync. Sending explicit null clears a previously shared one.
+      Object? signature;
+      if (account.shareTaste) {
+        final repo = await ref.read(libraryRepositoryProvider.future);
+        signature = buildTasteSignature(await repo.artistSeconds());
+      }
+
       final body = {
         'clientId': StatsClientId.get(prefs),
         'nickname': account.nickname,
         'device': device,
         ...stats.toJson(),
+        'signature': signature,
       };
       final res = await http
           .post(Uri.parse('$_apiBase/stats'),
@@ -163,11 +204,16 @@ final leaderboardAccountProvider =
     NotifierProvider<LeaderboardNotifier, LeaderboardAccount>(
         LeaderboardNotifier.new);
 
-/// Top-10 listeners. Refreshable from the leaderboard screen.
+/// Top-10 listeners. Refreshable from the leaderboard screen. The
+/// clientId rides along so the server can annotate each row with taste
+/// compatibility vs the caller (3.0 #5) — percent only, signatures
+/// never leave the server.
 final leaderboardProvider =
     FutureProvider.autoDispose<List<LeaderboardEntry>>((ref) async {
+  final prefs = ref.watch(sharedPrefsProvider);
+  final clientId = StatsClientId.get(prefs);
   final res = await http
-      .get(Uri.parse('$_apiBase/leaderboard'))
+      .get(Uri.parse('$_apiBase/leaderboard?clientId=$clientId'))
       .timeout(const Duration(seconds: 15));
   if (res.statusCode != 200) return const [];
   final data = jsonDecode(res.body);

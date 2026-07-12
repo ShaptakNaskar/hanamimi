@@ -5,6 +5,7 @@ import '../../../providers/buddy_provider.dart';
 import '../../../providers/desktop_shell_provider.dart';
 import '../../../providers/library_provider.dart';
 import '../../../providers/mascot_provider.dart';
+import '../../../providers/night_mode_provider.dart';
 import '../../../providers/theme_provider.dart';
 import '../../../providers/update_provider.dart';
 import '../../../theme/app_theme.dart';
@@ -86,7 +87,10 @@ class LibrarySidebar extends ConsumerWidget {
                       clipBehavior: Clip.none,
                       children: [
                         Text(
-                          ref.watch(editionNameProvider).value ?? 'Hanamimi',
+                          (ref.watch(editionNameProvider).value ??
+                                  'Hanamimi')
+                              .whisper(
+                                  ref.watch(nightModeActiveProvider)),
                           style: AppText.screenTitle(theme)
                               .copyWith(fontSize: 20),
                           maxLines: 1,
@@ -113,6 +117,16 @@ class LibrarySidebar extends ConsumerWidget {
                 ],
               ),
             ),
+            // Night Mode whispers on desktop too (3.0 #2) — the wide
+            // shell hides the Home header, so the sidebar carries it.
+            if (ref.watch(nightModeActiveProvider))
+              Padding(
+                padding:
+                    const EdgeInsets.fromLTRB(Space.s4, 0, Space.s4, 0),
+                child: Text('shh. just us. ♪',
+                    style: AppText.caption(theme)
+                        .copyWith(fontStyle: FontStyle.italic)),
+              ),
             Padding(
               padding: const EdgeInsets.symmetric(
                   horizontal: Space.s3, vertical: Space.s1),
@@ -162,7 +176,10 @@ class LibrarySidebar extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(
                   Space.s4, Space.s2, Space.s4, Space.s2),
-              child: Text('YOUR LIBRARY', style: AppText.sectionLabel(theme)),
+              child: Text(
+                  'YOUR LIBRARY'
+                      .whisper(ref.watch(nightModeActiveProvider)),
+                  style: AppText.sectionLabel(theme)),
             ),
             Expanded(
               child: ListView(

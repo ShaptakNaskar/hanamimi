@@ -34,3 +34,5 @@ Hanamimi-handoff.zip
 
 # Local desktop packaging output (deb/rpm/pkg.tar.zst/AppImage)
 dist/
+IDEAS-APPROVED.md
+.env

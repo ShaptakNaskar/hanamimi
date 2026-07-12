@@ -42,11 +42,17 @@ final recoDataProvider = FutureProvider<RecoData>((ref) async {
     (coPlay[from] ??= {})[row['to_id'] as int] = row['count'] as int;
   }
 
+  // 3.0 #5: what this hour-of-day's listening looks like, ±1h so bucket
+  // edges don't cliff (23:59 still counts the midnight bucket).
+  final hour = DateTime.now().hour;
+  final hourWindow = {(hour + 23) % 24, hour, (hour + 1) % 24};
+
   return RecoData(
     tracks: tracks,
     coPlay: coPlay,
     skips: await repo.skipCounts(),
     features: await repo.allTrackFeatures(trackFeaturesVersion),
+    hourSeconds: await repo.identitySecondsForHours(hourWindow),
   );
 });
 

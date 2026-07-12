@@ -29,6 +29,7 @@ class _LeaderboardOptInDialogState
     extends ConsumerState<_LeaderboardOptInDialog> {
   final _nickname = TextEditingController();
   var _shareDevice = false;
+  var _shareTaste = false;
   var _busy = false;
   String? _error;
 
@@ -45,7 +46,8 @@ class _LeaderboardOptInDialogState
     });
     final ok = await ref
         .read(leaderboardAccountProvider.notifier)
-        .connect(_nickname.text, shareDevice: _shareDevice);
+        .connect(_nickname.text,
+            shareDevice: _shareDevice, shareTaste: _shareTaste);
     if (!mounted) return;
     if (!ok) {
       setState(() {
@@ -108,6 +110,18 @@ class _LeaderboardOptInDialogState
               subtitle: Text(
                   'Optional — shows your phone/PC make & model next to '
                   'your name on both leaderboards',
+                  style: AppText.caption(theme)),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _shareTaste,
+              onChanged: (v) => setState(() => _shareTaste = v),
+              title: Text('Share taste fingerprint',
+                  style: AppText.rowSongTitle(theme)),
+              subtitle: Text(
+                  'Optional — see how compatible your music taste is '
+                  'with others. Sends an irreversible fingerprint; '
+                  'artist names never leave this device',
                   style: AppText.caption(theme)),
             ),
           ],

@@ -12,6 +12,7 @@ import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
 import '../components/mascot/hanamimi_widget.dart';
+import '../components/shared/app_toast.dart';
 
 const _maxLines = 6;
 
@@ -95,13 +96,8 @@ class _ShareLyricsBodyState extends State<_ShareLyricsBody> {
         if (location != null) {
           await file.copy(location.path);
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(Radii.md)),
-              content: const Text('Lyrics card saved 🌸',
-                  style: TextStyle(fontFamily: 'Nunito')),
-            ));
+            // Root-overlay toast — SnackBars hide behind the sheet.
+            showAppToast(context, 'Lyrics card saved 🌸');
           }
         }
       }

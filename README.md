@@ -133,6 +133,10 @@ android/…/app/    MainActivity + MediaStore/FFT/yt-dlp/updater/power channels
 
 - [beautiful-lyrics](https://github.com/surfbryce/beautiful-lyrics) and [spicy-lyrics](https://github.com/Spikerko/spicy-lyrics) — the karaoke animation language this app's lyrics view is modeled on
 - [LRCLIB](https://lrclib.net) — free, keyless synced lyrics
-- **oneko** — the desktop cursor cat, ported from [oneko.js](https://github.com/adryd325/oneko.js) by **adryd** (reviving the classic X11 `neko`); its sprite sheet is bundled with the app. Brought over as an in-app buddy after the [Vencord oneko plugin](https://vencord.dev/plugins/oneko) by **V**. Both are GPLv3.
+- **oneko** — the pointer-chasing cat (the mouse on desktop, your taps on a phone), ported from [oneko.js](https://github.com/adryd325/oneko.js) by **adryd** (reviving the classic X11 `neko`); its sprite sheet is bundled with the app. Brought over as an in-app buddy after the [Vencord oneko plugin](https://vencord.dev/plugins/oneko) by **V**. Both are GPLv3.
 - **Claude Fable & Opus** — the dream team on debugging duty, for helping bring this whole thing to life 🤝
 - Hanamimi — the real beagle 🐾
+
+## License
+
+Hanamimi+ is free software, licensed under the [GNU General Public License v3](LICENSE). This build links yt-dlp (via youtubedl-android) and bundles **oneko** — both GPLv3 — so the app as a whole is distributed under GPLv3.

@@ -11,6 +11,7 @@ import '../../providers/theme_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
+import '../components/shared/app_toast.dart';
 
 /// Import a YouTube / Spotify playlist by URL. Paste → fetch+match with
 /// progress → auto-add confident matches, review only the misses → commit
@@ -102,14 +103,8 @@ class _ImportSheetState extends ConsumerState<_ImportSheet> {
     _snack('Imported "${result.playlistName}" · ${chosen.length} songs');
   }
 
-  void _snack(String msg) => ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.md)),
-          content: Text(msg, style: const TextStyle(fontFamily: 'Nunito')),
-        ),
-      );
+  // Root-overlay toast — SnackBars hide behind the modal sheet.
+  void _snack(String msg) => showAppToast(context, msg);
 
   @override
   Widget build(BuildContext context) {

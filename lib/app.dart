@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'history/listen_history_tracker.dart';
 import 'providers/audio_provider.dart';
 import 'providers/companion_provider.dart';
+import 'providers/night_mode_provider.dart';
 import 'providers/online_settings_provider.dart';
 import 'providers/open_with_provider.dart';
 import 'providers/session_provider.dart';
@@ -27,10 +29,13 @@ class HanamimiApp extends ConsumerWidget {
     final theme = ref.watch(currentThemeProvider);
     ref.watch(playCountRecorderProvider);
     ref.watch(playSequenceTrackerProvider); // M38a co-play/skip logging
+    ref.watch(listenHistoryTrackerProvider); // 3.0 #7 append-only log
     ref.watch(smartShufflePusherProvider); // M38c weighted shuffle
     ref.watch(autoplayPusherProvider); // M39 radio continuation
     ref.watch(ytPlayReporterProvider); // M41 opt-in YT history reporting
     ref.watch(crossfadeProvider); // pushes the setting into the engine
+    ref.watch(slowDanceProvider); // 3.0 sighted-crossfade planner
+    ref.watch(nightGainPusherProvider); // 3.0 night-mode gentler gain
     ref.watch(resolverConfigProvider); // pushes online quality/cache/enabled
     ref.watch(listenTimeProvider); // accumulates while playing
     ref.watch(listenStatsProvider); // per-platform listen stats

@@ -10,9 +10,18 @@ import '../../../theme/hanamimi_theme.dart';
 import '../../../visualizer/visualizer_painter.dart';
 
 class VisualizerWidget extends ConsumerStatefulWidget {
-  const VisualizerWidget({super.key, this.height = 60});
+  const VisualizerWidget(
+      {super.key, this.height = 60, this.styleOverride, this.muted = false});
 
   final double height;
+
+  /// Forces a specific style regardless of theme/user preference —
+  /// Blackout Mode is always the VU meters, whatever Home looks like.
+  final VisualizerStyle? styleOverride;
+
+  /// Blackout Mode: paint with the fixed dark bedside palette instead
+  /// of theme/album-art accents.
+  final bool muted;
 
   @override
   ConsumerState<VisualizerWidget> createState() => _VisualizerWidgetState();
@@ -56,7 +65,8 @@ class _VisualizerWidgetState extends ConsumerState<VisualizerWidget>
     // busy-wait) every vsync forever, even paused with the panel idle —
     // the bulk of the desktop constant-CPU report. When paused, the
     // band stream itself settles and rebuilds stop.
-    final style = ref.watch(effectiveVisualizerStyleProvider);
+    final VisualizerStyle style =
+        widget.styleOverride ?? ref.watch(effectiveVisualizerStyleProvider);
     final needsClock = style == VisualizerStyle.vuMeters ||
         style == VisualizerStyle.ledVu;
     final playing =
@@ -85,6 +95,7 @@ class _VisualizerWidgetState extends ConsumerState<VisualizerWidget>
           reactivity: ref.watch(visualizerReactivityProvider),
           vuSplit: ref.watch(vuSplitProvider),
           ledDiscrete: ref.watch(ledVuDiscreteProvider),
+          muted: widget.muted,
         ),
       ),
     );

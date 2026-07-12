@@ -10,12 +10,14 @@ import '../../providers/audio_provider.dart';
 import '../../providers/buddy_provider.dart';
 import '../../providers/cat_mode_provider.dart';
 import '../../providers/companion_provider.dart';
+import '../../date/date_room.dart';
 import '../../providers/desktop_shell_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
 import '../../providers/nerd_provider.dart';
 import '../../providers/reco_provider.dart';
+import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/visualizer_provider.dart';
 import '../../theme/app_theme.dart';
@@ -26,9 +28,12 @@ import '../components/mascot/mascot_painter.dart';
 import '../components/now_playing/album_art_widget.dart';
 import '../components/now_playing/playback_controls.dart';
 import '../components/now_playing/seek_bar_widget.dart';
+import '../components/now_playing/undress.dart';
 import '../components/now_playing/visualizer_widget.dart';
+import '../components/now_playing/wipe_reveal.dart';
 import '../components/shared/particle_overlay.dart';
 import '../modals/download_quality_sheet.dart';
+import 'blackout_screen.dart';
 import '../modals/lyrics_sheet.dart';
 import '../modals/playlist_picker_sheet.dart';
 import '../modals/queue_sheet.dart';
@@ -76,6 +81,30 @@ class NowPlayingScreen extends ConsumerWidget {
             ?.firstWhere((t) => t.id == track.id, orElse: () => track) ??
         track;
 
+    // Crossfade: while the audio ramps from the outgoing track to the
+    // incoming one, dissolve the art and title/artist across in step —
+    // otherwise the screen keeps showing the old song over the new.
+    final playing = audio?.isPlaying ?? false;
+    final xf = audio?.crossfadeProgress;
+    final incoming = audio?.crossfadeIncomingTrack;
+    final crossfading = xf != null && incoming != null;
+    final xfE = crossfading ? Curves.easeInOut.transform(xf) : 0.0;
+
+    Widget titleArtist(Track t, {Color? titleColor}) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(t.title,
+                style: AppText.npSongTitle(theme).copyWith(color: titleColor),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 2),
+            Text(t.artist,
+                style: AppText.npArtist(theme),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+          ],
+        );
+
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -83,7 +112,13 @@ class NowPlayingScreen extends ConsumerWidget {
         // ONE particle field under/over all three panes — private
         // copies here would confine them to the panel and make the
         // pane boundary read as a different world.
-        if (!panel) _BlurredArtBackground(track: track, theme: theme),
+        if (!panel)
+          _BlurredArtBackground(
+            track: track,
+            theme: theme,
+            incoming: crossfading ? incoming : null,
+            progress: xfE,
+          ),
         if (!panel)
           ParticleOverlay(
             theme: theme,
@@ -91,7 +126,15 @@ class NowPlayingScreen extends ConsumerWidget {
           ),
         SafeArea(
           bottom: false,
-          child: LayoutBuilder(
+          // 3.0 #6 "Melt away": idle listening melts the chrome away
+          // until it's art + visualizer + mascot. Any touch (or a
+          // pause) brings it back. Desktop panel included (user ask) —
+          // its Listener only spans the panel, so browsing the library
+          // doesn't reset the fade; the panel calms down beside you.
+          child: UndressLayer(
+            enabled: ref.watch(meltAwayProvider) &&
+                (audio?.isPlaying ?? false),
+            child: LayoutBuilder(
             builder: (context, constraints) {
               // Freeform windows (desktop) and short screens: the art
               // yields to the height budget, the content column never
@@ -111,97 +154,142 @@ class NowPlayingScreen extends ConsumerWidget {
                     child: Column(
                       children: [
                         const Spacer(flex: 2),
-                        AlbumArtWidget(
-                          track: track,
-                          theme: theme,
-                          isPlaying: audio?.isPlaying ?? false,
-                          size: artSize,
-                        ),
-                        const Spacer(flex: 2),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                        crossfading
+                            ? Stack(
+                                alignment: Alignment.center,
                                 children: [
-                                  Text(
-                                    track.title,
-                                    style: AppText.npSongTitle(theme),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
+                                  AlbumArtWidget(
+                                    track: track,
+                                    theme: theme,
+                                    isPlaying: playing,
+                                    size: artSize,
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    track.artist,
-                                    style: AppText.npArtist(theme),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
+                                  // Incoming art writes over the
+                                  // outgoing from the right, in step with
+                                  // the audio ramp.
+                                  WipeReveal(
+                                    progress: xfE,
+                                    child: AlbumArtWidget(
+                                      track: incoming,
+                                      theme: theme,
+                                      isPlaying: playing,
+                                      size: artSize,
+                                    ),
                                   ),
                                 ],
-                              ),
-                            ),
-                            const SizedBox(width: Space.s3),
-                            if (!libraryTrack.isLocal)
-                              _DownloadButton(
-                                track: libraryTrack,
+                              )
+                            : AlbumArtWidget(
+                                track: track,
                                 theme: theme,
+                                isPlaying: playing,
+                                size: artSize,
                               ),
-                            _HeartButton(track: libraryTrack, theme: theme),
-                          ],
+                        const Spacer(flex: 2),
+                        Undressable(
+                          level: 2,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                // Overwrite the text like the art: the
+                                // outgoing stays put while the incoming
+                                // wipes over it from the right.
+                                child: crossfading
+                                    ? Stack(
+                                        fit: StackFit.passthrough,
+                                        children: [
+                                          // Outgoing erased from the
+                                          // right as the incoming writes
+                                          // in — no overlapping strings.
+                                          WipeReveal(
+                                            progress: xfE,
+                                            invert: true,
+                                            child: titleArtist(track),
+                                          ),
+                                          WipeReveal(
+                                            progress: xfE,
+                                            child: titleArtist(incoming),
+                                          ),
+                                        ],
+                                      )
+                                    : titleArtist(track),
+                              ),
+                              const SizedBox(width: Space.s3),
+                              if (!libraryTrack.isLocal)
+                                _DownloadButton(
+                                  track: libraryTrack,
+                                  theme: theme,
+                                ),
+                              _HeartButton(
+                                  track: libraryTrack, theme: theme),
+                            ],
+                          ),
                         ),
-                        const _NerdBar(),
+                        const Undressable(level: 2, child: _NerdBar()),
                         const SizedBox(height: Space.s4),
-                        _SeekBarSection(theme: theme),
+                        const _DateRoomBanner(),
+                        Undressable(
+                            level: 1,
+                            child: _SeekBarSection(theme: theme)),
                         const SizedBox(height: Space.s6),
-                        PlaybackControls(
-                          onSleepTimer: () => showSleepTimerModal(context),
-                          onQueue: () => showQueueSheet(context),
-                          onAddToPlaylist:
-                              () => showPlaylistPicker(
-                                context,
-                                ref,
-                                theme,
-                                libraryTrack.id,
-                              ),
-                          onStartRadio: () => startRadio(ref, libraryTrack),
+                        Undressable(
+                          level: 1,
+                          child: PlaybackControls(
+                            onSleepTimer: () => showSleepTimerModal(context),
+                            onQueue: () => showQueueSheet(context),
+                            onAddToPlaylist:
+                                () => showPlaylistPicker(
+                                  context,
+                                  ref,
+                                  theme,
+                                  libraryTrack.id,
+                                ),
+                            onStartRadio: () => startRadio(ref, libraryTrack),
+                            onBlackout: () => Navigator.of(context)
+                                .push(BlackoutScreen.route()),
+                          ),
                         ),
                         const SizedBox(height: Space.s4),
                         const VisualizerWidget(height: 56),
                         const Spacer(flex: 1),
-                        GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          // Desktop panel: lyrics live in the middle
-                          // pane (Spotify-style), not a bottom sheet
-                          // rising through the middle of a big window.
-                          onTap:
-                              () =>
-                                  panel
-                                      ? ref
-                                          .read(
-                                            desktopLyricsOpenProvider.notifier,
-                                          )
-                                          .toggle()
-                                      : showLyricsSheet(context, track),
-                          onVerticalDragEnd: (d) {
-                            if ((d.primaryVelocity ?? 0) < -200) {
-                              if (panel) {
-                                ref
-                                    .read(desktopLyricsOpenProvider.notifier)
-                                    .toggle();
-                              } else {
-                                showLyricsSheet(context, track);
+                        Undressable(
+                          level: 1,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            // Desktop panel: lyrics live in the middle
+                            // pane (Spotify-style), not a bottom sheet
+                            // rising through the middle of a big window.
+                            onTap:
+                                () =>
+                                    panel
+                                        ? ref
+                                            .read(
+                                              desktopLyricsOpenProvider
+                                                  .notifier,
+                                            )
+                                            .toggle()
+                                        : showLyricsSheet(context, track),
+                            onVerticalDragEnd: (d) {
+                              if ((d.primaryVelocity ?? 0) < -200) {
+                                if (panel) {
+                                  ref
+                                      .read(
+                                          desktopLyricsOpenProvider.notifier)
+                                      .toggle();
+                                } else {
+                                  showLyricsSheet(context, track);
+                                }
                               }
-                            }
-                          },
-                          child: Column(
-                            children: [
-                              Icon(
-                                Icons.keyboard_arrow_up,
-                                color: theme.textMuted,
-                                size: 20,
-                              ),
-                              Text('Lyrics', style: AppText.caption(theme)),
-                            ],
+                            },
+                            child: Column(
+                              children: [
+                                Icon(
+                                  Icons.keyboard_arrow_up,
+                                  color: theme.textMuted,
+                                  size: 20,
+                                ),
+                                Text('Lyrics', style: AppText.caption(theme)),
+                              ],
+                            ),
                           ),
                         ),
                         const SizedBox(height: Space.s2),
@@ -279,6 +367,7 @@ class NowPlayingScreen extends ConsumerWidget {
                 ),
               );
             },
+          ),
           ),
         ),
       ],
@@ -376,33 +465,48 @@ class _NerdChip extends StatelessWidget {
 }
 
 /// Album art blurred to a wash, overlaid with the theme background at
-/// 85% opacity (DESIGN.md §10.2).
+/// 85% opacity (DESIGN.md §10.2). During a crossfade the [incoming]
+/// wash rises over the outgoing one at [progress] so the ambient glow
+/// dissolves in lockstep with the foreground art — fully seamless.
 class _BlurredArtBackground extends StatelessWidget {
-  const _BlurredArtBackground({required this.track, required this.theme});
+  const _BlurredArtBackground({
+    required this.track,
+    required this.theme,
+    this.incoming,
+    this.progress = 0,
+  });
 
   final Track track;
   final HanamimiTheme theme;
+  final Track? incoming;
+  final double progress;
+
+  Widget _wash(Track t) {
+    final art = t.albumArtPath;
+    if (art != null && File(art).existsSync()) {
+      return ImageFiltered(
+        imageFilter: ImageFilter.blur(sigmaX: 60, sigmaY: 60),
+        // Blurring full-resolution art costs enormous raster time and
+        // memory; at sigma 60 a small decode looks identical.
+        child: Image.file(
+          File(art),
+          fit: BoxFit.cover,
+          cacheWidth: 200,
+          gaplessPlayback: true,
+        ),
+      );
+    }
+    return ColoredBox(color: theme.primary.withValues(alpha: 0.4));
+  }
 
   @override
   Widget build(BuildContext context) {
-    final art = track.albumArtPath;
     return Stack(
       fit: StackFit.expand,
       children: [
-        if (art != null && File(art).existsSync())
-          ImageFiltered(
-            imageFilter: ImageFilter.blur(sigmaX: 60, sigmaY: 60),
-            // Blurring full-resolution art costs enormous raster time and
-            // memory; at sigma 60 a small decode looks identical.
-            child: Image.file(
-              File(art),
-              fit: BoxFit.cover,
-              cacheWidth: 200,
-              gaplessPlayback: true,
-            ),
-          )
-        else
-          ColoredBox(color: theme.primary.withValues(alpha: 0.4)),
+        _wash(track),
+        if (incoming != null && progress > 0)
+          WipeReveal(progress: progress, child: _wash(incoming!)),
         ColoredBox(color: theme.background.withValues(alpha: 0.85)),
       ],
     );
@@ -416,17 +520,45 @@ class _SeekBarSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final position = ref.watch(positionProvider).value ?? Duration.zero;
-    final duration =
-        ref.watch(audioStateProvider).value?.duration ?? Duration.zero;
-    final buffered = ref.watch(bufferedProvider).value ?? Duration.zero;
+    final audio = ref.watch(audioStateProvider).value;
+    var position = ref.watch(positionProvider).value ?? Duration.zero;
+    var duration = audio?.duration ?? Duration.zero;
+    var buffered = ref.watch(bufferedProvider).value ?? Duration.zero;
+    final room = ref.watch(dateRoomProvider);
+
+    // Crossfade: roll the bar from the outgoing playhead to where the
+    // incoming song already is (it's been playing through the fade), so
+    // it glides instead of snapping to 0:00 at the handoff.
+    final xf = audio?.crossfadeProgress;
+    final incoming = audio?.crossfadeIncomingTrack;
+    final crossfading = xf != null && incoming != null;
+    if (crossfading) {
+      final e = Curves.easeInOut.transform(xf);
+      final inPos = audio!.crossfadeIncomingPositionMs;
+      final inDur = incoming.duration.inMilliseconds;
+      int mix(int a, int b) => (a * (1 - e) + b * e).round();
+      position =
+          Duration(milliseconds: mix(position.inMilliseconds, inPos));
+      duration =
+          Duration(milliseconds: mix(duration.inMilliseconds, inDur));
+      buffered =
+          Duration(milliseconds: mix(buffered.inMilliseconds, inPos));
+    }
 
     return SeekBarWidget(
       position: position,
       duration: duration,
       buffered: buffered,
+      // Date mode: the partner's position rides under the bar.
+      partnerPosition: room.inRoom && room.shared && room.partnerOnline
+          ? Duration(milliseconds: room.partnerPositionMs)
+          : null,
       theme: theme,
-      onSeek: (d) => ref.read(audioHandlerProvider).seek(d),
+      // A seek mid-transition would map to the blended duration — ignore
+      // it; the fade is only a few seconds.
+      onSeek: crossfading
+          ? (_) {}
+          : (d) => ref.read(audioHandlerProvider).seek(d),
     );
   }
 }
@@ -594,4 +726,46 @@ class _HeartBurstPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_HeartBurstPainter old) => old.progress != progress;
+}
+
+/// Date mode: a slim tap-to-rejoin pill shown only when we've drifted
+/// solo from the DJ, so lockstep is one tap away without opening the
+/// You-tab sheet. Silent the rest of the time (the sheet carries the
+/// full DJ / follower / take-over detail).
+class _DateRoomBanner extends ConsumerWidget {
+  const _DateRoomBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final room = ref.watch(dateRoomProvider);
+    if (!room.inRoom || !room.solo) return const SizedBox.shrink();
+    final theme = ref.watch(currentThemeProvider);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Space.s3),
+      child: Center(
+        child: Material(
+          color: theme.primary.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(Radii.md),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(Radii.md),
+            onTap: () => ref.read(dateRoomProvider.notifier).rejoin(),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: Space.s3, vertical: Space.s2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.sync_rounded, size: 15, color: theme.primary),
+                  const SizedBox(width: Space.s2),
+                  Text('Listening solo — tap to rejoin the DJ',
+                      style: AppText.caption(theme)
+                          .copyWith(color: theme.primary)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

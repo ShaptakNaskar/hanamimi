@@ -1,0 +1,32 @@
+# Maintainer: Sappy <ddtectiv.ddip2017@gmail.com>
+# AUR package for the prebuilt Hanamimi+ Linux bundle. Repacks the .deb
+# from the GitHub release (same payload as the .pkg.tar.zst we ship
+# there — but the AUR wants a PKGBUILD, not a finished package).
+#
+# Per release: update _tag + pkgver, run `updpkgsums`, then
+# `makepkg --printsrcinfo > .SRCINFO`, commit both, push to AUR.
+
+pkgname=hanamimi-plus-bin
+_tag=plus-v2.4.1-69 # release tags carry the CI run number — not derivable from pkgver
+pkgver=2.4.1
+pkgrel=1
+pkgdesc="Kawaii music player — local library, YouTube & JioSaavn (Hanamimi+)"
+arch=('x86_64')
+url="https://github.com/ShaptakNaskar/hanamimi"
+license=('GPL-3.0-only')
+depends=('gtk3' 'ffmpeg' 'yt-dlp')
+provides=('hanamimi-plus')
+conflicts=('hanamimi-plus')
+# Prebuilt Flutter AOT snapshot — stripping corrupts it, and there is
+# no debug info to strip anyway.
+options=('!strip')
+source=("hanamimi-plus_${pkgver}.deb::${url}/releases/download/${_tag}/hanamimi-plus_${pkgver}-1_amd64.deb")
+sha256sums=('50943bd195dd63f2dfc438babe74cfd5e226ee616d2b609f8e37d05e3bd3f709')
+
+package() {
+  # makepkg already unpacked the .deb (it's an ar archive); its payload
+  # lands in data.tar.* with the final filesystem layout.
+  bsdtar -xf "${srcdir}"/data.tar.* -C "${pkgdir}"
+  # fpm writes 0755 on some parents; normalize for namcap.
+  chmod 755 "${pkgdir}"
+}

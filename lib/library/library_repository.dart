@@ -25,13 +25,16 @@ class LibraryRepository {
         : '${(await getApplicationSupportDirectory()).path}/hanamimi.db';
     final db = await openDatabase(
       dbPath,
-      version: 5,
+      version: 6,
       // v2 adds lyric quality (word/line/plain). Old rows predate the
       // word-synced provider, so wipe them and refetch on demand.
       // v3 adds online sources (ARCHITECTURE-ONLINE.md §7).
       // v4 adds user-picked playlist cover images.
       // v5 adds the recommendation signals (ARCHITECTURE-RECOMMENDATIONS.md
       // M38a): co_play transitions, per-track audio features, skip counts.
+      // v6 adds the append-only listening history log (IDEAS-APPROVED.md
+      // #7) — the 3.0 foundation feeding the history UI, time-of-day recs,
+      // the taste fingerprint and the backup bundle.
       onUpgrade: (db, oldVersion, _) async {
         if (oldVersion < 2) {
           await db.execute('DROP TABLE IF EXISTS lyric_cache');
@@ -58,11 +61,15 @@ class LibraryRepository {
           }
           await _createRecoTables(db);
         }
+        // CREATE IF NOT EXISTS keeps this idempotent regardless of prior
+        // partial states (the 2.1.1 lesson) — no ALTER, nothing to guard.
+        if (oldVersion < 6) await _createListenHistory(db);
       },
       onCreate: (db, _) async {
         await db.execute(_tracksSchema('tracks'));
         await db.execute(_onlineIndex);
         await _createRecoTables(db);
+        await _createListenHistory(db);
         await db.execute('''
           CREATE TABLE playlists (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -164,6 +171,33 @@ class LibraryRepository {
         computed_at INTEGER NOT NULL
       )
     ''');
+  }
+
+  /// v6: the append-only listening log (IDEAS-APPROVED.md #7). Rows are
+  /// snapshots of what the song was when it played — no foreign keys into
+  /// tracks, so history survives deletes, moves and rescans. Aggregates
+  /// (top artists, hour buckets, MinHash input) are always queries over
+  /// this log, never separately stored.
+  static Future<void> _createListenHistory(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS listen_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        identity_key TEXT NOT NULL,
+        title TEXT NOT NULL,
+        artist TEXT NOT NULL,
+        album TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL DEFAULT 'local',
+        source_id TEXT,
+        played_at INTEGER NOT NULL,
+        seconds_listened INTEGER NOT NULL DEFAULT 0,
+        duration_ms INTEGER NOT NULL,
+        last_path TEXT
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_history_played_at '
+        'ON listen_history(played_at DESC)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_history_identity '
+        'ON listen_history(identity_key)');
   }
 
   static Future<void> _createLyricCache(DatabaseExecutor db) async {
@@ -381,6 +415,116 @@ class LibraryRepository {
         columns: ['id', 'skip_count'], where: 'skip_count > 0');
     return {
       for (final r in rows) r['id'] as int: r['skip_count'] as int,
+    };
+  }
+
+  // --- Listening history (3.0 #7) ---
+
+  /// Opens a history row when a track starts. Returns the row id so the
+  /// tracker can keep bumping [updateListenSeconds] as playback goes on
+  /// (crash-safe: the row exists from second zero).
+  Future<int> insertListen({
+    required String identityKey,
+    required String title,
+    required String artist,
+    required String album,
+    required String source,
+    String? sourceId,
+    required DateTime playedAt,
+    required int durationMs,
+    String? lastPath,
+  }) =>
+      _db.insert('listen_history', {
+        'identity_key': identityKey,
+        'title': title,
+        'artist': artist,
+        'album': album,
+        'source': source,
+        'source_id': sourceId,
+        'played_at': playedAt.millisecondsSinceEpoch,
+        'seconds_listened': 0,
+        'duration_ms': durationMs,
+        'last_path': lastPath,
+      });
+
+  Future<void> updateListenSeconds(int rowId, int seconds) => _db.update(
+      'listen_history', {'seconds_listened': seconds},
+      where: 'id = ?', whereArgs: [rowId]);
+
+  /// Blink-and-skip rows (< [minSeconds]) are noise, not history — the
+  /// tracker deletes them when the track transition confirms the skip.
+  Future<void> deleteListen(int rowId) =>
+      _db.delete('listen_history', where: 'id = ?', whereArgs: [rowId]);
+
+  /// Newest-first page of the log, for the history screen's lazy list.
+  Future<List<Map<String, Object?>>> listenHistoryPage(
+          {int limit = 60, int offset = 0}) =>
+      _db.query('listen_history',
+          orderBy: 'played_at DESC', limit: limit, offset: offset);
+
+  /// Everything, oldest-first — the backup bundle's export source.
+  Future<List<Map<String, Object?>>> allListenHistory() =>
+      _db.query('listen_history', orderBy: 'played_at ASC');
+
+  /// Restore path: bulk-insert exported rows (ids are NOT preserved —
+  /// the log is append-only, order comes from played_at). Rows whose
+  /// (identity_key, played_at) already exist are skipped, so importing
+  /// the same backup twice can't double the history. Returns how many
+  /// rows were actually added.
+  Future<int> importListenHistory(
+      List<Map<String, Object?>> rows) async {
+    final existing = await _db.query('listen_history',
+        columns: ['identity_key', 'played_at']);
+    final seen = {
+      for (final r in existing) '${r['identity_key']}@${r['played_at']}',
+    };
+    var added = 0;
+    final batch = _db.batch();
+    for (final r in rows) {
+      final key = '${r['identity_key']}@${r['played_at']}';
+      if (seen.contains(key)) continue;
+      seen.add(key);
+      batch.insert('listen_history', {
+        for (final e in r.entries)
+          if (e.key != 'id') e.key: e.value,
+      });
+      added++;
+    }
+    await batch.commit(noResult: true);
+    return added;
+  }
+
+  /// Listened seconds per normalized artist — the MinHash accumulator's
+  /// input (#5) and the "top artists" stat, straight off the log.
+  Future<Map<String, int>> artistSeconds({int minSeconds = 30}) async {
+    final rows = await _db.rawQuery('''
+      SELECT artist, SUM(seconds_listened) AS s FROM listen_history
+      WHERE seconds_listened >= ? GROUP BY artist
+    ''', [minSeconds]);
+    return {
+      for (final r in rows) r['artist'] as String: (r['s'] as int?) ?? 0,
+    };
+  }
+
+  /// {identity_key: seconds} for plays inside an hour-of-day window —
+  /// the time-of-day recommender's signal. [hours] are 0–23, and the
+  /// set may wrap midnight (e.g. {22,23,0,1}).
+  Future<Map<String, int>> identitySecondsForHours(Set<int> hours,
+      {int minSeconds = 30}) async {
+    if (hours.isEmpty) return {};
+    // played_at is a UTC epoch; bucket in local time like the user
+    // experiences it. SQLite's strftime handles the conversion.
+    final placeholders = List.filled(hours.length, '?').join(',');
+    final rows = await _db.rawQuery('''
+      SELECT identity_key, SUM(seconds_listened) AS s FROM listen_history
+      WHERE seconds_listened >= ?
+        AND CAST(strftime('%H', played_at / 1000, 'unixepoch', 'localtime') AS INTEGER)
+            IN ($placeholders)
+      GROUP BY identity_key
+    ''', [minSeconds, ...hours]);
+    return {
+      for (final r in rows)
+        r['identity_key'] as String: (r['s'] as int?) ?? 0,
     };
   }
 
