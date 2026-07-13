@@ -26,7 +26,7 @@ class MascotNotifier extends Notifier<MascotState> {
     // A crossfade is audibly playing (the outgoing track's player is
     // still going) — never flash the loading face while it runs, even if
     // the incoming stream is buffering underneath.
-    if (audio.crossfadeProgress != null) return MascotState.playing;
+    if (audio.crossfadeIncomingTrack != null) return MascotState.playing;
 
     final trackId = audio.currentTrack?.id;
     final trackChanged = trackId != null &&
