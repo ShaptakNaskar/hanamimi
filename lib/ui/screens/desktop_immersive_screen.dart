@@ -54,21 +54,28 @@ class DesktopImmersiveScreen extends ConsumerWidget {
 
     // Crossfade: the incoming track and the fade progress, so the art,
     // title, seek and background wipe across in step with the audio —
-    // matching the phone Now Playing screen.
-    final xf = audio?.crossfadeProgress;
+    // matching the phone Now Playing screen. Per-frame progress rides
+    // the engine's crossfadeT notifier so only the wrapped subtrees
+    // rebuild per tick, never this whole screen.
     final incoming = audio?.crossfadeIncomingTrack;
+    final xfT = ref.watch(audioHandlerProvider).engine.crossfadeT;
 
     return Scaffold(
       backgroundColor: theme.background,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          _ImmersiveBackground(
-            track: track,
-            theme: theme,
-            incoming: (xf != null) ? incoming : null,
-            progress: xf ?? 0,
-          ),
+          incoming != null
+              ? ValueListenableBuilder<double>(
+                  valueListenable: xfT,
+                  builder: (_, t, __) => _ImmersiveBackground(
+                    track: track,
+                    theme: theme,
+                    incoming: incoming,
+                    progress: t,
+                  ),
+                )
+              : _ImmersiveBackground(track: track, theme: theme),
           ParticleOverlay(
             theme: theme,
             fireflies: ref.watch(buddyEnabledProvider('fireflies')),
@@ -272,75 +279,87 @@ class _LeftColumnState extends ConsumerState<_LeftColumn> {
     final theme = widget.theme;
     final track = widget.track;
     final audio = ref.watch(audioStateProvider).value;
-    var position = ref.watch(positionProvider).value ?? Duration.zero;
-    var duration = audio?.duration ?? Duration.zero;
+    final basePosition = ref.watch(positionProvider).value ?? Duration.zero;
+    final baseDuration = audio?.duration ?? Duration.zero;
     final engine = ref.read(audioHandlerProvider).engine;
 
     // Crossfade: wipe art + title from the right, roll the seek bar to
-    // where the incoming song already is — in step with the audio.
-    final xf = audio?.crossfadeProgress;
+    // where the incoming song already is — in step with the audio. The
+    // per-frame progress rides the engine's crossfadeT notifier so only
+    // this column rebuilds per tick.
     final incoming = audio?.crossfadeIncomingTrack;
-    final crossfading = xf != null && incoming != null;
-    final xfE = crossfading ? Curves.easeInOut.transform(xf) : 0.0;
-    if (crossfading) {
-      final e = xf * xf * (3 - 2 * xf);
-      final inPos = audio!.crossfadeIncomingPositionMs;
-      final inDur = incoming.duration.inMilliseconds;
-      int mix(int a, int b) => (a * (1 - e) + b * e).round();
-      position =
-          Duration(milliseconds: mix(position.inMilliseconds, inPos));
-      duration =
-          Duration(milliseconds: mix(duration.inMilliseconds, inDur));
+
+    Widget content(double? xf) {
+      final crossfading = xf != null && incoming != null;
+      final xfE = crossfading ? Curves.easeInOut.transform(xf) : 0.0;
+      var position = basePosition;
+      var duration = baseDuration;
+      if (crossfading) {
+        final e = xf * xf * (3 - 2 * xf);
+        final inPos = engine.crossfadeIncomingPosition.inMilliseconds;
+        final inDur = incoming.duration.inMilliseconds;
+        int mix(int a, int b) => (a * (1 - e) + b * e).round();
+        position =
+            Duration(milliseconds: mix(position.inMilliseconds, inPos));
+        duration =
+            Duration(milliseconds: mix(duration.inMilliseconds, inDur));
+      }
+
+      return LayoutBuilder(builder: (context, constraints) {
+        final artSize = (constraints.maxHeight * 0.42).clamp(160.0, 380.0);
+        return Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            crossfading
+                ? Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      _art(track, artSize, theme),
+                      WipeReveal(
+                          progress: xfE,
+                          child: _art(incoming, artSize, theme)),
+                    ],
+                  )
+                : _art(track, artSize, theme),
+            const SizedBox(height: Space.s6),
+            crossfading
+                ? Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      WipeReveal(
+                          progress: xfE,
+                          invert: true,
+                          child: _titleArtist(track, theme)),
+                      WipeReveal(
+                          progress: xfE,
+                          child: _titleArtist(incoming, theme)),
+                    ],
+                  )
+                : _titleArtist(track, theme),
+            const SizedBox(height: Space.s6),
+            SeekBarWidget(
+              position: position,
+              duration: duration,
+              theme: theme,
+              onSeek: crossfading ? (_) {} : engine.seek,
+            ),
+            const SizedBox(height: Space.s4),
+            PlaybackControls(
+              onSleepTimer: () => showSleepTimerModal(context),
+              onQueue: () => showQueueSheet(context),
+            ),
+            const SizedBox(height: Space.s6),
+            const VisualizerWidget(height: 64),
+          ],
+        );
+      });
     }
 
-    return LayoutBuilder(builder: (context, constraints) {
-      final artSize = (constraints.maxHeight * 0.42).clamp(160.0, 380.0);
-      return Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          crossfading
-              ? Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    _art(track, artSize, theme),
-                    WipeReveal(
-                        progress: xfE,
-                        child: _art(incoming, artSize, theme)),
-                  ],
-                )
-              : _art(track, artSize, theme),
-          const SizedBox(height: Space.s6),
-          crossfading
-              ? Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    WipeReveal(
-                        progress: xfE,
-                        invert: true,
-                        child: _titleArtist(track, theme)),
-                    WipeReveal(
-                        progress: xfE,
-                        child: _titleArtist(incoming, theme)),
-                  ],
-                )
-              : _titleArtist(track, theme),
-          const SizedBox(height: Space.s6),
-          SeekBarWidget(
-            position: position,
-            duration: duration,
-            theme: theme,
-            onSeek: crossfading ? (_) {} : engine.seek,
-          ),
-          const SizedBox(height: Space.s4),
-          PlaybackControls(
-            onSleepTimer: () => showSleepTimerModal(context),
-            onQueue: () => showQueueSheet(context),
-          ),
-          const SizedBox(height: Space.s6),
-          const VisualizerWidget(height: 64),
-        ],
-      );
-    });
+    if (incoming == null) return content(null);
+    return ValueListenableBuilder<double>(
+      valueListenable: engine.crossfadeT,
+      builder: (_, t, __) => content(t),
+    );
   }
 }
 

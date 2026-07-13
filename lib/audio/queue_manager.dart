@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:audio_session/audio_session.dart';
+import 'package:flutter/foundation.dart';
 import 'package:rxdart/rxdart.dart';
 
 import '../library/models/track.dart';
@@ -189,6 +190,22 @@ class QueueManager {
   int? _pendingCursor;
   Track? _pendingTrack;
   bool get _crossfading => _incoming != null;
+
+  /// Live crossfade progress, raw 0–1, updated by the ramp timer.
+  /// Deliberately NOT part of [AudioState]: pushing per-tick progress
+  /// through the state stream re-emitted the whole snapshot at 60 Hz for
+  /// the entire fade, rebuilding every stateStream listener — all
+  /// screens, the app-wide theme lerp, the Android media notification —
+  /// and froze the UI around every transition. The few widgets that
+  /// animate the dissolve listen to this directly; everyone else only
+  /// sees the start/end state emissions.
+  final ValueNotifier<double> crossfadeT = ValueNotifier(0.0);
+
+  /// The incoming player's live position during a crossfade (it's been
+  /// playing since the fade began) — for the seek bar's roll toward the
+  /// new song and the visualizer's blend. Zero outside a fade.
+  Duration get crossfadeIncomingPosition =>
+      _incoming?.position ?? Duration.zero;
 
   final _state = BehaviorSubject<AudioState>.seeded(const AudioState());
   Stream<AudioState> get stateStream => _state.stream;
@@ -561,6 +578,7 @@ class QueueManager {
   Future<void> dispose() async {
     _crossfadeTimer?.cancel();
     _posHeartbeat?.cancel();
+    crossfadeT.dispose();
     for (final s in _subs) {
       s.cancel();
     }
@@ -653,9 +671,11 @@ class QueueManager {
     await incoming.setVolume(0);
     unawaited(incoming.play());
 
-    // Announce the incoming track so the UI can dissolve art/title from
-    // the outgoing one to this in step with the audio ramp below.
-    _state.add(state.copyWith(crossfadeProgress: 0, crossfadeIncomingTrack: track));
+    // Announce the incoming track ONCE so the UI can dissolve art/title
+    // from the outgoing one to this; the per-tick progress rides
+    // [crossfadeT], not the state stream.
+    crossfadeT.value = 0;
+    _state.add(state.copyWith(crossfadeIncomingTrack: track));
 
     final total = fade.inMilliseconds;
     final stopwatch = Stopwatch()..start();
@@ -667,10 +687,7 @@ class QueueManager {
       final e = t * t * (3 - 2 * t);
       _primary.setVolume((1 - e) * _gainScale);
       incoming.setVolume(e * _gainScale);
-      _state.add(state.copyWith(
-        crossfadeProgress: t,
-        crossfadeIncomingPositionMs: incoming.position.inMilliseconds,
-      ));
+      crossfadeT.value = t;
       if (t >= 1) _finishCrossfade();
     });
   }
@@ -702,6 +719,9 @@ class QueueManager {
       duration: _primary.duration ?? track.duration,
       clearCrossfade: true,
     ));
+    // Reset AFTER the clearing emission: listeners gate on the state's
+    // incoming track, so none can mistake this for a rewound fade.
+    crossfadeT.value = 0;
     trackStarted.add(track);
   }
 
@@ -717,6 +737,7 @@ class QueueManager {
     await incoming?.dispose();
     await _setPrimaryVolume(1);
     _state.add(state.copyWith(clearCrossfade: true));
+    crossfadeT.value = 0;
   }
 
   // --- Internals ---

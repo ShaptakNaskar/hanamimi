@@ -14,13 +14,30 @@ class HanamimiAudioHandler extends BaseAudioHandler {
 
   final QueueManager engine;
 
+  // What the OS last heard, so repeat emissions (duration re-reports,
+  // crossfade start/end bookkeeping, duplicate status snapshots) don't
+  // re-push the media notification. Every mediaItem/playbackState add
+  // crosses the platform channel and rebuilds the notification — at any
+  // sustained rate that wedges the Android main thread.
+  String? _sentItemKey;
+  PlaybackStatus? _sentStatus;
+  QueueMode? _sentMode;
+
   void _broadcast(AudioState s) {
     final track = s.currentTrack;
-    if (track != null) {
+    // Online tracks have no file path; their source identity is
+    // just as stable a media id.
+    final id = track == null
+        ? null
+        : track.filePath ?? '${track.source.name}:${track.sourceId}';
+    final itemKey = track == null
+        ? null
+        : '$id|${s.duration.inMilliseconds}|${track.albumArtPath ?? track.artUrl}';
+    final itemChanged = track != null && itemKey != _sentItemKey;
+    if (itemChanged) {
+      _sentItemKey = itemKey;
       mediaItem.add(MediaItem(
-        // Online tracks have no file path; their source identity is
-        // just as stable a media id.
-        id: track.filePath ?? '${track.source.name}:${track.sourceId}',
+        id: id!,
         title: track.title,
         artist: track.artist,
         album: track.album,
@@ -32,6 +49,14 @@ class HanamimiAudioHandler extends BaseAudioHandler {
                 : null,
       ));
     }
+
+    // A track change re-anchors updatePosition too (the new song starts
+    // near zero) — not just status/mode transitions.
+    if (s.status == _sentStatus && s.queueMode == _sentMode && !itemChanged) {
+      return;
+    }
+    _sentStatus = s.status;
+    _sentMode = s.queueMode;
 
     // One snapshot per state transition. The OS extrapolates the live
     // position from updatePosition + updateTime + speed, so forwarding

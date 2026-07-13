@@ -446,6 +446,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
 
   // ~60 fps drive for the renderers (the old Visualizer capture capped
   // this at 30 Hz, which looked steppy).
+  final engine = ref.read(audioHandlerProvider).engine;
   var settled = false;
   var tick = 0;
   final timer = Timer.periodic(const Duration(milliseconds: 16), (_) {
@@ -460,7 +461,11 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     final playing = audio?.isPlaying ?? false;
     final position =
         playing ? lastPosition + sinceReport.elapsed : lastPosition;
-    final xf = audio?.crossfadeProgress;
+    // Per-tick fade progress lives on the engine's notifier, not in
+    // AudioState (this timer already runs at 60 Hz, so just read it).
+    final xf = audio?.crossfadeIncomingTrack != null
+        ? engine.crossfadeT.value
+        : null;
 
     // Coming back from the background can leave a dead FFT extraction
     // (MediaCodec was reclaimed while frozen) with the retry budget spent,
@@ -502,8 +507,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
       // audio uses, so the meters ramp INTO the new song as it fades in
       // instead of waiting for the handoff.
       final e = xf * xf * (3 - 2 * xf); // smoothstep — matches the audio ramp
-      final inPos =
-          Duration(milliseconds: audio!.crossfadeIncomingPositionMs);
+      final inPos = engine.crossfadeIncomingPosition;
       final outRaw = sample(position);
       final inRaw =
           sampleBuf(inPos, prewarmFrames, prewarmStride, prewarmDone);

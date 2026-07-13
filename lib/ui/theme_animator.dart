@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -42,6 +44,7 @@ class _ThemeAnimatorState extends ConsumerState<ThemeAnimator>
   HanamimiTheme? _xfIncoming;
   int? _xfIncomingId;
   int _graceUntilMs = 0;
+  Timer? _xfTimer;
 
   bool get _inGrace =>
       DateTime.now().millisecondsSinceEpoch < _graceUntilMs;
@@ -64,32 +67,54 @@ class _ThemeAnimatorState extends ConsumerState<ThemeAnimator>
 
   @override
   void dispose() {
+    _xfTimer?.cancel();
     _c.dispose();
     super.dispose();
   }
 
-  /// Recolour driven by the crossfade's progress. Runs on every audio
-  /// state / incoming-palette change.
+  /// One step of the fade-driven palette lerp. Runs on a deliberate
+  /// ~150 ms cadence, NOT per frame: every set() here re-themes the
+  /// entire app (every screen watches the theme), so tracking the
+  /// fade's 60 Hz progress would rebuild the world for the whole fade
+  /// — the color moves so little per step that this looks identical.
+  void _stepCrossfadeLerp() {
+    final incoming = _xfIncoming;
+    // The end/abort emission cancels this timer; between the engine's
+    // notifier reset and that emission, never lerp backwards.
+    if (incoming == null ||
+        ref.read(audioStateProvider).value?.crossfadeIncomingTrack == null) {
+      return;
+    }
+    final engine = ref.read(audioHandlerProvider).engine;
+    final e = Curves.easeInOut.transform(engine.crossfadeT.value);
+    ref
+        .read(currentThemeProvider.notifier)
+        .set(HanamimiTheme.lerp(_xfBase!, incoming, e));
+  }
+
+  /// Recolour driven by the crossfade. Runs on the fade's start/end
+  /// audio-state emissions and when the incoming palette arrives.
   void _syncCrossfade() {
     final audio = ref.read(audioStateProvider).value;
-    final xf = audio?.crossfadeProgress;
+    final fading = audio?.crossfadeIncomingTrack != null;
     final incoming = ref.read(crossfadeIncomingThemeProvider).value;
 
-    if (xf != null && incoming != null) {
+    if (fading && incoming != null) {
       // Actively fading: lerp the palette from where we started toward
       // the incoming art by the fade's progress.
       _xfBase ??= ref.read(currentThemeProvider);
       _xfIncoming = incoming;
       _xfIncomingId = audio!.crossfadeIncomingTrack?.id;
       _c.stop(); // the 400ms wash mustn't fight the fade-driven lerp
-      final e = Curves.easeInOut.transform(xf);
-      ref
-          .read(currentThemeProvider.notifier)
-          .set(HanamimiTheme.lerp(_xfBase!, incoming, e));
+      _xfTimer ??= Timer.periodic(
+          const Duration(milliseconds: 150), (_) => _stepCrossfadeLerp());
+      _stepCrossfadeLerp();
       return;
     }
 
     // The fade ended (or was aborted). Settle.
+    _xfTimer?.cancel();
+    _xfTimer = null;
     if (_xfBase != null) {
       final currentId = audio?.currentTrack?.id;
       if (_xfIncoming != null && currentId == _xfIncomingId) {

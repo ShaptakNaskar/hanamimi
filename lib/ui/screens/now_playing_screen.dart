@@ -84,11 +84,15 @@ class NowPlayingScreen extends ConsumerWidget {
     // Crossfade: while the audio ramps from the outgoing track to the
     // incoming one, dissolve the art and title/artist across in step —
     // otherwise the screen keeps showing the old song over the new.
+    // The state stream only announces the fade's start/end; the live
+    // progress rides the engine's crossfadeT notifier, so ONLY the
+    // wrapped subtrees below rebuild per tick — not this whole screen
+    // (60 Hz full-screen rebuilds froze every transition, user-counted
+    // frames).
     final playing = audio?.isPlaying ?? false;
-    final xf = audio?.crossfadeProgress;
     final incoming = audio?.crossfadeIncomingTrack;
-    final crossfading = xf != null && incoming != null;
-    final xfE = crossfading ? Curves.easeInOut.transform(xf) : 0.0;
+    final crossfading = incoming != null;
+    final xfT = ref.watch(audioHandlerProvider).engine.crossfadeT;
 
     Widget titleArtist(Track t, {Color? titleColor}) => Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -113,11 +117,14 @@ class NowPlayingScreen extends ConsumerWidget {
         // copies here would confine them to the panel and make the
         // pane boundary read as a different world.
         if (!panel)
-          _BlurredArtBackground(
-            track: track,
-            theme: theme,
-            incoming: crossfading ? incoming : null,
-            progress: xfE,
+          ValueListenableBuilder<double>(
+            valueListenable: xfT,
+            builder: (_, t, __) => _BlurredArtBackground(
+              track: track,
+              theme: theme,
+              incoming: crossfading ? incoming : null,
+              progress: crossfading ? Curves.easeInOut.transform(t) : 0.0,
+            ),
           ),
         if (!panel)
           ParticleOverlay(
@@ -155,28 +162,32 @@ class NowPlayingScreen extends ConsumerWidget {
                       children: [
                         const Spacer(flex: 2),
                         crossfading
-                            ? Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  AlbumArtWidget(
-                                    track: track,
-                                    theme: theme,
-                                    isPlaying: playing,
-                                    size: artSize,
-                                  ),
-                                  // Incoming art writes over the
-                                  // outgoing from the right, in step with
-                                  // the audio ramp.
-                                  WipeReveal(
-                                    progress: xfE,
-                                    child: AlbumArtWidget(
-                                      track: incoming,
+                            ? ValueListenableBuilder<double>(
+                                valueListenable: xfT,
+                                builder: (_, t, __) => Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    AlbumArtWidget(
+                                      track: track,
                                       theme: theme,
                                       isPlaying: playing,
                                       size: artSize,
                                     ),
-                                  ),
-                                ],
+                                    // Incoming art writes over the
+                                    // outgoing from the right, in step
+                                    // with the audio ramp.
+                                    WipeReveal(
+                                      progress:
+                                          Curves.easeInOut.transform(t),
+                                      child: AlbumArtWidget(
+                                        track: incoming,
+                                        theme: theme,
+                                        isPlaying: playing,
+                                        size: artSize,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               )
                             : AlbumArtWidget(
                                 track: track,
@@ -194,22 +205,31 @@ class NowPlayingScreen extends ConsumerWidget {
                                 // outgoing stays put while the incoming
                                 // wipes over it from the right.
                                 child: crossfading
-                                    ? Stack(
-                                        fit: StackFit.passthrough,
-                                        children: [
-                                          // Outgoing erased from the
-                                          // right as the incoming writes
-                                          // in — no overlapping strings.
-                                          WipeReveal(
-                                            progress: xfE,
-                                            invert: true,
-                                            child: titleArtist(track),
-                                          ),
-                                          WipeReveal(
-                                            progress: xfE,
-                                            child: titleArtist(incoming),
-                                          ),
-                                        ],
+                                    ? ValueListenableBuilder<double>(
+                                        valueListenable: xfT,
+                                        builder: (_, t, __) {
+                                          final xfE = Curves.easeInOut
+                                              .transform(t);
+                                          return Stack(
+                                            fit: StackFit.passthrough,
+                                            children: [
+                                              // Outgoing erased from the
+                                              // right as the incoming
+                                              // writes in — no
+                                              // overlapping strings.
+                                              WipeReveal(
+                                                progress: xfE,
+                                                invert: true,
+                                                child: titleArtist(track),
+                                              ),
+                                              WipeReveal(
+                                                progress: xfE,
+                                                child:
+                                                    titleArtist(incoming),
+                                              ),
+                                            ],
+                                          );
+                                        },
                                       )
                                     : titleArtist(track),
                               ),
@@ -521,44 +541,55 @@ class _SeekBarSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final audio = ref.watch(audioStateProvider).value;
-    var position = ref.watch(positionProvider).value ?? Duration.zero;
-    var duration = audio?.duration ?? Duration.zero;
-    var buffered = ref.watch(bufferedProvider).value ?? Duration.zero;
+    final position = ref.watch(positionProvider).value ?? Duration.zero;
+    final duration = audio?.duration ?? Duration.zero;
+    final buffered = ref.watch(bufferedProvider).value ?? Duration.zero;
     final room = ref.watch(dateRoomProvider);
+    // Date mode: the partner's position rides under the bar.
+    final partnerPosition =
+        room.inRoom && room.shared && room.partnerOnline
+            ? Duration(milliseconds: room.partnerPositionMs)
+            : null;
 
     // Crossfade: roll the bar from the outgoing playhead to where the
     // incoming song already is (it's been playing through the fade), so
-    // it glides instead of snapping to 0:00 at the handoff.
-    final xf = audio?.crossfadeProgress;
+    // it glides instead of snapping to 0:00 at the handoff. Per-frame
+    // progress comes off the engine's notifier so only this bar
+    // rebuilds per tick.
     final incoming = audio?.crossfadeIncomingTrack;
-    final crossfading = xf != null && incoming != null;
-    if (crossfading) {
-      final e = Curves.easeInOut.transform(xf);
-      final inPos = audio!.crossfadeIncomingPositionMs;
-      final inDur = incoming.duration.inMilliseconds;
-      int mix(int a, int b) => (a * (1 - e) + b * e).round();
-      position =
-          Duration(milliseconds: mix(position.inMilliseconds, inPos));
-      duration =
-          Duration(milliseconds: mix(duration.inMilliseconds, inDur));
-      buffered =
-          Duration(milliseconds: mix(buffered.inMilliseconds, inPos));
+    if (incoming != null) {
+      final engine = ref.read(audioHandlerProvider).engine;
+      return ValueListenableBuilder<double>(
+        valueListenable: engine.crossfadeT,
+        builder: (_, t, __) {
+          final e = Curves.easeInOut.transform(t);
+          final inPos = engine.crossfadeIncomingPosition.inMilliseconds;
+          final inDur = incoming.duration.inMilliseconds;
+          int mix(int a, int b) => (a * (1 - e) + b * e).round();
+          return SeekBarWidget(
+            position: Duration(
+                milliseconds: mix(position.inMilliseconds, inPos)),
+            duration: Duration(
+                milliseconds: mix(duration.inMilliseconds, inDur)),
+            buffered: Duration(
+                milliseconds: mix(buffered.inMilliseconds, inPos)),
+            partnerPosition: partnerPosition,
+            theme: theme,
+            // A seek mid-transition would map to the blended duration —
+            // ignore it; the fade is only a few seconds.
+            onSeek: (_) {},
+          );
+        },
+      );
     }
 
     return SeekBarWidget(
       position: position,
       duration: duration,
       buffered: buffered,
-      // Date mode: the partner's position rides under the bar.
-      partnerPosition: room.inRoom && room.shared && room.partnerOnline
-          ? Duration(milliseconds: room.partnerPositionMs)
-          : null,
+      partnerPosition: partnerPosition,
       theme: theme,
-      // A seek mid-transition would map to the blended duration — ignore
-      // it; the fade is only a few seconds.
-      onSeek: crossfading
-          ? (_) {}
-          : (d) => ref.read(audioHandlerProvider).seek(d),
+      onSeek: (d) => ref.read(audioHandlerProvider).seek(d),
     );
   }
 }
