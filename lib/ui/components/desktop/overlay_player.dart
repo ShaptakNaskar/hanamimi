@@ -108,7 +108,14 @@ class _DesktopOverlayPlayerState extends ConsumerState<DesktopOverlayPlayer> {
                           ))
                       : (_showViz
                           ? VisualizerWidget(
-                              height: isVu ? 180 : 64,
+                              // Only the analog needle dial wants the
+                              // big size; the LED VU (and bars) stretch
+                              // into a wall of pixels that tall.
+                              height: switch (style) {
+                                VisualizerStyle.vuMeters => 180.0,
+                                VisualizerStyle.ledVu => 56.0,
+                                _ => 64.0,
+                              },
                               styleOverride: style,
                             )
                           : _Art(track: track, theme: theme)),

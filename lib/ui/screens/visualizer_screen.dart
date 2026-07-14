@@ -328,13 +328,20 @@ class _Chrome extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Top bar dodges the notch (SafeArea). The centered content
-        // below deliberately does NOT — a lone left-side notch in
-        // landscape would shove a SafeArea'd row rightward, so the
-        // transport would no longer line up under the title.
-        SafeArea(
-          bottom: false,
-          child: Padding(
+        // Top bar dodges the notch (SafeArea). Pinned to the TOP —
+        // without the Positioned it's a StackFit.expand child stretched
+        // to full height, so the Row centres vertically and collides
+        // with the meters (user-reported, worst in portrait). The
+        // centred content below deliberately keeps NO horizontal safe
+        // area, so a lone left-side notch in landscape can't shove the
+        // transport off the title.
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
             padding: const EdgeInsets.symmetric(
                 horizontal: Space.s3, vertical: Space.s2),
             child: Row(
@@ -367,6 +374,7 @@ class _Chrome extends StatelessWidget {
                 ),
               ],
             ),
+          ),
           ),
         ),
         // Transport — screen-centered so it sits directly under the
