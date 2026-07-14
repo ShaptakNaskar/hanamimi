@@ -1,38 +1,53 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../library/models/track.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/power_provider.dart';
 import '../../providers/sleep_timer_provider.dart';
+import '../../providers/theme_provider.dart';
 import '../../providers/visualizer_provider.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
 import '../../utils/duration_ext.dart';
 import '../components/mascot/oneko.dart';
 import '../components/now_playing/visualizer_widget.dart';
+import '../components/now_playing/wipe_reveal.dart';
 
-/// Blackout Mode (3.0 #3) — the bedside-amp screen. OLED-black canvas,
-/// analog VU needles, a big dim clock, and the oneko cat asleep in the
-/// corner. She stirs on track change instead of any text notification —
-/// the cat *is* the track-change cue. Screen stays awake at a brightness
-/// floor; tap anywhere for transport controls, tap the ✕ to leave.
+/// The stare screen — one surface, two skins, flipped by the 💡 button.
+///
+/// * **Blackout** (dark, the default): the bedside amp — OLED-black
+///   canvas, a big dim clock, the oneko cat asleep in the corner (she
+///   stirs on track change instead of a text notification), a brightness
+///   floor you can pin off with the eye, muted meters.
+/// * **Visualizer** (light): the same meters in full album color over a
+///   blurred art wash, no clock, no dim — just the pretty visualization
+///   to stare at.
+///
+/// Opened dark from the Blackout button, light from tapping the Now
+/// Playing / immersive visualizer; the lightbulb toggles between the two
+/// in place. One module instead of two near-identical screens.
 ///
 /// Affordable as an always-on surface because the visualizer's ticker
 /// gating (the constant-CPU fix) already stops all motion when frames
-/// settle.
+/// settle. Screen stays awake; tap anywhere for controls, ✕ to leave.
 class BlackoutScreen extends ConsumerStatefulWidget {
-  const BlackoutScreen({super.key});
+  const BlackoutScreen({super.key, this.light = false});
 
-  static Route<void> route() => PageRouteBuilder(
-    transitionDuration: const Duration(milliseconds: 500),
-    pageBuilder: (_, __, ___) => const BlackoutScreen(),
-    transitionsBuilder:
-        (_, anim, __, child) => FadeTransition(opacity: anim, child: child),
-  );
+  /// Initial skin: false = Blackout (dark), true = Visualizer (light).
+  final bool light;
+
+  static Route<void> route({bool light = false}) => PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 500),
+        pageBuilder: (_, __, ___) => BlackoutScreen(light: light),
+        transitionsBuilder: (_, anim, __, child) =>
+            FadeTransition(opacity: anim, child: child),
+      );
 
   @override
   ConsumerState<BlackoutScreen> createState() => _BlackoutScreenState();
@@ -45,6 +60,9 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
   var _controlsVisible = false;
   var _stir = 0;
   int? _lastTrackId;
+
+  /// Which skin is showing — starts from the entry point, the 💡 flips it.
+  late bool _light = widget.light;
 
   /// Caffeine's state, cached on every build — dispose() must not touch
   /// ref (a throw there silently skipped the system restores below and
@@ -123,16 +141,35 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
     }
   }
 
+  /// Analog needles wear the big bedside-dial size; the LED VU and bars
+  /// read as a stretched wall of pixels that tall — they keep their Now
+  /// Playing proportion (user report).
+  double _vizHeight(VisualizerStyle style) => switch (style) {
+        VisualizerStyle.vuMeters => 200.0,
+        VisualizerStyle.ledVu => 56.0,
+        _ => 64.0,
+      };
+
   @override
   Widget build(BuildContext context) {
+    final theme = ref.watch(currentThemeProvider);
     final audio = ref.watch(audioStateProvider).value;
     final track = audio?.currentTrack;
     _caffeineOn = ref.watch(caffeineProvider);
     final timer = ref.watch(sleepTimerProvider);
-    // Eye lock: keep the meters at full brightness (no auto-dim) so you
-    // can just stare. The scrim drops to 0 whenever this is on OR the
-    // transport is up.
+    // Eye lock (dark only): keep the meters at full brightness (no
+    // auto-dim) so you can just stare. Scrim drops to 0 when this is on
+    // OR the transport is up.
     final undim = ref.watch(blackoutUndimProvider);
+    final style = ref.watch(blackoutStyleProvider);
+    final isVu = style == VisualizerStyle.vuMeters ||
+        style == VisualizerStyle.ledVu;
+    final isLed = style == VisualizerStyle.ledVu;
+    // Crossfade (light skin): wipe the art wash + title across to the
+    // incoming song in step with the audio, so the stare view doesn't
+    // sit on the previous track while the next one is already playing.
+    final incoming = audio?.crossfadeIncomingTrack;
+    final xfT = ref.read(audioHandlerProvider).engine.crossfadeT;
 
     // The cat is the notification: stir her when the track changes.
     if (track != null && track.id != _lastTrackId) {
@@ -142,6 +179,8 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
 
     final dim = Colors.white.withValues(alpha: 0.55);
     final dimmer = Colors.white.withValues(alpha: 0.30);
+    // Chrome tint: album-legible in light, soft white in the dark.
+    final tint = _light ? theme.textPrimary : dim;
     final hh = _now.hour.toString().padLeft(2, '0');
     final mm = _now.minute.toString().padLeft(2, '0');
 
@@ -150,7 +189,8 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
       // the system BEFORE the route starts tearing down.
       onPopInvokedWithResult: (_, __) => _restoreSystem(),
       child: Scaffold(
-        // Hard black regardless of theme — this screen is FOR the OLED.
+        // Hard black underneath — the OLED canvas of the dark skin; the
+        // light skin's art wash fades in over it.
         backgroundColor: Colors.black,
         body: GestureDetector(
           behavior: HitTestBehavior.opaque,
@@ -158,108 +198,67 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Column(
-                children: [
-                  const Spacer(flex: 3),
-                  Text(
-                    '$hh:$mm',
-                    style: TextStyle(
-                      fontFamily: 'Nunito',
-                      fontSize: 72,
-                      fontWeight: FontWeight.w200,
-                      letterSpacing: 4,
-                      color: dim,
-                    ),
-                  ),
-                  if (track != null) ...[
-                    const SizedBox(height: Space.s2),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: Space.s6),
-                      child: Text(
-                        '${track.title} — ${track.artist}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontFamily: 'Nunito',
-                          fontSize: 13,
-                          color: dimmer,
-                        ),
-                      ),
-                    ),
-                  ],
-                  if (timer.isActive) ...[
-                    const SizedBox(height: Space.s4),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.bedtime_rounded, size: 13, color: dimmer),
-                        const SizedBox(width: Space.s2),
-                        Text(
-                          switch (timer.mode) {
-                            SleepMode.countdown => timer.isFading
-                                ? 'fading out…'
-                                : 'sleeping in ${timer.remaining!.mmss}',
-                            SleepMode.endOfTrack =>
-                              'sleeping when this song ends',
-                            SleepMode.off => '',
-                          },
-                          style: TextStyle(
-                            fontFamily: 'Nunito',
-                            fontSize: 13,
-                            letterSpacing: 1,
-                            color: dimmer,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                  const Spacer(flex: 2),
-                  // Analog needles wear the big bedside-dial size; bars
-                  // and LED meters keep their Now Playing proportions —
-                  // stretched to 200px they read as a wall of pixels
-                  // (user report).
-                  Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 520),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: Space.s4,
-                        ),
-                        child: VisualizerWidget(
-                          height:
-                              ref.watch(blackoutStyleProvider) ==
-                                      VisualizerStyle.vuMeters
-                                  ? 200
-                                  : 56,
-                          styleOverride: ref.watch(blackoutStyleProvider),
-                          // Bedside palette: never album-art accents,
-                          // nothing bright enough to sting at night.
-                          muted: true,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const Spacer(flex: 3),
-                ],
-              ),
-              // The corner cat — asleep until the song changes.
-              Positioned(
-                right: Space.s6,
-                bottom: Space.s6,
-                child: StirringOneko(size: 40, stir: _stir),
-              ),
-              // The brightness floor, as pixels instead of a window
-              // override: dims the ambient layer while idle and lifts
-              // whenever the transport is up so buttons stay crisp.
+              // Light skin: blurred album wash. Fades in/out over the
+              // black as the 💡 flips, so the toggle glides.
               IgnorePointer(
                 child: AnimatedOpacity(
                   duration: const Duration(milliseconds: 400),
-                  opacity: (_controlsVisible || undim) ? 0.0 : 0.45,
-                  child: Container(color: Colors.black),
+                  opacity: _light ? 1 : 0,
+                  // Dark skin never shows the wash — don't pay to decode
+                  // and blur album art for the bedside amp.
+                  child: !_light
+                      ? const SizedBox.shrink()
+                      : track == null
+                          ? Container(color: theme.background)
+                          : incoming != null
+                              ? ValueListenableBuilder<double>(
+                                  valueListenable: xfT,
+                                  builder: (_, t, __) {
+                                    final e =
+                                        Curves.easeInOut.transform(t);
+                                    return Stack(
+                                      fit: StackFit.expand,
+                                      children: [
+                                        _ArtWash(track: track, theme: theme),
+                                        WipeReveal(
+                                          progress: e,
+                                          child: _ArtWash(
+                                              track: incoming, theme: theme),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                )
+                              : _ArtWash(track: track, theme: theme),
                 ),
               ),
-              // Tap-to-reveal transport; fades itself away after 5 s.
+              // The content — clock-topped bedside column in the dark,
+              // centered meters in the light.
+              if (_light)
+                _lightBody(theme, track, style, incoming, xfT)
+              else
+                _darkBody(theme, track, style, timer, dim, dimmer, hh, mm),
+              // The corner cat — dark skin only; asleep until the song
+              // changes.
+              if (!_light)
+                Positioned(
+                  right: Space.s6,
+                  bottom: Space.s6,
+                  child: StirringOneko(size: 40, stir: _stir),
+                ),
+              // The brightness floor (dark skin only), as pixels instead
+              // of a window override: dims while idle, lifts when the
+              // transport is up (or the eye is locked) so buttons stay
+              // crisp.
+              if (!_light)
+                IgnorePointer(
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 400),
+                    opacity: (_controlsVisible || undim) ? 0.0 : 0.45,
+                    child: Container(color: Colors.black),
+                  ),
+                ),
+              // Tap-to-reveal chrome; fades itself away after 5 s.
               AnimatedOpacity(
                 duration: const Duration(milliseconds: 250),
                 opacity: _controlsVisible ? 1 : 0,
@@ -267,23 +266,47 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
                   ignoring: !_controlsVisible,
                   child: Stack(
                     children: [
+                      // Top-right: light/dark toggle, then leave.
                       Positioned(
                         top: Space.s6,
                         right: Space.s6,
-                        child: IconButton(
-                          icon: Icon(Icons.close_rounded, color: dim),
-                          onPressed: () => Navigator.of(context).pop(),
+                        child: Row(
+                          children: [
+                            IconButton(
+                              tooltip: _light
+                                  ? 'Dim to Blackout'
+                                  : 'Light it up',
+                              icon: Icon(
+                                _light
+                                    ? Icons.lightbulb_rounded
+                                    : Icons.lightbulb_outline_rounded,
+                                color: _light ? theme.primary : dim,
+                              ),
+                              onPressed: () {
+                                setState(() => _light = !_light);
+                                _armHide();
+                              },
+                            ),
+                            IconButton(
+                              tooltip: 'Close',
+                              icon: Icon(Icons.close_rounded, color: tint),
+                              onPressed: () => Navigator.of(context).pop(),
+                            ),
+                          ],
                         ),
                       ),
-                      // Cycle the meters without leaving the dark:
-                      // bars → analog VU → LED VU. Persisted.
+                      // Top-left: switch the visualization, and its
+                      // per-style knobs (VU source, LED look). The eye
+                      // (undim lock) only means anything in the dark.
                       Positioned(
                         top: Space.s6,
                         left: Space.s6,
                         child: Row(
                           children: [
                             IconButton(
-                              icon: Icon(Icons.equalizer_rounded, color: dim),
+                              tooltip: 'Switch visualization',
+                              icon:
+                                  Icon(Icons.equalizer_rounded, color: tint),
                               onPressed: () {
                                 final styles = VisualizerStyle.values;
                                 final current =
@@ -292,30 +315,59 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
                                       styles[(current.index + 1) %
                                           styles.length],
                                     );
-                                _armHide(); // keep the overlay up while cycling
-                              },
-                            ),
-                            // Eye: lock the dim off so the meters stay
-                            // bright to stare at. Filled = locked bright.
-                            IconButton(
-                              tooltip: undim
-                                  ? 'Let the screen dim'
-                                  : 'Keep the meters bright',
-                              icon: Icon(
-                                undim
-                                    ? Icons.remove_red_eye_rounded
-                                    : Icons.remove_red_eye_outlined,
-                                color: undim
-                                    ? Colors.white.withValues(alpha: 0.75)
-                                    : dim,
-                              ),
-                              onPressed: () {
-                                ref
-                                    .read(blackoutUndimProvider.notifier)
-                                    .toggle();
                                 _armHide();
                               },
                             ),
+                            if (isVu)
+                              _pill(
+                                Icons.tune_rounded,
+                                ref.watch(vuSplitProvider)
+                                    ? 'Bass / treble'
+                                    : 'Loudness',
+                                tint,
+                                () {
+                                  final on = ref.read(vuSplitProvider);
+                                  ref.read(vuSplitProvider.notifier).set(!on);
+                                  _armHide();
+                                },
+                              ),
+                            if (isLed)
+                              _pill(
+                                ref.watch(ledVuDiscreteProvider)
+                                    ? Icons.view_week_rounded
+                                    : Icons.gradient_rounded,
+                                ref.watch(ledVuDiscreteProvider)
+                                    ? 'Segments'
+                                    : 'Solid',
+                                tint,
+                                () {
+                                  final on = ref.read(ledVuDiscreteProvider);
+                                  ref
+                                      .read(ledVuDiscreteProvider.notifier)
+                                      .set(!on);
+                                  _armHide();
+                                },
+                              ),
+                            if (!_light)
+                              IconButton(
+                                tooltip: undim
+                                    ? 'Let the screen dim'
+                                    : 'Keep the meters bright',
+                                icon: Icon(
+                                  undim
+                                      ? Icons.remove_red_eye_rounded
+                                      : Icons.remove_red_eye_outlined,
+                                  color: undim
+                                      ? Colors.white.withValues(alpha: 0.75)
+                                      : dim,
+                                ),
+                                onPressed: () {
+                                  ref
+                                      .read(blackoutUndimProvider.notifier)
+                                      .toggle();
+                                  _armHide();
+                                },
+                              ),
                           ],
                         ),
                       ),
@@ -324,18 +376,16 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
                           alignment: const Alignment(0, 0.62),
                           child: TextButton.icon(
                             onPressed: () {
-                              ref
-                                  .read(sleepTimerProvider.notifier)
-                                  .cancel();
+                              ref.read(sleepTimerProvider.notifier).cancel();
                               _armHide();
                             },
                             icon: Icon(Icons.bedtime_off_rounded,
-                                size: 16, color: dim),
+                                size: 16, color: tint),
                             label: Text('Cancel sleep timer',
                                 style: TextStyle(
                                   fontFamily: 'Nunito',
                                   fontSize: 13,
-                                  color: dim,
+                                  color: tint,
                                 )),
                           ),
                         ),
@@ -346,15 +396,11 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
                           children: [
                             IconButton(
                               iconSize: 34,
-                              icon: Icon(
-                                Icons.skip_previous_rounded,
-                                color: dim,
-                              ),
-                              onPressed:
-                                  () =>
-                                      ref
-                                          .read(audioHandlerProvider)
-                                          .skipToPrevious(),
+                              icon: Icon(Icons.skip_previous_rounded,
+                                  color: tint),
+                              onPressed: () => ref
+                                  .read(audioHandlerProvider)
+                                  .skipToPrevious(),
                             ),
                             const SizedBox(width: Space.s4),
                             IconButton(
@@ -363,7 +409,9 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
                                 (audio?.isPlaying ?? false)
                                     ? Icons.pause_rounded
                                     : Icons.play_arrow_rounded,
-                                color: Colors.white.withValues(alpha: 0.75),
+                                color: _light
+                                    ? theme.primary
+                                    : Colors.white.withValues(alpha: 0.75),
                               ),
                               onPressed: () {
                                 final h = ref.read(audioHandlerProvider);
@@ -375,12 +423,10 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
                             const SizedBox(width: Space.s4),
                             IconButton(
                               iconSize: 34,
-                              icon: Icon(Icons.skip_next_rounded, color: dim),
-                              onPressed:
-                                  () =>
-                                      ref
-                                          .read(audioHandlerProvider)
-                                          .skipToNext(),
+                              icon:
+                                  Icon(Icons.skip_next_rounded, color: tint),
+                              onPressed: () =>
+                                  ref.read(audioHandlerProvider).skipToNext(),
                             ),
                           ],
                         ),
@@ -389,6 +435,236 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
                   ),
                 ),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Dark skin: clock high, title + sleep line, muted meters lower, the
+  /// classic bedside amp layout.
+  Widget _darkBody(
+    HanamimiTheme theme,
+    Track? track,
+    VisualizerStyle style,
+    SleepTimerState timer,
+    Color dim,
+    Color dimmer,
+    String hh,
+    String mm,
+  ) {
+    return Column(
+      children: [
+        const Spacer(flex: 3),
+        Text(
+          '$hh:$mm',
+          style: TextStyle(
+            fontFamily: 'Nunito',
+            fontSize: 72,
+            fontWeight: FontWeight.w200,
+            letterSpacing: 4,
+            color: dim,
+          ),
+        ),
+        if (track != null) ...[
+          const SizedBox(height: Space.s2),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: Space.s6),
+            child: Text(
+              '${track.title} — ${track.artist}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: 'Nunito',
+                fontSize: 13,
+                color: dimmer,
+              ),
+            ),
+          ),
+        ],
+        if (timer.isActive) ...[
+          const SizedBox(height: Space.s4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.bedtime_rounded, size: 13, color: dimmer),
+              const SizedBox(width: Space.s2),
+              Text(
+                switch (timer.mode) {
+                  SleepMode.countdown => timer.isFading
+                      ? 'fading out…'
+                      : 'sleeping in ${timer.remaining!.mmss}',
+                  SleepMode.endOfTrack => 'sleeping when this song ends',
+                  SleepMode.off => '',
+                },
+                style: TextStyle(
+                  fontFamily: 'Nunito',
+                  fontSize: 13,
+                  letterSpacing: 1,
+                  color: dimmer,
+                ),
+              ),
+            ],
+          ),
+        ],
+        const Spacer(flex: 2),
+        Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: Space.s4),
+              child: VisualizerWidget(
+                height: _vizHeight(style),
+                styleOverride: style,
+                // Bedside palette: never album-art accents, nothing
+                // bright enough to sting at night.
+                muted: true,
+              ),
+            ),
+          ),
+        ),
+        const Spacer(flex: 3),
+      ],
+    );
+  }
+
+  /// Light skin: full-color meters centered over the art wash, title +
+  /// artist beneath — the "just let me stare" look. During a crossfade
+  /// the title wipes across to the incoming song (the meters blend on
+  /// their own via the band prewarm).
+  Widget _lightBody(
+    HanamimiTheme theme,
+    Track? track,
+    VisualizerStyle style,
+    Track? incoming,
+    ValueNotifier<double> xfT,
+  ) {
+    Widget titleBlock() {
+      if (track == null) return const SizedBox.shrink();
+      if (incoming == null) {
+        return _titleArtist(track, theme);
+      }
+      return ValueListenableBuilder<double>(
+        valueListenable: xfT,
+        builder: (_, t, __) {
+          final e = Curves.easeInOut.transform(t);
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              WipeReveal(
+                  progress: e,
+                  invert: true,
+                  child: _titleArtist(track, theme)),
+              WipeReveal(progress: e, child: _titleArtist(incoming, theme)),
+            ],
+          );
+        },
+      );
+    }
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 640),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Space.s6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              VisualizerWidget(
+                height: _vizHeight(style),
+                styleOverride: style,
+              ),
+              if (track != null) const SizedBox(height: Space.s6),
+              titleBlock(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _titleArtist(Track t, HanamimiTheme theme) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            t.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'Nunito',
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: theme.textPrimary,
+            ),
+          ),
+          const SizedBox(height: Space.s1),
+          Text(
+            t.artist,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'Nunito',
+              fontSize: 13,
+              color: theme.textMuted,
+            ),
+          ),
+        ],
+      );
+
+  Widget _pill(IconData icon, String label, Color tint, VoidCallback onTap) =>
+      TextButton.icon(
+        onPressed: onTap,
+        icon: Icon(icon, size: 16, color: tint),
+        label: Text(
+          label,
+          style: TextStyle(fontFamily: 'Nunito', fontSize: 12, color: tint),
+        ),
+      );
+}
+
+/// Heavy-blur album wash behind the meters, with a theme scrim so the
+/// color reads as an ambient field, not a busy photo.
+class _ArtWash extends StatelessWidget {
+  const _ArtWash({required this.track, required this.theme});
+
+  final Track track;
+  final HanamimiTheme theme;
+
+  ImageProvider? _art() {
+    final artPath = track.albumArtPath;
+    final artUrl = track.artUrl;
+    ImageProvider? image;
+    if (artPath != null) {
+      image = FileImage(File(artPath));
+    } else if (artUrl != null) {
+      image = NetworkImage(artUrl);
+    }
+    return image == null ? null : ResizeImage(image, width: 200);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final image = _art();
+    // RepaintBoundary keeps the big blur out of the 60 fps meter frames.
+    return RepaintBoundary(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 600),
+        child: KeyedSubtree(
+          key: ValueKey(track.albumArtPath ?? track.artUrl ?? 'no-art'),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Container(color: theme.background),
+              if (image != null)
+                ImageFiltered(
+                  imageFilter: ImageFilter.blur(sigmaX: 90, sigmaY: 90),
+                  child: Image(image: image, fit: BoxFit.cover),
+                ),
+              Container(color: theme.background.withValues(alpha: 0.62)),
             ],
           ),
         ),
