@@ -14,6 +14,7 @@ import '../providers/buddy_provider.dart';
 import '../providers/desktop_shell_provider.dart';
 import '../providers/window_activity_provider.dart';
 import '../providers/import_job_provider.dart';
+import '../providers/overlay_mode_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/update_provider.dart';
@@ -25,6 +26,7 @@ import '../utils/duration_ext.dart';
 import 'components/desktop/backdrop_wash.dart';
 import 'components/desktop/library_sidebar.dart';
 import 'components/mascot/oneko.dart';
+import 'components/desktop/overlay_player.dart';
 import 'components/mini_player.dart';
 import 'components/shared/bottom_nav.dart';
 import 'components/shared/particle_overlay.dart';
@@ -391,6 +393,12 @@ class _AppShellState extends ConsumerState<AppShell>
   @override
   Widget build(BuildContext context) {
     final theme = ref.watch(currentThemeProvider);
+    // Pinned as the always-on-top mini overlay — the compact player owns
+    // the (now tiny) window; the full shell steps aside until it's
+    // restored. Desktop only.
+    if (isDesktop && ref.watch(overlayModeProvider)) {
+      return const DesktopOverlayPlayer();
+    }
     // Content slides in from the direction of travel (DESIGN.md §8).
     final slideFromRight = _index > _previousIndex;
     // Wide desktop windows trade the bottom nav for a left rail
@@ -463,12 +471,23 @@ class _AppShellState extends ConsumerState<AppShell>
           Positioned(
             top: Space.s2,
             right: Space.s2,
-            child: IconButton(
-              tooltip: 'Immersive view',
-              onPressed: () => Navigator.of(context, rootNavigator: true)
-                  .push(DesktopImmersiveScreen.route()),
-              icon: Icon(Icons.open_in_full_rounded,
-                  size: 18, color: theme.textMuted),
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: 'Pin as mini overlay',
+                  onPressed: () =>
+                      ref.read(overlayModeProvider.notifier).enter(),
+                  icon: Icon(Icons.picture_in_picture_alt_rounded,
+                      size: 18, color: theme.textMuted),
+                ),
+                IconButton(
+                  tooltip: 'Immersive view',
+                  onPressed: () => Navigator.of(context, rootNavigator: true)
+                      .push(DesktopImmersiveScreen.route()),
+                  icon: Icon(Icons.open_in_full_rounded,
+                      size: 18, color: theme.textMuted),
+                ),
+              ],
             ),
           ),
         ],

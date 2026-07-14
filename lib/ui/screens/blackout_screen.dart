@@ -129,6 +129,10 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
     final track = audio?.currentTrack;
     _caffeineOn = ref.watch(caffeineProvider);
     final timer = ref.watch(sleepTimerProvider);
+    // Eye lock: keep the meters at full brightness (no auto-dim) so you
+    // can just stare. The scrim drops to 0 whenever this is on OR the
+    // transport is up.
+    final undim = ref.watch(blackoutUndimProvider);
 
     // The cat is the notification: stir her when the track changes.
     if (track != null && track.id != _lastTrackId) {
@@ -251,7 +255,7 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
               IgnorePointer(
                 child: AnimatedOpacity(
                   duration: const Duration(milliseconds: 400),
-                  opacity: _controlsVisible ? 0.0 : 0.45,
+                  opacity: (_controlsVisible || undim) ? 0.0 : 0.45,
                   child: Container(color: Colors.black),
                 ),
               ),
@@ -276,18 +280,43 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
                       Positioned(
                         top: Space.s6,
                         left: Space.s6,
-                        child: IconButton(
-                          icon: Icon(Icons.equalizer_rounded, color: dim),
-                          onPressed: () {
-                            final styles = VisualizerStyle.values;
-                            final current = ref.read(blackoutStyleProvider);
-                            ref
-                                .read(blackoutStyleProvider.notifier)
-                                .set(
-                                  styles[(current.index + 1) % styles.length],
-                                );
-                            _armHide(); // keep the overlay up while cycling
-                          },
+                        child: Row(
+                          children: [
+                            IconButton(
+                              icon: Icon(Icons.equalizer_rounded, color: dim),
+                              onPressed: () {
+                                final styles = VisualizerStyle.values;
+                                final current =
+                                    ref.read(blackoutStyleProvider);
+                                ref.read(blackoutStyleProvider.notifier).set(
+                                      styles[(current.index + 1) %
+                                          styles.length],
+                                    );
+                                _armHide(); // keep the overlay up while cycling
+                              },
+                            ),
+                            // Eye: lock the dim off so the meters stay
+                            // bright to stare at. Filled = locked bright.
+                            IconButton(
+                              tooltip: undim
+                                  ? 'Let the screen dim'
+                                  : 'Keep the meters bright',
+                              icon: Icon(
+                                undim
+                                    ? Icons.remove_red_eye_rounded
+                                    : Icons.remove_red_eye_outlined,
+                                color: undim
+                                    ? Colors.white.withValues(alpha: 0.75)
+                                    : dim,
+                              ),
+                              onPressed: () {
+                                ref
+                                    .read(blackoutUndimProvider.notifier)
+                                    .toggle();
+                                _armHide();
+                              },
+                            ),
+                          ],
                         ),
                       ),
                       if (timer.isActive)

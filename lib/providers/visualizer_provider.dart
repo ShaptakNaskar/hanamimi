@@ -140,6 +140,25 @@ final blackoutStyleProvider =
     NotifierProvider<BlackoutStyleNotifier, VisualizerStyle>(
         BlackoutStyleNotifier.new);
 
+/// Blackout "eye" (3.0 feedback): lock the dim scrim OFF so the meters
+/// stay at full brightness for staring, instead of the tap-to-brighten /
+/// auto-dim cycle. Persisted so the bedside amp reopens the way you left
+/// it.
+class BlackoutUndimNotifier extends Notifier<bool> {
+  static const _key = 'blackout_undim';
+
+  @override
+  bool build() => ref.watch(sharedPrefsProvider).getBool(_key) ?? false;
+
+  void toggle() {
+    state = !state;
+    ref.read(sharedPrefsProvider).setBool(_key, state);
+  }
+}
+
+final blackoutUndimProvider =
+    NotifierProvider<BlackoutUndimNotifier, bool>(BlackoutUndimNotifier.new);
+
 /// 12 frequency bands + L/R channel loudness, 0–1, at ~60 fps.
 ///
 /// Emits 14 values: [0..11] spectral bands, [12] left-channel RMS,

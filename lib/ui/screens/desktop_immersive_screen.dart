@@ -19,6 +19,7 @@ import '../components/shared/particle_overlay.dart';
 import '../modals/lyrics_sheet.dart';
 import '../modals/queue_sheet.dart';
 import '../modals/sleep_timer_modal.dart';
+import 'visualizer_screen.dart';
 
 /// Full-window desktop Now Playing (M31, the user's "image 3"):
 /// blurred album art fills the window, big art + seek + controls +
@@ -349,7 +350,12 @@ class _LeftColumnState extends ConsumerState<_LeftColumn> {
               onQueue: () => showQueueSheet(context),
             ),
             const SizedBox(height: Space.s6),
-            const VisualizerWidget(height: 64),
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () =>
+                  Navigator.of(context).push(VisualizerScreen.route()),
+              child: const VisualizerWidget(height: 64),
+            ),
           ],
         );
       });
