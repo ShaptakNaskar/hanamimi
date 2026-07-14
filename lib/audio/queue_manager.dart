@@ -635,6 +635,14 @@ class QueueManager {
     old.dispose();
     _setPrimaryVolume(1);
 
+    // Republish the incoming player's real position BEFORE the clearing
+    // emission. Otherwise positionProvider still holds the outgoing
+    // player's near-end value until the newly-wired positionStream fires
+    // its first tick — and for that gap the seek bar renders that stale
+    // near-end position against the NEW (just-emitted) duration, snapping
+    // to ~end for a frame before dropping back (user-reported "jump").
+    _position.add(_primary.position);
+
     _state.add(state.copyWith(
       currentTrack: track,
       queue: [for (final i in _order) _source[i]],
