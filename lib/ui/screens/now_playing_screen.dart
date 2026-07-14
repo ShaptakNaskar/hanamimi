@@ -30,7 +30,6 @@ import '../components/now_playing/visualizer_widget.dart';
 import '../components/now_playing/wipe_reveal.dart';
 import '../components/shared/particle_overlay.dart';
 import 'blackout_screen.dart';
-import 'visualizer_screen.dart';
 import '../modals/lyrics_sheet.dart';
 import '../modals/playlist_picker_sheet.dart';
 import '../modals/queue_sheet.dart';
@@ -237,11 +236,11 @@ class NowPlayingScreen extends ConsumerWidget {
                       ),
                       const SizedBox(height: Space.s4),
                       // Tap the meters to fill the screen with them —
-                      // the full-color, stare-at-it visualizer mode.
+                      // the stare screen's bright (light) skin.
                       GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTap: () => Navigator.of(context)
-                            .push(VisualizerScreen.route()),
+                            .push(BlackoutScreen.route(light: true)),
                         child: const VisualizerWidget(height: 56),
                       ),
                       const Spacer(flex: 1),
