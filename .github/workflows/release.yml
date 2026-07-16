@@ -296,9 +296,16 @@ jobs:
           cache: true
 
       - name: Build
+        shell: bash
         run: |
           flutter pub get
-          flutter build windows --release --build-name=${{ needs.build-android.outputs.semver }} --build-number=${{ needs.build-android.outputs.code }}
+          # Stamp pubspec itself: `flutter build` for desktop ignores
+          # --build-name/--build-number when generating version.json, which
+          # package_info_plus (and thus the update checker) reads — the flags
+          # alone left every desktop build reporting the bare pubspec version
+          # (perpetual "update available").
+          sed -i "s/^version: .*/version: ${{ needs.build-android.outputs.semver }}+${{ needs.build-android.outputs.code }}/" pubspec.yaml
+          flutter build windows --release
 
       # Slim on purpose: the app self-fetches yt-dlp and ffmpeg on first
       # run (DesktopBinaries), and Telegram bots cap uploads at 50 MB.
@@ -338,13 +345,13 @@ jobs:
       - name: Build
         run: |
           flutter pub get
-          # Stamp the version like Android/Windows do — without --build-name
-          # the Linux bundle reports the pubspec base version forever, so the
-          # in-app update checker saw every release as newer (perpetual
-          # "update available" even when fully up to date).
-          flutter build linux --release \
-            --build-name=${{ needs.build-android.outputs.semver }} \
-            --build-number=${{ needs.build-android.outputs.code }}
+          # Stamp pubspec itself: `flutter build linux` ignores
+          # --build-name/--build-number when generating version.json (verified
+          # on 3.29 and 3.32), which package_info_plus (and thus the update
+          # checker) reads — the flags alone left every Linux build reporting
+          # the bare pubspec version (perpetual "update available").
+          sed -i "s/^version: .*/version: ${{ needs.build-android.outputs.semver }}+${{ needs.build-android.outputs.code }}/" pubspec.yaml
+          flutter build linux --release
 
       - name: Package AppImage
         env:
