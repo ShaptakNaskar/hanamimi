@@ -12,6 +12,14 @@ import 'player_port.dart';
 /// maps to `completed`.
 class MediaKitPlayer implements AudioPlayerPort {
   MediaKitPlayer() {
+    // 1s of decoded audio ahead of the AO (mpv default is 0.2s). Only mpv's
+    // PipeWire pull thread runs realtime; the decode chain competes at normal
+    // priority, so under a pegged CPU (game, compiler) 0.2s drains and every
+    // underrun is an audible crackle at the next loud peak.
+    final platform = _player.platform;
+    if (platform is NativePlayer) {
+      unawaited(platform.setProperty('audio-buffer', '1.0'));
+    }
     _subs = [
       _player.stream.playing.listen((_) => _playerState.add(null)),
       _player.stream.buffering.listen((buffering) {
