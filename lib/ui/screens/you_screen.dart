@@ -854,12 +854,37 @@ class _SoundSettings extends ConsumerWidget {
             ],
           ),
           Divider(height: Space.s6, color: theme.divider),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Auto gain', style: AppText.rowSongTitle(theme)),
+                    Text(
+                        'Each song sets its own ceiling — quiet lofi '
+                        'fills the meters just like a loud master',
+                        style: AppText.caption(theme)),
+                  ],
+                ),
+              ),
+              Switch(
+                value: ref.watch(visualizerAutoGainProvider),
+                onChanged: (on) =>
+                    ref.read(visualizerAutoGainProvider.notifier).set(on),
+              ),
+            ],
+          ),
+          Divider(height: Space.s6, color: theme.divider),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('Visualizer sensitivity',
                   style: AppText.rowSongTitle(theme)),
-              Text('Turn up for songs that barely move it',
+              Text(
+                  ref.watch(visualizerAutoGainProvider)
+                      ? 'Trim on top of auto gain'
+                      : 'Turn up for songs that barely move it',
                   style: AppText.caption(theme)),
               Row(
                 children: [

@@ -221,6 +221,95 @@ class _StirringOnekoState extends State<StirringOneko> {
   }
 }
 
+/// Blackout's corner cat — the REAL oneko chase brain pointed at a
+/// hardcoded "cursor" (3.0 feedback: the hand-scripted entrance looked
+/// robotic next to the pointer chase, so instead we tell her where to
+/// WANT to be and let the authentic oneko.js logic do the walking,
+/// perking, fidgeting and napping). Dark skin: the target is her seat
+/// in the corner — she pads in, settles, and naps there. Light skin:
+/// the target parks past the left edge and she runs off after it. A
+/// track change ([stir]) slides it a hop away and back so she wakes,
+/// pads over, and returns to her seat — no synthetic poses anywhere.
+class BlackoutOneko extends StatefulWidget {
+  const BlackoutOneko({
+    super.key,
+    required this.present,
+    required this.stir,
+    required this.seat,
+  });
+
+  /// Whether the cat belongs on screen (the dark skin is showing).
+  final bool present;
+
+  /// Increment to stir her awake briefly (track change).
+  final int stir;
+
+  /// Her seat, given the layer's size — where the "cursor" rests while
+  /// the room is dark.
+  final Offset Function(Size area) seat;
+
+  @override
+  State<BlackoutOneko> createState() => _BlackoutOnekoState();
+}
+
+class _BlackoutOnekoState extends State<BlackoutOneko> {
+  final _target = ValueNotifier<Offset?>(null);
+  Timer? _stirNudge;
+  var _area = Size.zero;
+
+  void _retarget() {
+    if (_area == Size.zero) return;
+    final seat = widget.seat(_area);
+    // "Away" sits far enough past the edge that she has fully left the
+    // screen before the chase brain calls it arrived.
+    _target.value = widget.present ? seat : Offset(-120, seat.dy);
+  }
+
+  @override
+  void didUpdateWidget(BlackoutOneko old) {
+    super.didUpdateWidget(old);
+    if (widget.present != old.present) {
+      _stirNudge?.cancel();
+      _retarget();
+    } else if (widget.stir != old.stir &&
+        widget.present &&
+        _area != Size.zero) {
+      // Track change: drag the target a hop away, then home again.
+      _target.value = widget.seat(_area).translate(-96, 0);
+      _stirNudge?.cancel();
+      _stirNudge = Timer(const Duration(seconds: 2), () {
+        if (mounted && widget.present) _target.value = widget.seat(_area);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _stirNudge?.cancel();
+    _target.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, c) {
+      final area = Size(c.maxWidth, c.maxHeight);
+      if (area != _area) {
+        _area = area;
+        _retarget(); // first layout and any resize/rotation
+      }
+      return _OnekoPet(
+        cursor: _target,
+        // She should actually reach the seat, not hover 48 px off it.
+        arriveWithin: 12,
+        // First appearance is offscreen left at seat height, so opening
+        // straight into the dark begins with the walk-in.
+        spawn: (s) => Offset(-48, widget.seat(s).dy),
+      );
+    });
+  }
+}
+
 class SleepingOneko extends StatefulWidget {
   const SleepingOneko({super.key, this.size = 28});
 
@@ -357,9 +446,17 @@ class _SleepingOnekoPainter extends CustomPainter {
 }
 
 class _OnekoPet extends StatefulWidget {
-  const _OnekoPet({required this.cursor});
+  const _OnekoPet({required this.cursor, this.spawn, this.arriveWithin = 48});
 
   final ValueListenable<Offset?> cursor;
+
+  /// Where the cat first appears; defaults to the center of the area.
+  final Offset Function(Size area)? spawn;
+
+  /// How close counts as "arrived". The pointer chase keeps a polite
+  /// 48 px distance from the cursor; a hardcoded seat ([BlackoutOneko])
+  /// wants her ON the spot.
+  final double arriveWithin;
 
   @override
   State<_OnekoPet> createState() => _OnekoPetState();
@@ -450,7 +547,7 @@ class _OnekoPetState extends State<_OnekoPet> {
     final prevX = _x;
     final prevY = _y;
 
-    if (distance < _speed || distance < 48) {
+    if (distance < _speed || distance < widget.arriveWithin) {
       _idle();
     } else {
       _idleAnimation = null;
@@ -468,8 +565,14 @@ class _OnekoPetState extends State<_OnekoPet> {
         if (dir.isNotEmpty) _setPose(dir, _frameCount);
         _x -= (diffX / distance) * _speed;
         _y -= (diffY / distance) * _speed;
-        _x = _x.clamp(16.0, math.max(16.0, _area.width - 16));
-        _y = _y.clamp(16.0, math.max(16.0, _area.height - 16));
+        // Targets may sit past an edge (BlackoutOneko parks hers
+        // offscreen to send the cat away) — widen the walkable box to
+        // include the target so the clamp never strands her at the
+        // border.
+        _x = _x.clamp(
+            math.min(16.0, tx), math.max(math.max(16.0, _area.width - 16), tx));
+        _y = _y.clamp(math.min(16.0, ty),
+            math.max(math.max(16.0, _area.height - 16), ty));
       }
     }
 
@@ -547,8 +650,10 @@ class _OnekoPetState extends State<_OnekoPet> {
         if (c.maxWidth.isFinite && c.maxHeight.isFinite) {
           _area = Size(c.maxWidth, c.maxHeight);
           if (!_placed) {
-            _x = _area.width / 2;
-            _y = _area.height / 2;
+            final spawn = widget.spawn?.call(_area) ??
+                Offset(_area.width / 2, _area.height / 2);
+            _x = spawn.dx;
+            _y = spawn.dy;
             _placed = true;
           }
         }
