@@ -879,39 +879,41 @@ class _SoundSettings extends ConsumerWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Visualizer sensitivity',
-                  style: AppText.rowSongTitle(theme)),
-              Text(
-                  ref.watch(visualizerAutoGainProvider)
-                      ? 'Trim on top of auto gain'
-                      : 'Turn up for songs that barely move it',
-                  style: AppText.caption(theme)),
-              Row(
-                children: [
-                  Icon(Icons.graphic_eq, size: 16, color: theme.primary),
-                  Expanded(
-                    child: Slider(
-                      value: ref
-                          .watch(visualizerSensitivityProvider)
-                          .clamp(0.5, 3.0)
-                          .toDouble(),
-                      min: 0.5,
-                      max: 3.0,
-                      divisions: 10,
-                      onChanged: (v) => ref
-                          .read(visualizerSensitivityProvider.notifier)
-                          .set(v),
+              // Auto gain replaces the manual gain entirely, so the
+              // slider hides while it's on (a knob that does nothing is
+              // a lie).
+              if (!ref.watch(visualizerAutoGainProvider)) ...[
+                Text('Visualizer sensitivity',
+                    style: AppText.rowSongTitle(theme)),
+                Text('Turn up for songs that barely move it',
+                    style: AppText.caption(theme)),
+                Row(
+                  children: [
+                    Icon(Icons.graphic_eq, size: 16, color: theme.primary),
+                    Expanded(
+                      child: Slider(
+                        value: ref
+                            .watch(visualizerSensitivityProvider)
+                            .clamp(0.5, 3.0)
+                            .toDouble(),
+                        min: 0.5,
+                        max: 3.0,
+                        divisions: 10,
+                        onChanged: (v) => ref
+                            .read(visualizerSensitivityProvider.notifier)
+                            .set(v),
+                      ),
                     ),
-                  ),
-                  SizedBox(
-                    width: 40,
-                    child: Text(
-                      '${ref.watch(visualizerSensitivityProvider).toStringAsFixed(2)}×',
-                      style: AppText.caption(theme),
+                    SizedBox(
+                      width: 40,
+                      child: Text(
+                        '${ref.watch(visualizerSensitivityProvider).toStringAsFixed(2)}×',
+                        style: AppText.caption(theme),
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+              ],
               Text('Reactivity', style: AppText.rowSongTitle(theme)),
               Text('Jumpy needle up high, silky-smooth down low',
                   style: AppText.caption(theme)),

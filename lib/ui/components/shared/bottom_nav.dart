@@ -23,6 +23,8 @@ const _items = [
 /// [HanamimiBottomNav], stood up as a left rail. In the three-pane
 /// layout Now Playing lives in its own permanent panel, so [showPlaying]
 /// drops that destination (index 2) from the rail.
+/// Phone landscape borrows it with [labels] off — a slim icons-only
+/// strip where a bottom nav would eat the little height there is.
 class HanamimiSideRail extends ConsumerWidget {
   const HanamimiSideRail({
     super.key,
@@ -30,18 +32,20 @@ class HanamimiSideRail extends ConsumerWidget {
     required this.onChanged,
     required this.theme,
     this.showPlaying = true,
+    this.labels = true,
   });
 
   final int activeIndex;
   final ValueChanged<int> onChanged;
   final HanamimiTheme theme;
   final bool showPlaying;
+  final bool labels;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final night = ref.watch(nightModeActiveProvider);
     return Container(
-      width: 76,
+      width: labels ? 76 : 64,
       decoration: BoxDecoration(
         // Opaque so a light album backdrop can't wash the rail pale and
         // hide its icons on a dark theme.
@@ -72,21 +76,23 @@ class HanamimiSideRail extends ConsumerWidget {
                               ? theme.primary
                               : theme.textMuted,
                         ),
-                        const SizedBox(height: 3),
-                        AnimatedDefaultTextStyle(
-                          duration: Anim.minTransition,
-                          style: TextStyle(
-                            fontFamily: 'Nunito',
-                            fontSize: 10,
-                            fontWeight: i == activeIndex
-                                ? FontWeight.w700
-                                : FontWeight.w500,
-                            color: i == activeIndex
-                                ? theme.primary
-                                : theme.textMuted.withValues(alpha: 0.85),
+                        if (labels) ...[
+                          const SizedBox(height: 3),
+                          AnimatedDefaultTextStyle(
+                            duration: Anim.minTransition,
+                            style: TextStyle(
+                              fontFamily: 'Nunito',
+                              fontSize: 10,
+                              fontWeight: i == activeIndex
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                              color: i == activeIndex
+                                  ? theme.primary
+                                  : theme.textMuted.withValues(alpha: 0.85),
+                            ),
+                            child: Text(_items[i].label.whisper(night)),
                           ),
-                          child: Text(_items[i].label.whisper(night)),
-                        ),
+                        ],
                       ],
                     ),
                   ),

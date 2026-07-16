@@ -190,13 +190,22 @@ class _AppShellState extends ConsumerState<AppShell>
     final theme = ref.watch(currentThemeProvider);
     // Content slides in from the direction of travel (DESIGN.md §8).
     final slideFromRight = _index > _previousIndex;
-    // Width decides the shell, not platform: a tablet (or unfolded
-    // foldable) gets the same rail/three-pane layout as a desktop window
-    // of that size, so it never reads as a stretched phone. A narrow
-    // window keeps the phone layout it maps cleanly onto.
-    final width = MediaQuery.sizeOf(context).width;
-    final wide = width >= 880;
+    // Width decides which wide layout — but the DEVICE CLASS is the
+    // shortest side (Android's smallestWidth idea): a phone rotated to
+    // landscape is ~950 dp wide for a moment, and raw width dressed it
+    // as a tablet — wrapped rail labels, a 400 dp Now Playing panel
+    // eating half the screen (user screenshot). Tablets and unfolded
+    // foldables (shortest side ≥ 600) still get the rail/three-pane
+    // shells in either orientation.
+    final size = MediaQuery.sizeOf(context);
+    final tabletClass = size.shortestSide >= 600;
+    final width = size.width;
+    final wide = tabletClass && width >= 880;
     final threePane = width >= 1240;
+    // A phone on its side: keep the phone shell, but stand the nav up
+    // as an icons-only strip — the bottom nav ate a third of the
+    // ~400 dp of height.
+    final phoneLandscape = !wide && size.width > size.height;
     // In the wide shell, Now Playing is a permanent right-hand panel
     // instead of a tab — its tab index shows Home in the middle instead.
     final contentIndex = _index == _playingIndex ? 0 : _index;
@@ -234,33 +243,69 @@ class _AppShellState extends ConsumerState<AppShell>
         ref.watch(catFollowProvider);
 
     if (!wide) {
+      final playerStrip = Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _ResumeTicker(
+            session: _pendingResume,
+            theme: theme,
+            onPlay: _acceptResume,
+            onDismiss: _dismissResume,
+          ),
+          // Hidden on the Playing tab — the full screen is already there.
+          if (_index != _playingIndex)
+            MiniPlayer(onOpen: () => _onNavChanged(_playingIndex)),
+        ],
+      );
       return PopScope(
         canPop: false,
         onPopInvokedWithResult: (didPop, _) {
           if (!didPop) _onSystemBack();
         },
-        child: Scaffold(
-          body: onekoChase ? OnekoLayer(child: content) : content,
-          bottomNavigationBar: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _ResumeTicker(
-                session: _pendingResume,
-                theme: theme,
-                onPlay: _acceptResume,
-                onDismiss: _dismissResume,
+        child: phoneLandscape
+            ? Scaffold(
+                body: Row(
+                  children: [
+                    HanamimiSideRail(
+                      activeIndex: _index,
+                      onChanged: _onNavChanged,
+                      theme: theme,
+                      labels: false,
+                    ),
+                    Expanded(
+                      child: Column(
+                        children: [
+                          Expanded(
+                              child: onekoChase
+                                  ? OnekoLayer(child: content)
+                                  : content),
+                          // Keep the strip above the gesture pill.
+                          SafeArea(
+                            top: false,
+                            left: false,
+                            right: false,
+                            child: playerStrip,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : Scaffold(
+                body: onekoChase ? OnekoLayer(child: content) : content,
+                bottomNavigationBar: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    playerStrip,
+                    HanamimiBottomNav(
+                      activeIndex: _index,
+                      onChanged: _onNavChanged,
+                      theme: theme,
+                    ),
+                  ],
+                ),
               ),
-              // Hidden on the Playing tab — the full screen is already there.
-              if (_index != _playingIndex)
-                MiniPlayer(onOpen: () => _onNavChanged(_playingIndex)),
-              HanamimiBottomNav(
-                activeIndex: _index,
-                onChanged: _onNavChanged,
-                theme: theme,
-              ),
-            ],
-          ),
-        ),
       );
     }
 

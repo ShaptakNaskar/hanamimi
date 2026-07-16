@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -497,114 +498,139 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
       );
     }
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        // Bedside column: clock, song line, sleep status — dark only.
-        AnimatedOpacity(
-          duration: const Duration(milliseconds: 450),
-          curve: Curves.easeOut,
-          opacity: _light ? 0 : 1,
-          child: Column(
-            children: [
-              const Spacer(flex: 3),
-              Text(
-                '$hh:$mm',
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 72,
-                  fontWeight: FontWeight.w200,
-                  letterSpacing: 4,
-                  color: dim,
-                ),
-              ),
-              if (track != null) ...[
-                const SizedBox(height: Space.s2),
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: Space.s6),
-                  child: Text(
-                    '${track.title} — ${track.artist}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontFamily: 'Nunito',
-                      fontSize: 13,
-                      color: dimmer,
-                    ),
-                  ),
-                ),
-              ],
-              if (timer.isActive) ...[
-                const SizedBox(height: Space.s4),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.bedtime_rounded, size: 13, color: dimmer),
-                    const SizedBox(width: Space.s2),
-                    Text(
-                      switch (timer.mode) {
-                        SleepMode.countdown => timer.isFading
-                            ? 'fading out…'
-                            : 'sleeping in ${timer.remaining!.mmss}',
-                        SleepMode.endOfTrack =>
-                          'sleeping when this song ends',
-                        SleepMode.off => '',
-                      },
-                      style: TextStyle(
-                        fontFamily: 'Nunito',
-                        fontSize: 13,
-                        letterSpacing: 1,
-                        color: dimmer,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-              const Spacer(flex: 5),
-            ],
-          ),
-        ),
-        // The meters, sliding between their two seats. Width eases with
-        // them (640 light / 520 dark); `muted` swaps the palette at the
-        // flip — the motion carries the moment.
-        AnimatedAlign(
-          duration: const Duration(milliseconds: 550),
-          curve: Curves.easeInOutCubic,
-          alignment:
-              _light ? Alignment.center : const Alignment(0, 0.42),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 550),
-            curve: Curves.easeInOutCubic,
-            constraints: BoxConstraints(maxWidth: _light ? 640 : 520),
-            padding: const EdgeInsets.symmetric(horizontal: Space.s6),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                VisualizerWidget(
-                  height: _vizHeight(style),
-                  styleOverride: style,
-                  // Bedside palette in the dark: never album-art
-                  // accents, nothing bright enough to sting at night.
-                  muted: !_light,
-                ),
-                if (track != null) ...[
-                  const SizedBox(height: Space.s6),
-                  // Title rides with the meters; visible in the light.
-                  AnimatedOpacity(
-                    duration: const Duration(milliseconds: 450),
-                    curve: Curves.easeOut,
-                    opacity: _light ? 1 : 0,
-                    child: titleBlock(),
-                  ),
-                ],
-              ],
+    return LayoutBuilder(builder: (context, c) {
+      // Landscape (short) screens: the portrait stack — clock high,
+      // meters at 42% — collides on ~400 dp of height (the song line
+      // landed inside the VU dials, user screenshot). The bedside amp
+      // goes side-by-side instead: clock block left, meters right. The
+      // meters' AnimatedAlign carries the 💡 choreography either way.
+      final compact = c.maxHeight < 560 && c.maxWidth > c.maxHeight;
+
+      final clockBlock = Column(
+        mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
+        children: [
+          if (!compact) const Spacer(flex: 3),
+          Text(
+            '$hh:$mm',
+            style: TextStyle(
+              fontFamily: 'Nunito',
+              fontSize: 72,
+              fontWeight: FontWeight.w200,
+              letterSpacing: 4,
+              color: dim,
             ),
           ),
-        ),
-      ],
-    );
+          if (track != null) ...[
+            const SizedBox(height: Space.s2),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: Space.s6),
+              child: Text(
+                '${track.title} — ${track.artist}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Nunito',
+                  fontSize: 13,
+                  color: dimmer,
+                ),
+              ),
+            ),
+          ],
+          if (timer.isActive) ...[
+            const SizedBox(height: Space.s4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.bedtime_rounded, size: 13, color: dimmer),
+                const SizedBox(width: Space.s2),
+                Text(
+                  switch (timer.mode) {
+                    SleepMode.countdown => timer.isFading
+                        ? 'fading out…'
+                        : 'sleeping in ${timer.remaining!.mmss}',
+                    SleepMode.endOfTrack => 'sleeping when this song ends',
+                    SleepMode.off => '',
+                  },
+                  style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 13,
+                    letterSpacing: 1,
+                    color: dimmer,
+                  ),
+                ),
+              ],
+            ),
+          ],
+          if (!compact) const Spacer(flex: 5),
+        ],
+      );
+
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          // Bedside clock block — dark only. Its own half in landscape.
+          AnimatedOpacity(
+            duration: const Duration(milliseconds: 450),
+            curve: Curves.easeOut,
+            opacity: _light ? 0 : 1,
+            child: compact
+                ? Align(
+                    alignment: const Alignment(-0.65, -0.1),
+                    child: clockBlock,
+                  )
+                : clockBlock,
+          ),
+          // The meters, sliding between their two seats: centered in the
+          // light; below the clock (portrait) or the right half
+          // (landscape) in the dark. Width eases with them; `muted`
+          // swaps the palette at the flip — the motion carries the
+          // moment.
+          AnimatedAlign(
+            duration: const Duration(milliseconds: 550),
+            curve: Curves.easeInOutCubic,
+            alignment: _light
+                ? Alignment.center
+                : compact
+                    ? const Alignment(0.75, 0)
+                    : const Alignment(0, 0.42),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 550),
+              curve: Curves.easeInOutCubic,
+              constraints: BoxConstraints(
+                  maxWidth: _light
+                      ? 640
+                      : compact
+                          ? math.max(280.0, c.maxWidth * 0.42)
+                          : 520),
+              padding: const EdgeInsets.symmetric(horizontal: Space.s6),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  VisualizerWidget(
+                    height: _vizHeight(style),
+                    styleOverride: style,
+                    // Bedside palette in the dark: never album-art
+                    // accents, nothing bright enough to sting at night.
+                    muted: !_light,
+                  ),
+                  if (track != null) ...[
+                    const SizedBox(height: Space.s6),
+                    // Title rides with the meters; visible in the light.
+                    AnimatedOpacity(
+                      duration: const Duration(milliseconds: 450),
+                      curve: Curves.easeOut,
+                      opacity: _light ? 1 : 0,
+                      child: titleBlock(),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    });
   }
 
   Widget _titleArtist(Track t, HanamimiTheme theme) => Column(
