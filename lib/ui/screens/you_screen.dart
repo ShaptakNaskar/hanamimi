@@ -1421,10 +1421,21 @@ class _VisualizerSettings extends ConsumerWidget {
                 ref.read(ledVuDiscreteProvider.notifier).set(v),
             theme: theme,
           ),
+        _SwitchRow(
+          label: 'Auto gain',
+          subtitle: 'Each song sets its own ceiling — quiet lofi fills '
+              'the meters just like a loud master',
+          value: ref.watch(visualizerAutoGainProvider),
+          onChanged: (on) =>
+              ref.read(visualizerAutoGainProvider.notifier).set(on),
+          theme: theme,
+        ),
         _slider(
           theme: theme,
           label: 'Sensitivity',
-          subtitle: 'Turn up for songs that barely move it',
+          subtitle: ref.watch(visualizerAutoGainProvider)
+              ? 'Trim on top of auto gain'
+              : 'Turn up for songs that barely move it',
           icon: Icons.graphic_eq,
           value: ref.watch(visualizerSensitivityProvider),
           onChanged: (v) =>

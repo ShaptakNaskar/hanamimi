@@ -232,32 +232,42 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
                               : _ArtWash(track: track, theme: theme),
                 ),
               ),
-              // The content — clock-topped bedside column in the dark,
-              // centered meters in the light.
-              if (_light)
-                _lightBody(theme, track, style, incoming, xfT)
-              else
-                _darkBody(theme, track, style, timer, dim, dimmer, hh, mm),
-              // The corner cat — dark skin only; asleep until the song
-              // changes.
-              if (!_light)
-                Positioned(
-                  right: Space.s6,
-                  bottom: Space.s6,
-                  child: StirringOneko(size: 40, stir: _stir),
+              // The content — ONE layout for both skins, so the 💡
+              // choreographs pieces instead of swapping screens: the
+              // clock block fades (dark only), the meters slide between
+              // their two seats, the title fades (light only).
+              _body(theme, track, style, timer, dim, dimmer, hh, mm,
+                  incoming, xfT),
+              // The corner cat — the real oneko chase brain chasing a
+              // hardcoded "cursor": her corner seat when the room is
+              // dark, a spot past the left edge when it lights up. She
+              // walks in, settles, fidgets and naps on her own logic,
+              // and a track change stirs her by nudging the target.
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: BlackoutOneko(
+                    present: !_light,
+                    stir: _stir,
+                    seat: (area) => Offset(
+                      area.width - Space.s6 - 16,
+                      area.height - Space.s6 - 16,
+                    ),
+                  ),
                 ),
+              ),
               // The brightness floor (dark skin only), as pixels instead
               // of a window override: dims while idle, lifts when the
               // transport is up (or the eye is locked) so buttons stay
-              // crisp.
-              if (!_light)
-                IgnorePointer(
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 400),
-                    opacity: (_controlsVisible || undim) ? 0.0 : 0.45,
-                    child: Container(color: Colors.black),
-                  ),
+              // crisp. Always in the tree so the dim eases away when the
+              // 💡 flips to light instead of vanishing in one frame.
+              IgnorePointer(
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 400),
+                  opacity:
+                      (_light || _controlsVisible || undim) ? 0.0 : 0.45,
+                  child: Container(color: Colors.black),
                 ),
+              ),
               // Tap-to-reveal chrome; fades itself away after 5 s.
               AnimatedOpacity(
                 duration: const Duration(milliseconds: 250),
@@ -442,9 +452,17 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
     );
   }
 
-  /// Dark skin: clock high, title + sleep line, muted meters lower, the
-  /// classic bedside amp layout.
-  Widget _darkBody(
+  /// One merged layout for both skins, so the 💡 flip choreographs the
+  /// pieces instead of swapping screens:
+  ///
+  /// * the clock block (clock, song line, sleep status) fades in as the
+  ///   room goes dark and out as it lights up;
+  /// * the meters are ONE widget that glides between the light skin's
+  ///   centered seat and the dark skin's below-the-clock seat — they
+  ///   keep dancing through the ride;
+  /// * the title/artist under the meters fades with the light skin (and
+  ///   still wipes across to the incoming song during a crossfade).
+  Widget _body(
     HanamimiTheme theme,
     Track? track,
     VisualizerStyle style,
@@ -453,91 +471,6 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
     Color dimmer,
     String hh,
     String mm,
-  ) {
-    return Column(
-      children: [
-        const Spacer(flex: 3),
-        Text(
-          '$hh:$mm',
-          style: TextStyle(
-            fontFamily: 'Nunito',
-            fontSize: 72,
-            fontWeight: FontWeight.w200,
-            letterSpacing: 4,
-            color: dim,
-          ),
-        ),
-        if (track != null) ...[
-          const SizedBox(height: Space.s2),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: Space.s6),
-            child: Text(
-              '${track.title} — ${track.artist}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: 'Nunito',
-                fontSize: 13,
-                color: dimmer,
-              ),
-            ),
-          ),
-        ],
-        if (timer.isActive) ...[
-          const SizedBox(height: Space.s4),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.bedtime_rounded, size: 13, color: dimmer),
-              const SizedBox(width: Space.s2),
-              Text(
-                switch (timer.mode) {
-                  SleepMode.countdown => timer.isFading
-                      ? 'fading out…'
-                      : 'sleeping in ${timer.remaining!.mmss}',
-                  SleepMode.endOfTrack => 'sleeping when this song ends',
-                  SleepMode.off => '',
-                },
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 13,
-                  letterSpacing: 1,
-                  color: dimmer,
-                ),
-              ),
-            ],
-          ),
-        ],
-        const Spacer(flex: 2),
-        Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 520),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: Space.s4),
-              child: VisualizerWidget(
-                height: _vizHeight(style),
-                styleOverride: style,
-                // Bedside palette: never album-art accents, nothing
-                // bright enough to sting at night.
-                muted: true,
-              ),
-            ),
-          ),
-        ),
-        const Spacer(flex: 3),
-      ],
-    );
-  }
-
-  /// Light skin: full-color meters centered over the art wash, title +
-  /// artist beneath — the "just let me stare" look. During a crossfade
-  /// the title wipes across to the incoming song (the meters blend on
-  /// their own via the band prewarm).
-  Widget _lightBody(
-    HanamimiTheme theme,
-    Track? track,
-    VisualizerStyle style,
     Track? incoming,
     ValueNotifier<double> xfT,
   ) {
@@ -564,24 +497,113 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
       );
     }
 
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 640),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: Space.s6),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Bedside column: clock, song line, sleep status — dark only.
+        AnimatedOpacity(
+          duration: const Duration(milliseconds: 450),
+          curve: Curves.easeOut,
+          opacity: _light ? 0 : 1,
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             children: [
-              VisualizerWidget(
-                height: _vizHeight(style),
-                styleOverride: style,
+              const Spacer(flex: 3),
+              Text(
+                '$hh:$mm',
+                style: TextStyle(
+                  fontFamily: 'Nunito',
+                  fontSize: 72,
+                  fontWeight: FontWeight.w200,
+                  letterSpacing: 4,
+                  color: dim,
+                ),
               ),
-              if (track != null) const SizedBox(height: Space.s6),
-              titleBlock(),
+              if (track != null) ...[
+                const SizedBox(height: Space.s2),
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: Space.s6),
+                  child: Text(
+                    '${track.title} — ${track.artist}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'Nunito',
+                      fontSize: 13,
+                      color: dimmer,
+                    ),
+                  ),
+                ),
+              ],
+              if (timer.isActive) ...[
+                const SizedBox(height: Space.s4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.bedtime_rounded, size: 13, color: dimmer),
+                    const SizedBox(width: Space.s2),
+                    Text(
+                      switch (timer.mode) {
+                        SleepMode.countdown => timer.isFading
+                            ? 'fading out…'
+                            : 'sleeping in ${timer.remaining!.mmss}',
+                        SleepMode.endOfTrack =>
+                          'sleeping when this song ends',
+                        SleepMode.off => '',
+                      },
+                      style: TextStyle(
+                        fontFamily: 'Nunito',
+                        fontSize: 13,
+                        letterSpacing: 1,
+                        color: dimmer,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              const Spacer(flex: 5),
             ],
           ),
         ),
-      ),
+        // The meters, sliding between their two seats. Width eases with
+        // them (640 light / 520 dark); `muted` swaps the palette at the
+        // flip — the motion carries the moment.
+        AnimatedAlign(
+          duration: const Duration(milliseconds: 550),
+          curve: Curves.easeInOutCubic,
+          alignment:
+              _light ? Alignment.center : const Alignment(0, 0.42),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 550),
+            curve: Curves.easeInOutCubic,
+            constraints: BoxConstraints(maxWidth: _light ? 640 : 520),
+            padding: const EdgeInsets.symmetric(horizontal: Space.s6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                VisualizerWidget(
+                  height: _vizHeight(style),
+                  styleOverride: style,
+                  // Bedside palette in the dark: never album-art
+                  // accents, nothing bright enough to sting at night.
+                  muted: !_light,
+                ),
+                if (track != null) ...[
+                  const SizedBox(height: Space.s6),
+                  // Title rides with the meters; visible in the light.
+                  AnimatedOpacity(
+                    duration: const Duration(milliseconds: 450),
+                    curve: Curves.easeOut,
+                    opacity: _light ? 1 : 0,
+                    child: titleBlock(),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 

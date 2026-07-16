@@ -52,6 +52,26 @@ final visualizerReactivityProvider =
     NotifierProvider<VisualizerReactivityNotifier, double>(
         VisualizerReactivityNotifier.new);
 
+/// Auto gain: per-track normalization — each song's own 95th-percentile
+/// level maps to full scale ([BandStats]), so a quiet lofi master fills
+/// the meters exactly like a loud EDM one, no sensitivity chasing.
+/// Sensitivity stays active as a trim on top. Silence is still 0.
+class VisualizerAutoGainNotifier extends Notifier<bool> {
+  static const _key = 'visualizer_auto_gain';
+
+  @override
+  bool build() => ref.watch(sharedPrefsProvider).getBool(_key) ?? false;
+
+  void set(bool on) {
+    ref.read(sharedPrefsProvider).setBool(_key, on);
+    state = on;
+  }
+}
+
+final visualizerAutoGainProvider =
+    NotifierProvider<VisualizerAutoGainNotifier, bool>(
+        VisualizerAutoGainNotifier.new);
+
 /// What the VU needles measure: false = true L/R channel loudness
 /// (real-VU behaviour), true = the old bass/treble split.
 class VuSplitNotifier extends Notifier<bool> {
@@ -184,6 +204,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   var frames = <double>[]; // flattened frames × stride
   var stride = bandCount; // floats per frame in [frames]
   var extractionDone = false;
+  var stats = BandStats(); // per-slot peaks of THIS track, for auto gain
 
   // Crossfade prewarm: a second buffer that decodes the INCOMING track
   // during the fade so the meters (and the mascot) never drop to the
@@ -195,6 +216,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   var prewarmFrames = <double>[];
   var prewarmStride = bandCount;
   var prewarmDone = false;
+  var prewarmStats = BandStats();
 
   // Watchdog state: extraction can die without producing a frame —
   // e.g. MediaCodec is exhausted while ANOTHER app still holds the
@@ -288,6 +310,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
       frames = prewarmFrames;
       stride = prewarmStride;
       extractionDone = prewarmDone;
+      stats = prewarmStats;
       retryKey = key;
       retries = 0;
       noFramesSince = 0;
@@ -295,6 +318,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
       prewarmFrames = <double>[];
       prewarmStride = bandCount;
       prewarmDone = false;
+      prewarmStats = BandStats();
       prewarmTrackId = null;
       return;
     }
@@ -304,6 +328,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     frames = <double>[];
     stride = bandCount;
     extractionDone = false;
+    stats = BandStats();
     if (key != retryKey) {
       // Genuinely new track — fresh retry budget.
       retryKey = key;
@@ -327,6 +352,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     prewarmFrames = <double>[];
     prewarmStride = bandCount;
     prewarmDone = false;
+    prewarmStats = BandStats();
     startExtraction(track, key);
   }
 
@@ -335,6 +361,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     prewarmFrames = <double>[];
     prewarmStride = bandCount;
     prewarmDone = false;
+    prewarmStats = BandStats();
     prewarmTrackId = null;
   }
 
@@ -351,6 +378,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
         frames.addAll(List.filled(offset - frames.length, 0.0));
       }
       frames.addAll(bands);
+      stats.add(bands, s); // real chunks only — gap padding isn't music
       if (done) {
         extractionDone = true;
         final tid = currentTrackId;
@@ -365,6 +393,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
             .addAll(List.filled(offset - prewarmFrames.length, 0.0));
       }
       prewarmFrames.addAll(bands);
+      prewarmStats.add(bands, s);
       if (done) {
         prewarmDone = true;
         final tid = prewarmTrackId;
@@ -516,6 +545,11 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     } else if (frames.isNotEmpty) {
       noFramesSince = 0;
     }
+    final autoGain = ref.read(visualizerAutoGainProvider);
+    // True when raw is already display-normalized (auto gain) — the
+    // shaper then skips its tilt + stock gain. The synth fallback always
+    // takes the stock path: it's fake audio with no track to normalize to.
+    var normalized = false;
     List<double> raw;
     if (!playing) {
       raw = synth(false);
@@ -533,18 +567,33 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
       if (inRaw == null && outRaw == null) {
         raw = synth(true);
       } else {
-        final a = outRaw ?? List.filled(outCount, 0.0);
-        final b = inRaw ?? List.filled(outCount, 0.0);
+        var a = outRaw ?? List.filled(outCount, 0.0);
+        var b = inRaw ?? List.filled(outCount, 0.0);
+        if (autoGain) {
+          // Each side normalizes against its OWN track's peaks before
+          // the blend, so the fade ramps between two full-scale songs.
+          a = stats.norm(a);
+          b = prewarmStats.norm(b);
+          normalized = true;
+        }
         raw = [
           for (var i = 0; i < outCount; i++) a[i] * (1 - e) + b[i] * e,
         ];
       }
     } else {
-      raw = sample(position) ?? synth(true);
+      final sampled = sample(position);
+      if (sampled == null) {
+        raw = synth(true);
+      } else if (autoGain) {
+        raw = stats.norm(sampled);
+        normalized = true;
+      } else {
+        raw = sampled;
+      }
     }
     final sensitivity = ref.read(visualizerSensitivityProvider);
     final reactivity = ref.read(visualizerReactivityProvider);
-    final bands = shaper.shape(raw, sensitivity, reactivity);
+    final bands = shaper.shape(raw, sensitivity, reactivity, normalized);
     // Paused + fully decayed: stop rebuilding every listener at 60 Hz.
     final quiet = !playing && bands.every((b) => b < 0.005);
     if (quiet && settled) return;
