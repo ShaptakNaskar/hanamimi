@@ -132,7 +132,10 @@ class NowPlayingScreen extends ConsumerWidget {
             fireflies: ref.watch(buddyEnabledProvider('fireflies')),
           ),
         SafeArea(
-          bottom: false,
+          // Keep the bottom inset: in portrait the bottom nav consumes it
+          // (Scaffold strips consumed insets, so this adds nothing), but the
+          // phone-landscape shell has no bottom bar on this tab and the
+          // controls ran under the gesture pill (user screenshot).
           // 3.0 #6 "Melt away": idle listening melts the chrome away
           // until it's art + visualizer + mascot. Any touch (or a
           // pause) brings it back. Desktop panel included (user ask) —

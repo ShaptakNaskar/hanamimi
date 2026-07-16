@@ -45,8 +45,14 @@ class HanamimiSideRail extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final night = ref.watch(nightModeActiveProvider);
+    // In landscape the camera cutout becomes a left inset. The inner
+    // SafeArea already pushes the icons clear of it, but out of a FIXED
+    // width — the icons got shoved under the cutout glass (user
+    // screenshot). Grow the rail by the inset instead: its opaque
+    // surface runs under the cutout strip, the icons stand past it.
+    final leftInset = MediaQuery.paddingOf(context).left;
     return Container(
-      width: labels ? 76 : 64,
+      width: (labels ? 76 : 64) + leftInset,
       decoration: BoxDecoration(
         // Opaque like the sidebar — a light album backdrop used to wash
         // this rail pale and hide its icons on a dark theme.
