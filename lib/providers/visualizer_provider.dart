@@ -591,7 +591,11 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
         raw = sampled;
       }
     }
-    final sensitivity = ref.read(visualizerSensitivityProvider);
+    // Auto gain replaces the user gain outright (the slider is hidden
+    // while it's on — a leftover 3× trim would pin the meters with no
+    // visible reason).
+    final sensitivity =
+        normalized ? 1.0 : ref.read(visualizerSensitivityProvider);
     final reactivity = ref.read(visualizerReactivityProvider);
     final bands = shaper.shape(raw, sensitivity, reactivity, normalized);
     // Paused + fully decayed: stop rebuilding every listener at 60 Hz.

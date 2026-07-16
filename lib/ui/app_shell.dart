@@ -404,10 +404,21 @@ class _AppShellState extends ConsumerState<AppShell>
     // Wide desktop windows trade the bottom nav for a left rail
     // (ARCHITECTURE-DESKTOP.md §5); a narrow window keeps the phone
     // layout, which maps cleanly onto it.
-    // Width decides, not platform: tablets and unfolded foldables get
-    // the same shell as a desktop window of that size (a stretched
-    // phone layout on a 1280dp tablet looked sparse and wrong).
-    final wide = MediaQuery.sizeOf(context).width >= 880;
+    // Width decides which desktop layout — but the DEVICE CLASS is the
+    // shortest side (Android's smallestWidth idea): a phone rotated to
+    // landscape is ~950 dp wide for a moment, and raw width dressed it
+    // as a desktop — wrapped rail labels, a 400 dp Now Playing panel
+    // eating half the screen (user screenshot). Tablets and unfolded
+    // foldables (shortest side ≥ 600) still get the same shell as a
+    // desktop window of that size; desktop windows keep pure width
+    // semantics however they're resized.
+    final size = MediaQuery.sizeOf(context);
+    final tabletClass = isDesktop || size.shortestSide >= 600;
+    final wide = tabletClass && size.width >= 880;
+    // A phone on its side: keep the phone shell, but stand the nav up
+    // as an icons-only strip — the bottom nav ate a third of the
+    // ~400 dp of height.
+    final phoneLandscape = !wide && size.width > size.height;
 
     Widget content = AnimatedSwitcher(
       duration: Anim.tabSlide,
@@ -581,20 +592,47 @@ class _AppShellState extends ConsumerState<AppShell>
       },
       child: wide
           ? Scaffold(body: wideBackground)
-          : Scaffold(
-              body: content,
-              bottomNavigationBar: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  playerStrip,
-                  HanamimiBottomNav(
-                    activeIndex: _index,
-                    onChanged: _onNavChanged,
-                    theme: theme,
+          : phoneLandscape
+              ? Scaffold(
+                  body: Row(
+                    children: [
+                      HanamimiSideRail(
+                        activeIndex: _index,
+                        onChanged: _onNavChanged,
+                        theme: theme,
+                        labels: false,
+                      ),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            Expanded(child: content),
+                            // Keep the strip above the gesture pill.
+                            SafeArea(
+                              top: false,
+                              left: false,
+                              right: false,
+                              child: playerStrip,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ),
+                )
+              : Scaffold(
+                  body: content,
+                  bottomNavigationBar: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      playerStrip,
+                      HanamimiBottomNav(
+                        activeIndex: _index,
+                        onChanged: _onNavChanged,
+                        theme: theme,
+                      ),
+                    ],
+                  ),
+                ),
     );
   }
 }

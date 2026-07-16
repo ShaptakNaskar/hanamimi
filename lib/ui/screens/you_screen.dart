@@ -1430,17 +1430,18 @@ class _VisualizerSettings extends ConsumerWidget {
               ref.read(visualizerAutoGainProvider.notifier).set(on),
           theme: theme,
         ),
-        _slider(
-          theme: theme,
-          label: 'Sensitivity',
-          subtitle: ref.watch(visualizerAutoGainProvider)
-              ? 'Trim on top of auto gain'
-              : 'Turn up for songs that barely move it',
-          icon: Icons.graphic_eq,
-          value: ref.watch(visualizerSensitivityProvider),
-          onChanged: (v) =>
-              ref.read(visualizerSensitivityProvider.notifier).set(v),
-        ),
+        // Auto gain replaces the manual gain entirely, so the slider
+        // hides while it's on (a knob that does nothing is a lie).
+        if (!ref.watch(visualizerAutoGainProvider))
+          _slider(
+            theme: theme,
+            label: 'Sensitivity',
+            subtitle: 'Turn up for songs that barely move it',
+            icon: Icons.graphic_eq,
+            value: ref.watch(visualizerSensitivityProvider),
+            onChanged: (v) =>
+                ref.read(visualizerSensitivityProvider.notifier).set(v),
+          ),
         _slider(
           theme: theme,
           label: 'Reactivity',
