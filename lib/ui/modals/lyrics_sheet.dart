@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 
@@ -26,45 +27,97 @@ void showLyricsSheet(BuildContext context, Track track) {
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => FractionallySizedBox(
-      heightFactor: 0.85,
-      child: _LyricsSheetBody(track: track),
-    ),
+    builder:
+        (_) => FractionallySizedBox(
+          heightFactor: 0.85,
+          child: LyricsView(track: track),
+        ),
   );
 }
 
-class _LyricsSheetBody extends ConsumerStatefulWidget {
-  const _LyricsSheetBody({required this.track});
+/// The full karaoke lyrics experience (word fill, interludes, source
+/// picker, sync offset, share). Three hosts share it (M31):
+///
+///  - phone: the modal sheet above ([sheetChrome] on — drag handle,
+///    rounded top, its own blurred-art backdrop),
+///  - desktop middle pane: embedded, no chrome (the shell's uniform
+///    BackdropWash provides the glow — a private backdrop here would
+///    break the one-glow rule),
+///  - immersive view: embedded + [autoHideHeader] (controls fade in on
+///    mouse activity, spicy-lyrics style) + [textScale] for the big
+///    wall-of-words look.
+class LyricsView extends ConsumerStatefulWidget {
+  const LyricsView({
+    super.key,
+    required this.track,
+    this.sheetChrome = true,
+    this.autoHideHeader = false,
+    this.textScale = 1.0,
+    this.blurLines = false,
+    this.onClose,
+  });
 
   final Track track;
+  final bool sheetChrome;
+  final bool autoHideHeader;
+  final double textScale;
+
+  /// Distance-blur on inactive lines (spicy-lyrics look, immersive).
+  final bool blurLines;
+
+  /// Shows a close button when set (the desktop pane host).
+  final VoidCallback? onClose;
 
   @override
-  ConsumerState<_LyricsSheetBody> createState() => _LyricsSheetBodyState();
+  ConsumerState<LyricsView> createState() => _LyricsViewState();
 }
 
-class _LyricsSheetBodyState extends ConsumerState<_LyricsSheetBody> {
+class _LyricsViewState extends ConsumerState<LyricsView> {
+  Timer? _headerTimer;
+  bool _headerVisible = true;
+
+  // dispose() can't touch `ref` (Riverpod throws "Bad state: using ref
+  // when unmounted" — spammed the desktop console every time the pane
+  // closed). The container outlives the widget; grab it while mounted.
+  late final ProviderContainer _container;
+
   @override
   void initState() {
     super.initState();
+    _container = ProviderScope.containerOf(context, listen: false);
     // Reading along shouldn't be interrupted by the screen dozing off.
     PowerChannel.setKeepScreenOn(true);
+    if (widget.autoHideHeader) _armHeaderTimer();
   }
 
   @override
   void dispose() {
     // Hand the flag back to whatever Caffeine says it should be.
-    PowerChannel.setKeepScreenOn(ref.read(caffeineProvider));
+    PowerChannel.setKeepScreenOn(_container.read(caffeineProvider));
+    _headerTimer?.cancel();
     super.dispose();
   }
 
+  /// Controls appear on mouse activity and doze off shortly after —
+  /// the words own the immersive view.
+  void _armHeaderTimer() {
+    _headerTimer?.cancel();
+    if (!_headerVisible) setState(() => _headerVisible = true);
+    _headerTimer = Timer(const Duration(milliseconds: 2500), () {
+      if (mounted) setState(() => _headerVisible = false);
+    });
+  }
+
   Duration _offsetFor(int trackId) => Duration(
-      milliseconds:
-          ref.read(sharedPrefsProvider).getInt('lyrics_offset_$trackId') ??
-              0);
+    milliseconds:
+        ref.read(sharedPrefsProvider).getInt('lyrics_offset_$trackId') ?? 0,
+  );
 
   void _adjustOffset(int trackId, int deltaMs) {
-    final ms = (_offsetFor(trackId).inMilliseconds + deltaMs)
-        .clamp(-15000, 15000);
+    final ms = (_offsetFor(trackId).inMilliseconds + deltaMs).clamp(
+      -15000,
+      15000,
+    );
     ref.read(sharedPrefsProvider).setInt('lyrics_offset_$trackId', ms);
     setState(() {});
   }
@@ -85,10 +138,11 @@ class _LyricsSheetBodyState extends ConsumerState<_LyricsSheetBody> {
   void _showSourcePicker(BuildContext context, Track track) {
     showModalBottomSheet(
       context: context,
-      builder: (_) => _SourcePickerSheet(
-        track: track,
-        onSelect: (source) => _selectSource(track, source),
-      ),
+      builder:
+          (_) => _SourcePickerSheet(
+            track: track,
+            onSelect: (source) => _selectSource(track, source),
+          ),
     );
   }
 
@@ -102,98 +156,175 @@ class _LyricsSheetBodyState extends ConsumerState<_LyricsSheetBody> {
     final lyrics = ref.watch(lyricsProvider(track.id));
     final offset = _offsetFor(track.id);
 
+    // Header: title/artist + quality badge + offset + share (+ close
+    // for the pane host). In autoHideHeader mode it fades out while
+    // the words play, and mouse activity brings it back.
+    final header = Column(
+      children: [
+        Row(
+          children: [
+            const Spacer(),
+            Expanded(
+              flex: 6,
+              child: Column(
+                children: [
+                  Text(
+                    track.title,
+                    style: AppText.rowSongTitle(theme),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(track.artist, style: AppText.caption(theme)),
+                ],
+              ),
+            ),
+            Expanded(
+              child:
+                  widget.onClose == null
+                      ? const SizedBox.shrink()
+                      : Align(
+                        alignment: Alignment.topRight,
+                        child: IconButton(
+                          tooltip: 'Close lyrics (Esc)',
+                          onPressed: widget.onClose,
+                          icon: Icon(
+                            Icons.close,
+                            size: 18,
+                            color: theme.textMuted,
+                          ),
+                        ),
+                      ),
+            ),
+          ],
+        ),
+        if (lyrics.value != null) ...[
+          const SizedBox(height: Space.s1),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              GestureDetector(
+                onTap: () => _showSourcePicker(context, track),
+                child: _QualityBadge(lyrics: lyrics.value!, theme: theme),
+              ),
+              if (lyrics.value!.isSynced) ...[
+                const SizedBox(width: Space.s2),
+                _OffsetControl(
+                  offset: offset,
+                  theme: theme,
+                  onAdjust: (delta) => _adjustOffset(track.id, delta),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ],
+    );
+
+    final lines = lyrics.when(
+      loading:
+          () => Center(child: CircularProgressIndicator(color: theme.primary)),
+      error:
+          (_, __) => _NoLyrics(
+            theme: theme,
+            onPickSource: () => _showSourcePicker(context, track),
+          ),
+      data:
+          (l) =>
+              l == null || l.isEmpty
+                  ? _NoLyrics(
+                    theme: theme,
+                    onPickSource: () => _showSourcePicker(context, track),
+                  )
+                  : l.isSynced
+                  ? _KaraokeLines(
+                    key: ValueKey(track.id),
+                    lyrics: l,
+                    theme: theme,
+                    offset: offset,
+                    blurByDistance: widget.blurLines,
+                    // The spotlight band reads as a light leak over the
+                    // desktop wash (user: "light bleed behind the
+                    // lyrics") — phone sheet only.
+                    spotlight: widget.sheetChrome,
+                  )
+                  : _PlainLines(lyrics: l, theme: theme),
+    );
+
+    Widget content = SafeArea(
+      child: Column(
+        children: [
+          const SizedBox(height: Space.s3),
+          if (widget.sheetChrome) ...[
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: theme.textMuted.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(Radii.pill),
+              ),
+            ),
+            const SizedBox(height: Space.s3),
+          ],
+          if (widget.autoHideHeader)
+            AnimatedOpacity(
+              opacity: _headerVisible ? 1 : 0,
+              duration: const Duration(milliseconds: 400),
+              child: IgnorePointer(ignoring: !_headerVisible, child: header),
+            )
+          else
+            header,
+          const SizedBox(height: Space.s3),
+          Expanded(
+            // The big wall-of-words look for the immersive host — the
+            // karaoke machinery (word fill, interludes, glide) scales
+            // with the text untouched.
+            child:
+                widget.textScale == 1.0
+                    ? lines
+                    : MediaQuery(
+                      data: MediaQuery.of(context).copyWith(
+                        textScaler: TextScaler.linear(widget.textScale),
+                      ),
+                      child: lines,
+                    ),
+          ),
+        ],
+      ),
+    );
+
+    if (widget.autoHideHeader) {
+      content = MouseRegion(onHover: (_) => _armHeaderTimer(), child: content);
+    }
+
+    if (!widget.sheetChrome) return content;
+
     return ClipRRect(
-      borderRadius:
-          const BorderRadius.vertical(top: Radius.circular(Radii.lg)),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(Radii.lg)),
       child: Stack(
         fit: StackFit.expand,
         children: [
           if (track.albumArtPath != null)
             ImageFiltered(
               imageFilter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
-              // Small decode: it's blurred to a wash anyway, and full-res
-              // art here makes the raster thread struggle (freezes on
-              // surface re-creation, e.g. after the notification shade).
-              child: Image.network(track.albumArtPath!,
-                  fit: BoxFit.cover,
-                  cacheWidth: 200,
-                  gaplessPlayback: true,
-                  errorBuilder: (_, __, ___) =>
-                      ColoredBox(color: theme.background)),
+              // Small decode: it's blurred to a wash anyway. Web: art is
+              // a blob URL minted from the embedded tag.
+              child: Image.network(
+                track.albumArtPath!,
+                fit: BoxFit.cover,
+                cacheWidth: 200,
+                gaplessPlayback: true,
+                errorBuilder: (_, __, ___) =>
+                    ColoredBox(color: theme.background),
+              ),
             )
           else
             ColoredBox(color: theme.background),
           ColoredBox(
-              color: (theme.isDark ? Colors.black : theme.background)
-                  .withValues(alpha: 0.72)),
-          SafeArea(
-            child: Column(
-              children: [
-                const SizedBox(height: Space.s3),
-                Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: theme.textMuted.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(Radii.pill),
-                  ),
-                ),
-                const SizedBox(height: Space.s3),
-                Text(track.title,
-                    style: AppText.rowSongTitle(theme),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
-                Text(track.artist, style: AppText.caption(theme)),
-                if (lyrics.value != null) ...[
-                  const SizedBox(height: Space.s1),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      GestureDetector(
-                        onTap: () => _showSourcePicker(context, track),
-                        child:
-                            _QualityBadge(lyrics: lyrics.value!, theme: theme),
-                      ),
-                      if (lyrics.value!.isSynced) ...[
-                        const SizedBox(width: Space.s2),
-                        _OffsetControl(
-                          offset: offset,
-                          theme: theme,
-                          onAdjust: (delta) =>
-                              _adjustOffset(track.id, delta),
-                        ),
-                      ],
-                    ],
-                  ),
-                ],
-                const SizedBox(height: Space.s3),
-                Expanded(
-                  child: lyrics.when(
-                    loading: () => Center(
-                        child: CircularProgressIndicator(
-                            color: theme.primary)),
-                    error: (_, __) => _NoLyrics(
-                        theme: theme,
-                        onPickSource: () =>
-                            _showSourcePicker(context, track)),
-                    data: (l) => l == null || l.isEmpty
-                        ? _NoLyrics(
-                            theme: theme,
-                            onPickSource: () =>
-                                _showSourcePicker(context, track))
-                        : l.isSynced
-                            ? _KaraokeLines(
-                                key: ValueKey(track.id),
-                                lyrics: l,
-                                theme: theme,
-                                offset: offset,
-                              )
-                            : _PlainLines(lyrics: l, theme: theme),
-                  ),
-                ),
-              ],
+            color: (theme.isDark ? Colors.black : theme.background).withValues(
+              alpha: 0.72,
             ),
           ),
+          content,
         ],
       ),
     );
@@ -222,7 +353,9 @@ class _OffsetControl extends StatelessWidget {
         color: theme.surface.withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(Radii.sm),
         border: Border.all(
-            color: theme.divider.withValues(alpha: 0.8), width: 1),
+          color: theme.divider.withValues(alpha: 0.8),
+          width: 1,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -236,9 +369,8 @@ class _OffsetControl extends StatelessWidget {
                 fontFamily: 'monospace',
                 fontSize: 10,
                 fontWeight: FontWeight.w700,
-                color: offset == Duration.zero
-                    ? theme.textPrimary
-                    : theme.accent,
+                color:
+                    offset == Duration.zero ? theme.textPrimary : theme.accent,
               ),
             ),
           ),
@@ -249,13 +381,13 @@ class _OffsetControl extends StatelessWidget {
   }
 
   Widget _nudge(IconData icon, VoidCallback onTap) => InkResponse(
-        onTap: onTap,
-        radius: 16,
-        child: Padding(
-          padding: const EdgeInsets.all(Space.s1),
-          child: Icon(icon, size: 14, color: theme.textPrimary),
-        ),
-      );
+    onTap: onTap,
+    radius: 16,
+    child: Padding(
+      padding: const EdgeInsets.all(Space.s1),
+      child: Icon(icon, size: 14, color: theme.textPrimary),
+    ),
+  );
 }
 
 class _QualityBadge extends StatelessWidget {
@@ -284,8 +416,9 @@ class _QualityBadge extends StatelessWidget {
         color: theme.surface.withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(Radii.sm),
         border: Border.all(
-          color: theme.primary
-              .withValues(alpha: lyrics.quality == 2 ? 0.9 : 0.4),
+          color: theme.primary.withValues(
+            alpha: lyrics.quality == 2 ? 0.9 : 0.4,
+          ),
           width: 1,
         ),
       ),
@@ -325,8 +458,7 @@ class _TimedWord {
 /// (intro / instrumental break) rendered as filling dots.
 class _Entry {
   _Entry.line(this.lineIndex, this.start) : interludeEnd = null;
-  _Entry.interlude(this.start, Duration this.interludeEnd)
-      : lineIndex = null;
+  _Entry.interlude(this.start, Duration this.interludeEnd) : lineIndex = null;
 
   final int? lineIndex;
   final Duration start;
@@ -341,6 +473,8 @@ class _KaraokeLines extends ConsumerStatefulWidget {
     required this.lyrics,
     required this.theme,
     this.offset = Duration.zero,
+    this.blurByDistance = false,
+    this.spotlight = true,
   });
 
   final Lyrics lyrics;
@@ -349,6 +483,14 @@ class _KaraokeLines extends ConsumerStatefulWidget {
   /// Per-track sync nudge: positive = lyrics wait longer (for files
   /// with extra intro silence vs. the version the timings match).
   final Duration offset;
+
+  /// spicy-lyrics signature (immersive host): inactive lines soften
+  /// with distance from the active one — blur = multiplier x distance,
+  /// capped, zero on the active line.
+  final bool blurByDistance;
+
+  /// The soft primary-tinted band behind the centered active line.
+  final bool spotlight;
 
   @override
   ConsumerState<_KaraokeLines> createState() => _KaraokeLinesState();
@@ -434,16 +576,18 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
   /// is distributed across words proportionally to their length.
   List<_TimedWord> _resolveWords(List<LyricLine> lines, int index) {
     final line = lines[index];
-    final nextStart = index + 1 < lines.length
-        ? lines[index + 1].timestamp
-        : line.timestamp + const Duration(seconds: 5);
+    final nextStart =
+        index + 1 < lines.length
+            ? lines[index + 1].timestamp
+            : line.timestamp + const Duration(seconds: 5);
 
     if (line.hasWordTimings) {
       final words = line.words!;
       // Richsync tells us when the vocal ends; sources without a line
       // end get the last word capped at 2s so a trailing word never
       // keeps filling through an instrumental break.
-      final lastEnd = line.end ??
+      final lastEnd =
+          line.end ??
           _min(nextStart, words.last.start + const Duration(seconds: 2));
       return [
         for (var w = 0; w < words.length; w++)
@@ -456,25 +600,24 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
     }
     final lineEnd = line.end ?? nextStart;
 
-    final tokens =
-        line.text.split(' ').where((t) => t.isNotEmpty).toList();
+    final tokens = line.text.split(' ').where((t) => t.isNotEmpty).toList();
     if (tokens.isEmpty) return [];
-    final gapMs =
-        (lineEnd - line.timestamp).inMilliseconds.clamp(400, 30000);
+    final gapMs = (lineEnd - line.timestamp).inMilliseconds.clamp(400, 30000);
     // ~350ms per word + lead-in, but never longer than the actual gap.
-    final singMs =
-        (tokens.length * 350 + 500).clamp(400, gapMs).toDouble();
+    final singMs = (tokens.length * 350 + 500).clamp(400, gapMs).toDouble();
     final totalChars =
         tokens.fold<int>(0, (sum, t) => sum + t.length).toDouble();
     final result = <_TimedWord>[];
     var cursorMs = line.timestamp.inMilliseconds.toDouble();
     for (final token in tokens) {
       final wordMs = singMs * (token.length / totalChars);
-      result.add(_TimedWord(
-        token,
-        Duration(milliseconds: cursorMs.round()),
-        Duration(milliseconds: (cursorMs + wordMs).round()),
-      ));
+      result.add(
+        _TimedWord(
+          token,
+          Duration(milliseconds: cursorMs.round()),
+          Duration(milliseconds: (cursorMs + wordMs).round()),
+        ),
+      );
       cursorMs += wordMs;
     }
     return result;
@@ -497,10 +640,8 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
   }
 
   Duration get _smoothPosition {
-    final playing =
-        ref.read(audioStateProvider).value?.isPlaying ?? false;
-    final raw =
-        playing ? _lastPosition + _sinceReport.elapsed : _lastPosition;
+    final playing = ref.read(audioStateProvider).value?.isPlaying ?? false;
+    final raw = playing ? _lastPosition + _sinceReport.elapsed : _lastPosition;
     return raw - widget.offset;
   }
 
@@ -556,109 +697,130 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
 
     final bright = theme.isDark ? Colors.white : theme.textPrimary;
 
-    return LayoutBuilder(builder: (context, constraints) {
-      final pad = constraints.maxHeight / 2 - _lineExtent / 2;
-      return Stack(
-        children: [
-          // Soft spotlight behind the vertically-centered active line.
-          Align(
-            alignment: Alignment.center,
-            child: Container(
-              height: 44,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: [
-                  theme.primary.withValues(alpha: 0),
-                  theme.primary.withValues(alpha: 0.14),
-                  theme.primary.withValues(alpha: 0),
-                ]),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final pad = constraints.maxHeight / 2 - _lineExtent / 2;
+        return Stack(
+          children: [
+            // Soft spotlight behind the vertically-centered active line.
+            if (widget.spotlight)
+              Align(
+                alignment: Alignment.center,
+                child: Container(
+                  height: 44,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        theme.primary.withValues(alpha: 0),
+                        theme.primary.withValues(alpha: 0.14),
+                        theme.primary.withValues(alpha: 0),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-            ),
-          ),
-          ListView.builder(
-            controller: _scroll,
-            physics: const BouncingScrollPhysics(),
-            padding:
-                EdgeInsets.symmetric(vertical: pad, horizontal: Space.s6),
-            itemCount: _entries.length,
-            itemExtent: _lineExtent,
-            itemBuilder: (context, i) {
-              final entry = _entries[i];
-              final isActive = i == active;
-              final isPast = i < active;
+            ListView.builder(
+              controller: _scroll,
+              physics: const BouncingScrollPhysics(),
+              padding: EdgeInsets.symmetric(
+                vertical: pad,
+                horizontal: Space.s6,
+              ),
+              itemCount: _entries.length,
+              itemExtent: _lineExtent,
+              itemBuilder: (context, i) {
+                final entry = _entries[i];
+                final isActive = i == active;
+                final isPast = i < active;
 
-              if (entry.isInterlude) {
+                if (entry.isInterlude) {
+                  return RepaintBoundary(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _seekToEntry(entry),
+                      child: _InterludeDots(
+                        start: entry.start,
+                        end: entry.interludeEnd!,
+                        position: position,
+                        active: isActive,
+                        color: bright,
+                      ),
+                    ),
+                  );
+                }
+
+                final lineIndex = entry.lineIndex!;
+                // spicy-lyrics' applyBlur: multiplier x distance, capped.
+                final blurSigma =
+                    !widget.blurByDistance || isActive
+                        ? 0.0
+                        : math.min(1.4 * (i - active).abs(), 7.0);
                 return RepaintBoundary(
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTap: () => _seekToEntry(entry),
-                    child: _InterludeDots(
-                      start: entry.start,
-                      end: entry.interludeEnd!,
-                      position: position,
-                      active: isActive,
-                      color: bright,
+                    child: ImageFiltered(
+                      enabled: blurSigma > 0,
+                      imageFilter: ImageFilter.blur(
+                        sigmaX: blurSigma,
+                        sigmaY: blurSigma,
+                      ),
+                      child: AnimatedScale(
+                        scale: isActive ? 1.0 : 0.92,
+                        duration: const Duration(milliseconds: 350),
+                        curve: Curves.easeOut,
+                        child: Center(
+                          // The word-by-word fill only runs on genuinely
+                          // word-synced sources; guessing word timings for
+                          // line-synced lyrics made the sweep visibly drift
+                          // from the vocal. Those get a plain bright line.
+                          child:
+                              isActive && lines[lineIndex].hasWordTimings
+                                  ? _KaraokeLine(
+                                    words: _timedLines[lineIndex],
+                                    position: position,
+                                    bright: bright,
+                                    dim: bright.withValues(alpha: 0.35),
+                                  )
+                                  : isActive
+                                  ? Text(
+                                    lines[lineIndex].text,
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AppText.body(theme).copyWith(
+                                      height: 1.25,
+                                      fontWeight: FontWeight.w700,
+                                      color: bright,
+                                    ),
+                                  )
+                                  : Text(
+                                    lines[lineIndex].text,
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    // beautiful-lyrics line opacities:
+                                    // idle 0.51, sung ~0.50.
+                                    style: AppText.body(theme).copyWith(
+                                      height: 1.25,
+                                      fontWeight: FontWeight.w600,
+                                      color: bright.withValues(
+                                        alpha: isPast ? 0.45 : 0.51,
+                                      ),
+                                    ),
+                                  ),
+                        ),
+                      ),
                     ),
                   ),
                 );
-              }
-
-              final lineIndex = entry.lineIndex!;
-              return RepaintBoundary(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => _seekToEntry(entry),
-                  child: AnimatedScale(
-                  scale: isActive ? 1.0 : 0.92,
-                  duration: const Duration(milliseconds: 350),
-                  curve: Curves.easeOut,
-                  child: Center(
-                    // The word-by-word fill only runs on genuinely
-                    // word-synced sources; guessing word timings for
-                    // line-synced lyrics made the sweep visibly drift
-                    // from the vocal. Those get a plain bright line.
-                    child: isActive && lines[lineIndex].hasWordTimings
-                        ? _KaraokeLine(
-                            words: _timedLines[lineIndex],
-                            position: position,
-                            bright: bright,
-                            dim: bright.withValues(alpha: 0.35),
-                          )
-                        : isActive
-                            ? Text(
-                                lines[lineIndex].text,
-                                textAlign: TextAlign.center,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppText.body(theme).copyWith(
-                                  height: 1.25,
-                                  fontWeight: FontWeight.w700,
-                                  color: bright,
-                                ),
-                              )
-                            : Text(
-                            lines[lineIndex].text,
-                            textAlign: TextAlign.center,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            // beautiful-lyrics line opacities:
-                            // idle 0.51, sung ~0.50.
-                            style: AppText.body(theme).copyWith(
-                              height: 1.25,
-                              fontWeight: FontWeight.w600,
-                              color: bright.withValues(
-                                  alpha: isPast ? 0.45 : 0.51),
-                            ),
-                          ),
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ],
-      );
-    });
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 }
 
@@ -682,13 +844,13 @@ class _InterludeDots extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final totalMs = (end - start).inMilliseconds;
-    final progress = totalMs <= 0
-        ? 1.0
-        : ((position - start).inMilliseconds / totalMs).clamp(0.0, 1.0);
+    final progress =
+        totalMs <= 0
+            ? 1.0
+            : ((position - start).inMilliseconds / totalMs).clamp(0.0, 1.0);
     // Ease the last two seconds out so the dots feel like a lead-in.
-    final breathe = active
-        ? 1.0 + 0.12 * math.sin(position.inMilliseconds / 320)
-        : 1.0;
+    final breathe =
+        active ? 1.0 + 0.12 * math.sin(position.inMilliseconds / 320) : 1.0;
 
     return Center(
       child: Transform.scale(
@@ -705,9 +867,10 @@ class _InterludeDots extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: color.withValues(
-                      alpha: !active
-                          ? 0.18
-                          : progress >= (d + 1) / 3
+                      alpha:
+                          !active
+                              ? 0.18
+                              : progress >= (d + 1) / 3
                               ? 0.9
                               : 0.25,
                     ),
@@ -799,17 +962,20 @@ class _WordFill extends StatelessWidget {
     }
 
     final t = fraction;
-    final scale = t < 0.7
-        ? lerpDouble(0.95, 1.025, t / 0.7)!
-        : lerpDouble(1.025, 1.0, (t - 0.7) / 0.3)!;
+    final scale =
+        t < 0.7
+            ? lerpDouble(0.95, 1.025, t / 0.7)!
+            : lerpDouble(1.025, 1.0, (t - 0.7) / 0.3)!;
     final fontSize = style.fontSize ?? 18;
-    final lift = (t < 0.9
+    final lift =
+        (t < 0.9
             ? lerpDouble(0.010, -0.017, t / 0.9)!
             : lerpDouble(-0.017, 0, (t - 0.9) / 0.1)!) *
         fontSize;
-    final glow = t < 0.15
-        ? t / 0.15
-        : t < 0.6
+    final glow =
+        t < 0.15
+            ? t / 0.15
+            : t < 0.6
             ? 1.0
             : 1 - (t - 0.6) / 0.4;
 
@@ -832,13 +998,14 @@ class _WordFill extends StatelessWidget {
             Text(text, style: style.copyWith(color: dim)),
             ShaderMask(
               blendMode: BlendMode.dstIn,
-              shaderCallback: (rect) => LinearGradient(
-                colors: const [Colors.white, Colors.transparent],
-                stops: [
-                  (t - 0.12).clamp(0.0, 1.0),
-                  (t + 0.12).clamp(0.0, 1.0),
-                ],
-              ).createShader(rect),
+              shaderCallback:
+                  (rect) => LinearGradient(
+                    colors: const [Colors.white, Colors.transparent],
+                    stops: [
+                      (t - 0.12).clamp(0.0, 1.0),
+                      (t + 0.12).clamp(0.0, 1.0),
+                    ],
+                  ).createShader(rect),
               child: Text(text, style: glowing),
             ),
           ],
@@ -859,13 +1026,19 @@ class _PlainLines extends StatelessWidget {
     return ListView.builder(
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.symmetric(
-          vertical: Space.s6, horizontal: Space.s6),
-      itemCount: lyrics.lines.length,
-      itemBuilder: (context, i) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: Space.s1),
-        child: Text(lyrics.lines[i].text,
-            style: AppText.body(theme), textAlign: TextAlign.center),
+        vertical: Space.s6,
+        horizontal: Space.s6,
       ),
+      itemCount: lyrics.lines.length,
+      itemBuilder:
+          (context, i) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: Space.s1),
+            child: Text(
+              lyrics.lines[i].text,
+              style: AppText.body(theme),
+              textAlign: TextAlign.center,
+            ),
+          ),
     );
   }
 }
@@ -885,8 +1058,7 @@ class _NoLyrics extends StatelessWidget {
           const HanamimiMascot(state: MascotState.paused, size: 90),
           const SizedBox(height: Space.s3),
           Text('No lyrics found', style: AppText.body(theme)),
-          Text('This one\'s just for listening',
-              style: AppText.caption(theme)),
+          Text('This one\'s just for listening', style: AppText.caption(theme)),
           if (onPickSource != null) ...[
             const SizedBox(height: Space.s2),
             TextButton(
@@ -918,8 +1090,7 @@ class _SourcePickerSheet extends ConsumerStatefulWidget {
   final ValueChanged<LyricsSource?> onSelect;
 
   @override
-  ConsumerState<_SourcePickerSheet> createState() =>
-      _SourcePickerSheetState();
+  ConsumerState<_SourcePickerSheet> createState() => _SourcePickerSheetState();
 }
 
 class _SourcePickerSheetState extends ConsumerState<_SourcePickerSheet> {
@@ -936,11 +1107,14 @@ class _SourcePickerSheetState extends ConsumerState<_SourcePickerSheet> {
     final service = LyricsService();
     for (final source in LyricsSource.values) {
       // Fire concurrently; each row updates as its answer lands.
-      service.fetchFromSource(widget.track, source).then((lyrics) {
-        if (mounted) setState(() => _available[source] = lyrics != null);
-      }).catchError((_) {
-        if (mounted) setState(() => _available[source] = false);
-      });
+      service
+          .fetchFromSource(widget.track, source)
+          .then((lyrics) {
+            if (mounted) setState(() => _available[source] = lyrics != null);
+          })
+          .catchError((_) {
+            if (mounted) setState(() => _available[source] = false);
+          });
     }
   }
 
@@ -958,25 +1132,24 @@ class _SourcePickerSheetState extends ConsumerState<_SourcePickerSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Lyrics source',
-                style: TextStyle(
-                    fontFamily: 'Nunito',
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: theme.textPrimary)),
+            Text(
+              'Lyrics source',
+              style: TextStyle(
+                fontFamily: 'Nunito',
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: theme.textPrimary,
+              ),
+            ),
             const SizedBox(height: Space.s2),
             for (final (name, source, subtitle) in [
               ('Auto', null, 'Best available quality'),
               (
                 'Embedded',
                 LyricsSource.embedded,
-                'From the audio file\'s own tags'
+                'From the audio file\'s own tags',
               ),
-              (
-                'Musixmatch',
-                LyricsSource.musixmatch,
-                'Word-synced (online)'
-              ),
+              ('Musixmatch', LyricsSource.musixmatch, 'Word-synced (online)'),
               ('LRCLIB', LyricsSource.lrclib, 'Line-synced (online)'),
             ])
               _buildRow(theme, name, source, subtitle, current),
@@ -986,42 +1159,55 @@ class _SourcePickerSheetState extends ConsumerState<_SourcePickerSheet> {
     );
   }
 
-  Widget _buildRow(HanamimiTheme theme, String name, LyricsSource? source,
-      String subtitle, String? current) {
+  Widget _buildRow(
+    HanamimiTheme theme,
+    String name,
+    LyricsSource? source,
+    String subtitle,
+    String? current,
+  ) {
     // Auto is always offered; concrete sources once verified.
     final available = source == null ? true : _available[source];
     final probing = available == null;
-    final selected = (current == null && source == null) ||
+    final selected =
+        (current == null && source == null) ||
         (source != null && current == source.name);
 
     return ListTile(
       enabled: available ?? false,
-      title: Text(name,
-          style: AppText.rowSongTitle(theme).copyWith(
-            color: (available ?? false)
-                ? theme.textPrimary
-                : theme.textMuted.withValues(alpha: 0.6),
-          )),
+      title: Text(
+        name,
+        style: AppText.rowSongTitle(theme).copyWith(
+          color:
+              (available ?? false)
+                  ? theme.textPrimary
+                  : theme.textMuted.withValues(alpha: 0.6),
+        ),
+      ),
       subtitle: Text(
         available == false ? 'Not found for this song' : subtitle,
         style: AppText.caption(theme),
       ),
-      trailing: probing
-          ? SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                  strokeWidth: 2, color: theme.textMuted),
-            )
-          : selected
+      trailing:
+          probing
+              ? SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: theme.textMuted,
+                ),
+              )
+              : selected
               ? Icon(Icons.check, size: 20, color: theme.primary)
               : null,
-      onTap: (available ?? false)
-          ? () {
-              Navigator.pop(context);
-              widget.onSelect(source);
-            }
-          : null,
+      onTap:
+          (available ?? false)
+              ? () {
+                Navigator.pop(context);
+                widget.onSelect(source);
+              }
+              : null,
     );
   }
 }

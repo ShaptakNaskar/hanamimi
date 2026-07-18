@@ -18,6 +18,7 @@ import 'components/mascot/oneko.dart';
 import 'components/mascot/oneko_tips.dart';
 import 'modals/web_settings_sheet.dart';
 import 'screens/now_playing_screen.dart';
+import 'screens/web_immersive_screen.dart';
 
 /// The web demo's whole chrome (per Sappy's mockup): a slim sidebar —
 /// wordmark, settings, your picked folders and their songs, and the
@@ -67,10 +68,12 @@ class WebShell extends ConsumerWidget {
             children: [
               const SizedBox(width: 300, child: _Sidebar()),
               Container(width: 0.5, color: theme.divider),
-              // ClipRect: the art wash's sigma-60 blur paints past its
-              // bounds and tinted the sidebar (user report) — blurs
-              // don't self-clip.
-              const Expanded(child: ClipRect(child: NowPlayingScreen())),
+              // The plus desktop immersive layout: player column left,
+              // giant synced lyrics right. ClipRect because the art
+              // wash's big blur paints past its bounds (tinted the
+              // sidebar) — blurs don't self-clip.
+              const Expanded(
+                  child: ClipRect(child: WebImmersiveNowPlaying())),
             ],
           );
 
