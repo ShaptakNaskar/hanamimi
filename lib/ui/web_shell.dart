@@ -67,7 +67,10 @@ class WebShell extends ConsumerWidget {
             children: [
               const SizedBox(width: 300, child: _Sidebar()),
               Container(width: 0.5, color: theme.divider),
-              const Expanded(child: NowPlayingScreen()),
+              // ClipRect: the art wash's sigma-60 blur paints past its
+              // bounds and tinted the sidebar (user report) — blurs
+              // don't self-clip.
+              const Expanded(child: ClipRect(child: NowPlayingScreen())),
             ],
           );
 

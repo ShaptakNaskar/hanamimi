@@ -53,7 +53,12 @@ class _WebSettingsBody extends ConsumerWidget {
         SwitchListTile(
           value: value,
           onChanged: onChanged,
-          activeColor: theme.primary,
+          // Track wears the theme; the thumb stays its contrasting
+          // default — activeColor (= thumb) in primary melted the whole
+          // switch into one blob (user report).
+          activeTrackColor: theme.primary,
+          inactiveTrackColor: theme.divider.withValues(alpha: 0.5),
+          inactiveThumbColor: theme.textMuted,
           dense: true,
           title: Text(title.whisper(night),
               style: AppText.rowSongTitle(theme)),

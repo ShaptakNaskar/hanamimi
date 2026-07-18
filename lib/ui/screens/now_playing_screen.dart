@@ -126,10 +126,16 @@ class NowPlayingScreen extends ConsumerWidget {
           // pause) brings it back.
           child: UndressLayer(
             enabled: ref.watch(meltAwayProvider) && (audio?.isPlaying ?? false),
-            child: LayoutBuilder(
+            // The pane is a wide desktop canvas, but the player keeps the
+            // immersive-panel proportions: everything lives in a centered
+            // ~540 dp column (like the plus desktop Now Playing panel) so
+            // the bars/meters/controls never stretch wall-to-wall.
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 540),
+                child: LayoutBuilder(
               builder: (context, constraints) {
-                // Web: the pane is a wide desktop panel, not a phone —
-                // cap by height too or the art alone outgrows the window.
+                // Cap by height too or the art alone outgrows the window.
                 final artSize = math.min(
                     constraints.maxWidth * 0.72, constraints.maxHeight * 0.36);
                 return Padding(
@@ -323,6 +329,8 @@ class NowPlayingScreen extends ConsumerWidget {
                   ),
                 );
               },
+                ),
+              ),
             ),
           ),
         ),

@@ -255,6 +255,7 @@ class QueueManager {
       status: PlaybackStatus.loading,
     ));
     try {
+      await _replacePrimary();
       await _setSource(_primary, track);
       await _setPrimaryVolume(1);
       if (session.position > Duration.zero) {
@@ -689,6 +690,22 @@ class QueueManager {
   /// caused spurious auto-skips (user-reported on plus).
   int _playGeneration = 0;
 
+  /// just_audio wraps every source in the player's internal playlist,
+  /// whose id is stable for the player's lifetime — and just_audio_web
+  /// caches platform source-players by that id, ignoring the fresh
+  /// children later setAudioSource calls bring. Net effect: the SECOND
+  /// load on the same player keeps playing the FIRST song forever
+  /// (title/FFT advance, audio doesn't — user-reported). A fresh player
+  /// per load sidesteps the stale cache; it's the same lifecycle the
+  /// crossfade path already uses for its incoming player, which is why
+  /// crossfades never showed the bug.
+  Future<void> _replacePrimary() async {
+    final old = _primary;
+    _primary = AudioPlayer(handleInterruptions: false);
+    _wirePlayer(_primary);
+    await old.dispose();
+  }
+
   Future<void> _playCurrent() async {
     final track = _currentTrack;
     if (track == null) return;
@@ -699,6 +716,8 @@ class QueueManager {
       status: PlaybackStatus.loading,
     ));
     try {
+      await _replacePrimary();
+      if (generation != _playGeneration) return;
       await _setSource(_primary, track);
       if (generation != _playGeneration) return; // superseded mid-load
       await _setPrimaryVolume(1);
