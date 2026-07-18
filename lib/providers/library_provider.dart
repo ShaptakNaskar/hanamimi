@@ -1,239 +1,140 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:web/web.dart' as web;
 
-import '../library/library_repository.dart';
-import '../library/library_scanner.dart';
-import '../library/models/playlist.dart';
 import '../library/models/track.dart';
+import '../platform/web/web_library.dart';
+import '../platform/web/web_media.dart';
+import '../utils/track_identity.dart';
 import 'theme_provider.dart';
 
-final libraryRepositoryProvider = FutureProvider<LibraryRepository>(
-  (ref) => LibraryRepository.open(),
-);
-
-/// Directories excluded from the library scan. Persisted; edits apply
-/// on the next (re)scan.
-class ExcludedFoldersNotifier extends Notifier<Set<String>> {
-  static const _key = 'excluded_folders';
+/// The web library: whatever folders/files the visitor picked this
+/// session, in memory only — blob URLs die with the tab, so there is
+/// nothing to persist except the likes (kept by song identity, so
+/// re-picking the same folder next visit lights the same hearts).
+class WebLibraryNotifier extends Notifier<List<WebFolder>> {
+  static const _likedKey = 'web_liked_songs';
 
   @override
-  Set<String> build() =>
-      ref.watch(sharedPrefsProvider).getStringList(_key)?.toSet() ?? {};
+  List<WebFolder> build() => const [];
 
-  void toggle(String path) {
-    state = state.contains(path)
-        ? ({...state}..remove(path))
-        : {...state, path};
-    ref.read(sharedPrefsProvider).setStringList(_key, state.toList());
-  }
-}
+  Set<String> get _likedKeys =>
+      (ref.read(sharedPrefsProvider).getStringList(_likedKey) ?? const [])
+          .toSet();
 
-final excludedFoldersProvider =
-    NotifierProvider<ExcludedFoldersNotifier, Set<String>>(
-        ExcludedFoldersNotifier.new);
-
-/// All tracks in the library. First read triggers a device scan if the
-/// DB is empty; `rescan()` is the user-facing refresh.
-class LibraryNotifier extends AsyncNotifier<List<Track>> {
-  bool _permissionDenied = false;
-  bool get permissionDenied => _permissionDenied;
-
-  LibraryScanner _scanner(LibraryRepository repo) => LibraryScanner(
-        repo,
-        excludedDirs: ref.read(excludedFoldersProvider),
-      );
-
-  @override
-  Future<List<Track>> build() async {
-    final repo = await ref.watch(libraryRepositoryProvider.future);
-    var tracks = await repo.allTracks();
-    if (tracks.isEmpty) {
-      final result = await _scanner(repo).scan();
-      _permissionDenied = result == ScanResult.permissionDenied;
-      tracks = await repo.allTracks();
-    }
-    return tracks;
+  /// Folder picker → one sidebar group per pick. Returns the number of
+  /// tracks imported, or null when the user cancelled the picker.
+  Future<int?> addFolder() async {
+    final files = await WebMedia.pickFolder();
+    if (files == null) return null;
+    return _import(files, folderNameFrom(files));
   }
 
-  Future<void> rescan() async {
-    final repo = await ref.read(libraryRepositoryProvider.future);
-    final result = await _scanner(repo).scan();
-    _permissionDenied = result == ScanResult.permissionDenied;
-    state = AsyncData(await repo.allTracks());
+  /// Loose files → they gather in a "Picked songs" group.
+  Future<int?> addFiles() async {
+    final files = await WebMedia.pickFiles();
+    if (files == null) return null;
+    return _import(files, 'Picked songs');
   }
 
-  Future<void> toggleLiked(Track track) async {
-    final repo = await ref.read(libraryRepositoryProvider.future);
-    await repo.setLiked(track.id, !track.liked);
-    state = AsyncData([
-      for (final t in state.value ?? <Track>[])
-        t.id == track.id ? t.copyWith(liked: !track.liked) : t,
-    ]);
-  }
-}
-
-final libraryProvider =
-    AsyncNotifierProvider<LibraryNotifier, List<Track>>(LibraryNotifier.new);
-
-/// Two files are "the same song" when title, artist, album and duration
-/// (to the second) all match — the filenames may differ but the music
-/// is 1:1 (same track ripped/downloaded twice). Artists are compared
-/// as a SORTED set: two rips of a collab often list the same artists
-/// in a different order ("Laura Brehm, Summer Was Fun" vs
-/// "Summer Was Fun, Laura Brehm") and are still the same song.
-String _songKey(Track t) {
-  final artists = t.artist
-      .toLowerCase()
-      .split(RegExp(r'[;,&/]|\bfeat\.?\b|\bft\.?\b'))
-      .map((s) => s.trim())
-      .where((s) => s.isNotEmpty)
-      .toList()
-    ..sort();
-  return '${t.title.toLowerCase().trim()}|${artists.join(',')}|'
-      '${t.album.toLowerCase().trim()}|${t.duration.inSeconds}';
-}
-
-/// Collapses duplicate songs to one entry, keeping list order. Among
-/// copies the lexicographically-first file path wins so the survivor
-/// is stable across rescans. Used library-wide (Songs tab, search,
-/// albums); folder browsing applies it per-directory instead, so a
-/// song living in two folders still shows in both.
-List<Track> dedupeTracks(List<Track> tracks) {
-  final best = <String, Track>{};
-  for (final t in tracks) {
-    final k = _songKey(t);
-    final cur = best[k];
-    if (cur == null || t.filePath.compareTo(cur.filePath) < 0) {
-      best[k] = t;
-    }
-  }
-  final seen = <String>{};
-  return [
-    for (final t in tracks)
-      if (seen.add(_songKey(t))) best[_songKey(t)]!,
-  ];
-}
-
-/// Albums derived from the track list, sorted by title.
-final albumsProvider = Provider<List<Album>>((ref) {
-  final tracks = ref.watch(libraryProvider).value ?? [];
-  final byAlbum = <int, List<Track>>{};
-  for (final t in tracks) {
-    byAlbum.putIfAbsent(t.albumId, () => []).add(t);
-  }
-  final albums = byAlbum.entries.map((e) {
-    final ts = dedupeTracks(e.value)
-      ..sort(
-        (a, b) => (a.trackNumber ?? 0).compareTo(b.trackNumber ?? 0));
-    return Album(
-      albumId: e.key,
-      title: ts.first.album,
-      artist: ts.first.artist,
-      artPath: ts.firstWhere((t) => t.albumArtPath != null, orElse: () => ts.first).albumArtPath,
-      tracks: ts,
+  Future<int> _import(List<web.File> files, String name) async {
+    if (files.isEmpty) return 0;
+    ref
+        .read(importProgressProvider.notifier)
+        .set(ImportProgress(0, files.length));
+    final liked = _likedKeys;
+    var tracks = await WebImporter.import(
+      files,
+      onProgress: (p) => ref.read(importProgressProvider.notifier).set(p),
     );
-  }).toList()
-    ..sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
-  return albums;
-});
+    tracks = [
+      for (final t in tracks)
+        liked.contains(_identity(t)) ? t.copyWith(liked: true) : t,
+    ];
+    ref.read(importProgressProvider.notifier).set(null);
 
-/// Folders that directly contain music, grouped by each track's parent
-/// directory and sorted by name.
-final foldersProvider = Provider<List<MusicFolder>>((ref) {
-  final tracks = ref.watch(libraryProvider).value ?? [];
-  final byDir = <String, List<Track>>{};
-  for (final t in tracks) {
-    final slash = t.filePath.lastIndexOf('/');
-    final dir = slash <= 0 ? '/' : t.filePath.substring(0, slash);
-    byDir.putIfAbsent(dir, () => []).add(t);
-  }
-  final folders = byDir.entries.map((e) {
-    final name = e.key.substring(e.key.lastIndexOf('/') + 1);
-    return MusicFolder(
-      path: e.key,
-      name: name.isEmpty ? '/' : name,
-      // Per-directory dedupe only — the same song in TWO folders is
-      // intentional; two identical files in ONE folder is clutter.
-      tracks: dedupeTracks(e.value),
-    );
-  }).toList()
-    ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-  return folders;
-});
-
-class PlaylistsNotifier extends AsyncNotifier<List<Playlist>> {
-  @override
-  Future<List<Playlist>> build() async {
-    final repo = await ref.watch(libraryRepositoryProvider.future);
-    return repo.allPlaylists();
-  }
-
-  Future<void> create(String name, int coverColor) async {
-    final repo = await ref.read(libraryRepositoryProvider.future);
-    await repo.createPlaylist(name, coverColor);
-    state = AsyncData(await repo.allPlaylists());
-  }
-
-  /// Creates a playlist pre-filled with tracks, in the given order
-  /// (folder → playlist). Returns the new playlist id.
-  Future<int> createWithTracks(
-      String name, int coverColor, List<int> trackIds) async {
-    final repo = await ref.read(libraryRepositoryProvider.future);
-    final id = await repo.createPlaylist(name, coverColor);
-    for (final trackId in trackIds) {
-      await repo.addToPlaylist(id, trackId);
+    // Re-picking the same folder replaces it instead of stacking a twin.
+    final existing = state.indexWhere((f) => f.name == name);
+    if (existing >= 0) {
+      state = [
+        for (var i = 0; i < state.length; i++)
+          i == existing ? WebFolder(name: name, tracks: tracks) : state[i],
+      ];
+    } else {
+      state = [...state, WebFolder(name: name, tracks: tracks)];
     }
-    state = AsyncData(await repo.allPlaylists());
-    return id;
+    return tracks.length;
   }
 
-  Future<void> addTrack(int playlistId, int trackId) async {
-    final repo = await ref.read(libraryRepositoryProvider.future);
-    await repo.addToPlaylist(playlistId, trackId);
-    state = AsyncData(await repo.allPlaylists());
+  void removeFolder(String name) {
+    for (final f in state.where((f) => f.name == name)) {
+      for (final t in f.tracks) {
+        WebMedia.revoke(t.filePath);
+      }
+    }
+    state = [for (final f in state) if (f.name != name) f];
   }
 
-  Future<void> removeTrack(int playlistId, int trackId) async {
-    final repo = await ref.read(libraryRepositoryProvider.future);
-    await repo.removeFromPlaylist(playlistId, trackId);
-    state = AsyncData(await repo.allPlaylists());
+  void toggleLiked(Track track) {
+    final nowLiked = !track.liked;
+    state = [
+      for (final f in state)
+        WebFolder(name: f.name, tracks: [
+          for (final t in f.tracks)
+            t.id == track.id ? t.copyWith(liked: nowLiked) : t,
+        ]),
+    ];
+    final keys = _likedKeys;
+    final key = _identity(track);
+    nowLiked ? keys.add(key) : keys.remove(key);
+    ref
+        .read(sharedPrefsProvider)
+        .setStringList(_likedKey, keys.toList()..sort());
   }
 
-  Future<void> delete(int playlistId) async {
-    final repo = await ref.read(libraryRepositoryProvider.future);
-    await repo.deletePlaylist(playlistId);
-    state = AsyncData(await repo.allPlaylists());
-  }
+  static String _identity(Track t) => identityKey(
+      title: t.title, artist: t.artist, duration: t.duration);
 
-  /// Sets or clears (null) a playlist's custom cover image.
-  Future<void> setCover(int playlistId, String? path) async {
-    final repo = await ref.read(libraryRepositoryProvider.future);
-    await repo.setPlaylistCover(playlistId, path);
-    state = AsyncData(await repo.allPlaylists());
-  }
-
-  /// Drag-reorder: moves the track at [oldIndex] to [newIndex] (indices
-  /// into the playlist's current order). State updates optimistically so
-  /// the row lands where it was dropped without a DB round-trip.
-  Future<void> reorderTrack(
-      int playlistId, int oldIndex, int newIndex) async {
-    final playlists = state.value ?? [];
-    final playlist =
-        playlists.where((p) => p.id == playlistId).firstOrNull;
-    if (playlist == null) return;
-    final ids = [...playlist.trackIds];
-    if (oldIndex < 0 || oldIndex >= ids.length) return;
-    final id = ids.removeAt(oldIndex);
-    ids.insert(newIndex.clamp(0, ids.length), id);
-
-    state = AsyncData([
-      for (final p in playlists)
-        p.id == playlistId ? p.copyWith(trackIds: ids) : p,
-    ]);
-    final repo = await ref.read(libraryRepositoryProvider.future);
-    await repo.reorderPlaylist(playlistId, ids);
+  /// The webkitdirectory picker keeps each file's relative path; the
+  /// first path segment is the folder the user actually chose.
+  static String folderNameFrom(List<web.File> files) {
+    for (final f in files) {
+      final rel = f.webkitRelativePath;
+      final slash = rel.indexOf('/');
+      if (slash > 0) return rel.substring(0, slash);
+    }
+    return 'Music';
   }
 }
 
-final playlistsProvider =
-    AsyncNotifierProvider<PlaylistsNotifier, List<Playlist>>(
-        PlaylistsNotifier.new);
+final webLibraryProvider =
+    NotifierProvider<WebLibraryNotifier, List<WebFolder>>(
+        WebLibraryNotifier.new);
+
+/// Live import progress, null when idle — the importer pushes, the
+/// sidebar chip watches.
+class ImportProgressNotifier extends Notifier<ImportProgress?> {
+  @override
+  ImportProgress? build() => null;
+
+  void set(ImportProgress? value) => state = value;
+}
+
+final importProgressProvider =
+    NotifierProvider<ImportProgressNotifier, ImportProgress?>(
+        ImportProgressNotifier.new);
+
+/// Every imported track, flat — the "play all" / shuffle-all source.
+final allTracksProvider = Provider<List<Track>>((ref) => [
+      for (final folder in ref.watch(webLibraryProvider)) ...folder.tracks,
+    ]);
+
+/// The freshest copy of a track (its liked flag lives here, not in the
+/// audio snapshot).
+final libraryTrackProvider = Provider.family<Track, Track>((ref, track) {
+  for (final folder in ref.watch(webLibraryProvider)) {
+    for (final t in folder.tracks) {
+      if (t.id == track.id) return t;
+    }
+  }
+  return track;
+});

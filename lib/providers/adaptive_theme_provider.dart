@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -11,11 +9,12 @@ import 'audio_provider.dart';
 import 'night_mode_provider.dart';
 import 'theme_provider.dart';
 
-/// The album-art image for a track — the scanner's cached/embedded art,
-/// null when it has none. (Offline edition: no remote art URLs.)
+/// The album-art image for a track — a blob URL minted from the file's
+/// embedded art, null when it has none. (Web edition: art never leaves
+/// the tab.)
 ImageProvider? artImageProvider(Track track) {
   final local = track.albumArtPath;
-  if (local != null && local.isNotEmpty) return FileImage(File(local));
+  if (local != null && local.isNotEmpty) return NetworkImage(local);
   return null;
 }
 
@@ -103,10 +102,10 @@ final crossfadeIncomingThemeProvider =
 final _artKeyProvider = Provider<(String, ImageProvider)?>((ref) {
   final track = ref.watch(audioStateProvider).value?.currentTrack;
   if (track == null) return null;
-  // Local/embedded album art (extracted to a cached file by the scanner).
+  // Embedded album art, minted as a blob URL at import time.
   final local = track.albumArtPath;
   if (local != null && local.isNotEmpty) {
-    return ('local:$local', FileImage(File(local)));
+    return ('local:$local', NetworkImage(local));
   }
   return null;
 });

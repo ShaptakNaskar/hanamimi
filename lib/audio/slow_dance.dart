@@ -1,10 +1,8 @@
-import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:path_provider/path_provider.dart';
-
 import '../library/models/track.dart';
+import '../platform/web/web_fft.dart';
 
 /// Where and how long to crossfade out of a track (Slow Dance, 3.0 #4).
 class SlowDancePlan {
@@ -15,48 +13,29 @@ class SlowDancePlan {
   final Duration fade;
 }
 
-/// Sighted crossfade planning: reads the track's cached RMS frames (the
-/// same v3 disk cache the visualizers fill, [int32 frameCount][float32 ×
-/// stride], big-endian, 60 fps) and finds where the outgoing track's
-/// energy actually dies — so the next song starts as this one fades,
-/// loudness-matched instead of a blind fixed-duration timer.
+/// Sighted crossfade planning: reads the track's analyzed RMS frames
+/// (the web edition keeps them in WebFft's in-memory cache instead of a
+/// disk file — same 60 fps, stride-14 layout) and finds where the
+/// outgoing track's energy actually dies, so the next song starts as
+/// this one fades, loudness-matched instead of a blind timer.
 ///
-/// Returns null when no cache exists yet (first-ever play of a track,
-/// or a file the extractor can't decode) — the caller falls back to
-/// the classic timer.
+/// Returns null when the run isn't analyzed yet (first seconds of a
+/// track's first play) — the caller falls back to the classic timer.
 Future<SlowDancePlan?> planSlowDance(Track track) async {
   try {
-    final file = await _cacheFileFor(track);
-    if (!await file.exists()) return null;
-    final bytes = await file.readAsBytes();
-    if (bytes.length < 8) return null;
-    final data = ByteData.sublistView(bytes);
-    final frameCount = data.getInt32(0);
-    if (frameCount <= 0) return null;
-    // Stride from the actual payload — v3 files are 14 floats/frame,
-    // but tolerate legacy 12 (no RMS: fall back to the band mean).
-    final stride = (bytes.length - 4) ~/ (frameCount * 4);
-    if (stride != 14 && stride != 12) return null;
+    final run = WebFft.cached(_keyFor(track));
+    if (run == null) return null;
+    const stride = 14;
+    final frameCount = run.length ~/ stride;
 
     const fps = 60;
     if (frameCount < 30 * fps) return null; // <30 s — don't bother
 
-    // Per-frame loudness, lightly smoothed (~250 ms box) so a single
-    // quiet beat can't read as "the song died".
+    // Per-frame loudness from the L/R RMS pair, lightly smoothed
+    // (~250 ms box) so a single quiet beat can't read as "the song died".
     final loud = Float64List(frameCount);
     for (var i = 0; i < frameCount; i++) {
-      final base = 4 + i * stride * 4;
-      if (stride == 14) {
-        loud[i] = (data.getFloat32(base + 12 * 4) +
-                data.getFloat32(base + 13 * 4)) /
-            2;
-      } else {
-        var sum = 0.0;
-        for (var b = 0; b < 12; b++) {
-          sum += data.getFloat32(base + b * 4);
-        }
-        loud[i] = sum / 12;
-      }
+      loud[i] = (run[i * stride + 12] + run[i * stride + 13]) / 2;
     }
     const smooth = 15; // frames ≈ 250 ms
     final smoothed = Float64List(frameCount);
@@ -92,15 +71,11 @@ Future<SlowDancePlan?> planSlowDance(Track track) async {
     }
     return SlowDancePlan(startAt: end - fade, fade: fade);
   } catch (_) {
-    return null; // any parse hiccup = classic timer, never a crash
+    return null; // any hiccup = classic timer, never a crash
   }
 }
 
-/// Mirrors the cache-key/dir derivation in visualizerBandsProvider and
-/// the FFT extractor — if those move, move this with them.
-Future<File> _cacheFileFor(Track track) async {
-  final key =
-      'v3_${track.mediaId}_${track.filePath.hashCode}_${track.duration.inMilliseconds}';
-  final dir = (await getTemporaryDirectory()).path;
-  return File('$dir/fft/$key.bin');
-}
+/// Mirrors the cache-key derivation in visualizerBandsProvider — if
+/// that moves, move this with it.
+String _keyFor(Track track) =>
+    'v3_${track.mediaId}_${track.filePath.hashCode}_${track.duration.inMilliseconds}';

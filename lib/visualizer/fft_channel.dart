@@ -1,21 +1,18 @@
-import 'package:flutter/services.dart';
+import '../platform/web/web_fft.dart';
 
-/// Dart side of android/.../FftExtractorChannel.kt — visualizer band
-/// frames computed by decoding the audio file (no RECORD_AUDIO).
+/// Web edition: the same surface the Android MethodChannel exposes,
+/// backed by the in-browser extractor (Web Audio decode → Dart FFT).
+/// visualizer_provider consumes this identically on every platform.
 class FftChannel {
-  static const _method = MethodChannel('hanamimi/fft');
-  static const _events = EventChannel('hanamimi/fft/frames');
-
-  /// Kicks off (or resumes from cache) extraction for [path]. Frames
-  /// arrive on [frames] tagged with [key]; starting a new extraction
-  /// cancels the previous one.
+  /// Kicks off (or replays from the in-memory cache) extraction for
+  /// [path] (a blob URL). Frames arrive on [frames] tagged with [key];
+  /// starting a new extraction cancels the previous one.
   static Future<void> start(String path, String key) =>
-      _method.invokeMethod('start', {'path': path, 'key': key});
+      WebFft.start(path, key);
 
-  static Future<void> cancel() => _method.invokeMethod('cancel');
+  static Future<void> cancel() => WebFft.cancel();
 
-  /// Chunks: {key: String, offset: int (frame index), bands: Float64List
-  /// (frames × 12, flattened), done: bool}.
-  static Stream<Map> get frames =>
-      _events.receiveBroadcastStream().map((e) => e as Map);
+  /// Chunks: {key: String, offset: int (frame index), bands:
+  /// List&lt;double&gt; (frames × stride, flattened), stride: 14, done: bool}.
+  static Stream<Map> get frames => WebFft.frames;
 }

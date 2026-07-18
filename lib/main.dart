@@ -13,16 +13,14 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
 
+  // audio_service's web backend wires the browser Media Session API —
+  // hardware media keys and the tab's "now playing" chip drive the same
+  // handler the Android notification does.
   final audioHandler = await AudioService.init(
     builder: () => HanamimiAudioHandler(QueueManager()),
     config: const AudioServiceConfig(
       androidNotificationChannelId: 'com.hanamimi.app.channel.audio',
       androidNotificationChannelName: 'Hanamimi playback',
-      androidNotificationOngoing: true,
-      androidStopForegroundOnPause: true,
-      // Status-bar icons render alpha-only; the launcher mascot became a
-      // featureless blob there. This is a purpose-drawn silhouette.
-      androidNotificationIcon: 'drawable/ic_stat_hanamimi',
     ),
   );
 

@@ -2,7 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../audio/audio_handler.dart';
 import '../audio/models/audio_state.dart';
-import 'library_provider.dart';
 
 /// Injected in main() after AudioService.init.
 final audioHandlerProvider = Provider<HanamimiAudioHandler>(
@@ -24,7 +23,8 @@ final bufferedProvider = StreamProvider<Duration>(
 
 /// Bumped every time the app returns to the foreground. Widgets that must
 /// self-heal after a background freeze (the visualizer re-kicks its FFT
-/// extraction, etc.) watch this. See AppShell's lifecycle observer.
+/// extraction, etc.) watch this. Kept on web for the visualizer's
+/// watchdog; browser tab restores bump it from the shell.
 class AppResumeTick extends Notifier<int> {
   @override
   int build() => 0;
@@ -33,13 +33,3 @@ class AppResumeTick extends Notifier<int> {
 
 final appResumeTickProvider =
     NotifierProvider<AppResumeTick, int>(AppResumeTick.new);
-
-/// Records play counts as tracks start.
-final playCountRecorderProvider = Provider<void>((ref) {
-  final handler = ref.watch(audioHandlerProvider);
-  final sub = handler.engine.trackStarted.stream.listen((track) async {
-    final repo = await ref.read(libraryRepositoryProvider.future);
-    await repo.recordPlay(track.id);
-  });
-  ref.onDispose(sub.cancel);
-});

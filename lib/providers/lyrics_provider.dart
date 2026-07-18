@@ -9,19 +9,19 @@ import 'theme_provider.dart';
 /// Lyrics for a library track id. Honors the user's per-track source
 /// choice (from the sheet's source picker); otherwise auto-picks the
 /// best quality (word > line > plain).
-final lyricsProvider = FutureProvider.family<Lyrics?, int>((ref, trackId) async {
-  final repo = await ref.watch(libraryRepositoryProvider.future);
-  final track = (await repo.allTracks())
-      .where((t) => t.id == trackId)
-      .firstOrNull ??
+final lyricsProvider =
+    FutureProvider.family<Lyrics?, int>((ref, trackId) async {
+  final track = ref
+          .read(allTracksProvider)
+          .where((t) => t.id == trackId)
+          .firstOrNull ??
       ref.read(audioStateProvider).value?.currentTrack;
   if (track == null || track.id != trackId) return null;
 
-  final service = LyricsService(repo);
+  final service = LyricsService();
 
-  final overrideName = ref
-      .watch(sharedPrefsProvider)
-      .getString('lyrics_source_$trackId');
+  final overrideName =
+      ref.watch(sharedPrefsProvider).getString('lyrics_source_$trackId');
   if (overrideName != null) {
     final source = LyricsSource.values
         .where((s) => s.name == overrideName)

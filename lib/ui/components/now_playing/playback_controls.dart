@@ -199,12 +199,14 @@ class _PlaybackControlsState extends ConsumerState<PlaybackControls>
                   }),
             ),
             // Straight into a playlist from the player (community ask).
-            _IconOnly(
-              icon: Icons.playlist_add,
-              size: 20,
-              color: theme.textMuted,
-              onTap: widget.onAddToPlaylist ?? () {},
-            ),
+            // Web edition has no playlists — callers just omit it.
+            if (widget.onAddToPlaylist != null)
+              _IconOnly(
+                icon: Icons.playlist_add,
+                size: 20,
+                color: theme.textMuted,
+                onTap: widget.onAddToPlaylist!,
+              ),
             if (widget.onStartRadio != null)
               _IconOnly(
                 icon: Icons.radio_outlined,

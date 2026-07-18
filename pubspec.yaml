@@ -1,74 +1,34 @@
 name: hanamimi
-description: "A new Flutter project."
-# The following line prevents the package from being accidentally published to
-# pub.dev using `flutter pub publish`. This is preferred for private packages.
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+description: "Hanamimi web — the kawaii player, demonstrated in a browser tab."
+publish_to: 'none'
 
-# The following defines the version and build number for your application.
-# A version number is three numbers separated by dots, like 1.2.43
-# followed by an optional build number separated by a +.
-# Both the version and the builder number may be overridden in flutter
-# build by specifying --build-name and --build-number, respectively.
-# In Android, build-name is used as versionName while build-number used as versionCode.
-# Read more about Android versioning at https://developer.android.com/studio/publish/versioning
-# In iOS, build-name is used as CFBundleShortVersionString while build-number is used as CFBundleVersion.
-# Read more about iOS versioning at
-# https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
-# In Windows, build-name is used as the major, minor, and patch parts
-# of the product and file versions while build-number is used as the build suffix.
-version: 3.1.0 # only major.minor matters — CI auto-increments the patch per release
+# Web edition: version is cosmetic (updates are a redeploy).
+version: 3.1.0
 
 environment:
   sdk: ^3.7.2
 
-# Dependencies specify other packages that your package needs in order to work.
-# To automatically upgrade your package dependencies to the latest versions
-# consider running `flutter pub upgrade --major-versions`. Alternatively,
-# dependencies can be manually updated by changing the version numbers below to
-# the latest version available on pub.dev. To see which dependencies have newer
-# versions available, run `flutter pub outdated`.
 dependencies:
   flutter:
     sdk: flutter
 
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   flutter_riverpod: ^3.3.2
-  permission_handler: ^12.0.3
-  sqflite: ^2.4.2
   shared_preferences: ^2.5.3
-  just_audio: ^0.10.6
-  audio_service: ^0.18.19
-  audio_session: ^0.2.2 # single focus owner; engine reacts to call interruptions
+  just_audio: ^0.10.6 # web backend: HTML5 audio over blob URLs
+  audio_service: ^0.18.19 # web backend: Media Session API (media keys)
   rxdart: ^0.28.0
-  http: ^1.6.0
-  screen_brightness: ^2.1.11
-  url_launcher: ^6.3.1 # maker links in About
-  package_info_plus: ^8.3.0 # versionCode for the update checker
-  path_provider: ^2.1.5 # temp dir for the update APK download
-  archive: ^4.0.9 # 3.0 backup ZIP bundle
-  file_selector: ^1.0.3 # 3.0 backup import file picker
-  image_picker: ^1.2.1 # custom playlist covers (Android Photo Picker)
-  share_plus: ^12.0.1 # lyrics cards
-  gamepads: ^0.1.7 # couch-mode controller navigation (handhelds)
+  http: ^1.6.0 # LRCLIB lyrics
+  url_launcher: ^6.3.1 # GitHub plug + maker links in About
+  file_selector: ^1.0.3 # multi-file picker fallback (Firefox/Safari)
+  web: ^1.1.0 # FS Access API, Web Audio decode, wake lock
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
-  # The "flutter_lints" package below contains a set of recommended lints to
-  # encourage good coding practices. The lint set provided by the package is
-  # activated in the `analysis_options.yaml` file located at the root of your
-  # package. See that file for information about deactivating specific lint
-  # rules and activating additional ones.
   flutter_lints: ^5.0.0
-  flutter_launcher_icons: ^0.14.4
 
-# For information on the generic Dart part of this file, see the
-# following page: https://dart.dev/tools/pub/pubspec
-
-# The following section is specific to Flutter packages.
 flutter:
   uses-material-design: true
 
@@ -87,10 +47,3 @@ flutter:
           weight: 700
         - asset: assets/fonts/Nunito-800.ttf
           weight: 800
-
-flutter_launcher_icons:
-  android: true
-  ios: false
-  image_path: assets/icon/icon.png
-  adaptive_icon_background: "#F4A7B9"
-  adaptive_icon_foreground: assets/icon/icon_foreground.png

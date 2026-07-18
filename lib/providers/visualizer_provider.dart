@@ -4,12 +4,10 @@ import 'dart:math' as math;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../library/models/track.dart';
-import '../reco/feature_extractor.dart';
 import '../theme/hanamimi_theme.dart';
 import '../visualizer/fft_channel.dart';
 import '../visualizer/fft_processor.dart';
 import 'audio_provider.dart';
-import 'library_provider.dart';
 import 'theme_provider.dart';
 import 'window_activity_provider.dart';
 
@@ -200,7 +198,6 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   const outCount = bandCount + 2; // bands + L/R loudness
 
   String? currentKey;
-  int? currentTrackId; // DB row id, for the M38a feature store
   var frames = <double>[]; // flattened frames × stride
   var stride = bandCount; // floats per frame in [frames]
   var extractionDone = false;
@@ -212,7 +209,6 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   // is one native extractor; pointing it at the incoming track is safe
   // because the outgoing track's frames are already fully buffered.
   String? prewarmKey;
-  int? prewarmTrackId;
   var prewarmFrames = <double>[];
   var prewarmStride = bandCount;
   var prewarmDone = false;
@@ -249,28 +245,6 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   String keyFor(Track track) =>
       'v3_${track.mediaId}_${track.filePath.hashCode}_${track.duration.inMilliseconds}';
 
-  // M38a: the decode we pay for doubles as the content-similarity source
-  // — summarize the full frame run into the track's feature vector (once
-  // per track per layout version). Strip the RMS columns first: vectors
-  // must stay comparable with the 12-band ones already in the library.
-  void saveFeatures(int tid, List<double> buf, int s) {
-    if (buf.isEmpty) return;
-    final snapshot = s == bandCount
-        ? List<double>.from(buf)
-        : <double>[
-            for (var f = 0; f + s <= buf.length; f += s)
-              ...buf.getRange(f, f + bandCount),
-          ];
-    Future(() async {
-      final repo = await ref.read(libraryRepositoryProvider.future);
-      if (await repo.hasTrackFeatures(tid, trackFeaturesVersion)) return;
-      final vector = summarizeFrames(snapshot);
-      if (vector.isEmpty) return;
-      await repo.saveTrackFeatures(
-          tid, trackFeaturesVersion, vector.buffer.asUint8List());
-    });
-  }
-
   void startFor(Track track) {
     final key = keyFor(track);
     if (key == currentKey) return;
@@ -282,7 +256,6 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     // primary key), so an unfinished prewarm simply continues.
     if (key == prewarmKey) {
       currentKey = key;
-      currentTrackId = track.id;
       frames = prewarmFrames;
       stride = prewarmStride;
       extractionDone = prewarmDone;
@@ -295,12 +268,10 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
       prewarmStride = bandCount;
       prewarmDone = false;
       prewarmStats = BandStats();
-      prewarmTrackId = null;
       return;
     }
 
     currentKey = key;
-    currentTrackId = track.id;
     frames = <double>[];
     stride = bandCount;
     extractionDone = false;
@@ -324,7 +295,6 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     if (key == currentKey || key == prewarmKey) return;
     if (frames.isNotEmpty && !extractionDone) return; // don't truncate
     prewarmKey = key;
-    prewarmTrackId = track.id;
     prewarmFrames = <double>[];
     prewarmStride = bandCount;
     prewarmDone = false;
@@ -338,7 +308,6 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     prewarmStride = bandCount;
     prewarmDone = false;
     prewarmStats = BandStats();
-    prewarmTrackId = null;
   }
 
   final frameSub = FftChannel.frames.listen((event) {
@@ -355,11 +324,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
       }
       frames.addAll(bands);
       stats.add(bands, s); // real chunks only — gap padding isn't music
-      if (done) {
-        extractionDone = true;
-        final tid = currentTrackId;
-        if (tid != null) saveFeatures(tid, frames, stride);
-      }
+      if (done) extractionDone = true;
     } else if (key == prewarmKey) {
       // Buffer the incoming track's frames without touching the meters
       // that are still reading the outgoing track.
@@ -370,11 +335,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
       }
       prewarmFrames.addAll(bands);
       prewarmStats.add(bands, s);
-      if (done) {
-        prewarmDone = true;
-        final tid = prewarmTrackId;
-        if (tid != null) saveFeatures(tid, prewarmFrames, prewarmStride);
-      }
+      if (done) prewarmDone = true;
     }
     // else: stale job from a cancelled extraction — drop it.
   });

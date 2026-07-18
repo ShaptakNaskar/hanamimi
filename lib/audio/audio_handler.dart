@@ -37,9 +37,10 @@ class HanamimiAudioHandler extends BaseAudioHandler {
         artist: track.artist,
         album: track.album,
         duration: s.duration,
+        // Web edition: album art is a blob URL, not a file path.
         artUri: track.albumArtPath == null
             ? null
-            : Uri.file(track.albumArtPath!),
+            : Uri.tryParse(track.albumArtPath!),
       ));
     }
 

@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
 
@@ -13,7 +12,6 @@ import '../../providers/companion_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
 import '../../providers/nerd_provider.dart';
-import '../../providers/reco_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/visualizer_provider.dart';
@@ -31,7 +29,6 @@ import '../components/now_playing/wipe_reveal.dart';
 import '../components/shared/particle_overlay.dart';
 import 'blackout_screen.dart';
 import '../modals/lyrics_sheet.dart';
-import '../modals/playlist_picker_sheet.dart';
 import '../modals/queue_sheet.dart';
 import '../modals/sleep_timer_modal.dart';
 
@@ -71,12 +68,7 @@ class NowPlayingScreen extends ConsumerWidget {
     }
 
     // Liked state lives in the library, not the audio snapshot.
-    final libraryTrack =
-        ref
-            .watch(libraryProvider)
-            .value
-            ?.firstWhere((t) => t.id == track.id, orElse: () => track) ??
-        track;
+    final libraryTrack = ref.watch(libraryTrackProvider(track));
 
     // Crossfade: while the audio ramps from the outgoing track to the
     // incoming one, wipe the art and title/artist across (right→left) in
@@ -136,7 +128,10 @@ class NowPlayingScreen extends ConsumerWidget {
             enabled: ref.watch(meltAwayProvider) && (audio?.isPlaying ?? false),
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final artSize = constraints.maxWidth * 0.72;
+                // Web: the pane is a wide desktop panel, not a phone —
+                // cap by height too or the art alone outgrows the window.
+                final artSize = math.min(
+                    constraints.maxWidth * 0.72, constraints.maxHeight * 0.36);
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: Space.s4),
                   child: Column(
@@ -223,14 +218,6 @@ class NowPlayingScreen extends ConsumerWidget {
                         child: PlaybackControls(
                           onSleepTimer: () => showSleepTimerModal(context),
                           onQueue: () => showQueueSheet(context),
-                          onAddToPlaylist:
-                              () => showPlaylistPicker(
-                                context,
-                                ref,
-                                theme,
-                                libraryTrack.id,
-                              ),
-                          onStartRadio: () => startRadio(ref, libraryTrack),
                           onBlackout:
                               () => Navigator.of(
                                 context,
@@ -363,16 +350,18 @@ class _BlurredArtBackground extends StatelessWidget {
 
   Widget _wash(Track t) {
     final art = t.albumArtPath;
-    if (art != null && File(art).existsSync()) {
+    if (art != null) {
       return ImageFiltered(
         imageFilter: ImageFilter.blur(sigmaX: 60, sigmaY: 60),
         // Blurring full-resolution art costs enormous raster time and
         // memory; at sigma 60 a small decode looks identical.
-        child: Image.file(
-          File(art),
+        child: Image.network(
+          art,
           fit: BoxFit.cover,
           cacheWidth: 200,
           gaplessPlayback: true,
+          errorBuilder: (_, __, ___) =>
+              ColoredBox(color: theme.primary.withValues(alpha: 0.4)),
         ),
       );
     }
@@ -571,7 +560,7 @@ class _HeartButtonState extends ConsumerState<_HeartButton>
       radius: Sizes.minTouchTarget / 2,
       onTap: () {
         if (!liked) _beat.forward(from: 0);
-        ref.read(libraryProvider.notifier).toggleLiked(widget.track);
+        ref.read(webLibraryProvider.notifier).toggleLiked(widget.track);
       },
       child: SizedBox(
         width: Sizes.minTouchTarget,

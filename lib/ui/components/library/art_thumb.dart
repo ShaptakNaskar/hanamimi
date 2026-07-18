@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 /// Album art thumbnail with the DESIGN.md placeholder: a soft gradient
@@ -21,13 +19,12 @@ class ArtThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // No existsSync here — synchronous disk IO on every list-row build
-    // makes scrolling jank. Missing files fall through to the
-    // placeholder via errorBuilder instead.
+    // Web edition: art is a blob URL minted from the embedded tag.
+    // A revoked/missing blob falls through to the placeholder.
     final child = artPath == null
         ? _placeholder()
-        : Image.file(
-            File(artPath!),
+        : Image.network(
+            artPath!,
             width: size,
             height: size,
             fit: BoxFit.cover,

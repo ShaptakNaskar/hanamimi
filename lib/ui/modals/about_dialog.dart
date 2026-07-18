@@ -4,7 +4,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../providers/dev_provider.dart';
 import '../../providers/theme_provider.dart';
-import '../../providers/update_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
@@ -30,11 +29,10 @@ class _AboutDialog extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = ref.watch(currentThemeProvider);
-    // "Hanamimi+ 花耳 · 2.3.2" → name = before " · ", version = after.
-    final label = ref.watch(appVersionLabelProvider).value ?? 'Hanamimi 花耳';
-    final parts = label.split(' · ');
-    final name = parts.first;
-    final version = parts.length > 1 ? 'v${parts[1]}' : '';
+    // Web edition: no update checker, so no run-number version — the
+    // deployment IS the version.
+    const name = 'Hanamimi 花耳';
+    const version = 'web demo';
 
     return Dialog(
       backgroundColor: theme.surface,
@@ -74,17 +72,16 @@ class _AboutDialog extends ConsumerWidget {
               Text(name,
                   style: AppText.screenTitle(theme),
                   textAlign: TextAlign.center),
-              if (version.isNotEmpty) ...[
-                const SizedBox(height: Space.s1),
-                Text(version,
-                    style: AppText.caption(theme)
-                        .copyWith(color: theme.textMuted)),
-              ],
+              const SizedBox(height: Space.s1),
+              Text(version,
+                  style: AppText.caption(theme)
+                      .copyWith(color: theme.textMuted)),
               const SizedBox(height: Space.s4),
               Text(
-                'A cozy little music player — your own library and the '
-                'whole online world, wrapped in kawaii. No ads, no '
-                'tracking, just your songs and a friendly companion.',
+                'A cozy little music player, demonstrated in your browser — '
+                'your own files, wrapped in kawaii. Nothing is uploaded; '
+                'the music never leaves this tab. The full app does much '
+                'more — grab it on GitHub.',
                 style: AppText.caption(theme),
                 textAlign: TextAlign.center,
               ),

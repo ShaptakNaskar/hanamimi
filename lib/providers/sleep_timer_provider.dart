@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:screen_brightness/screen_brightness.dart';
 
 import '../audio/queue_manager.dart';
 import 'audio_provider.dart';
@@ -94,12 +92,10 @@ class SleepTimerNotifier extends Notifier<SleepTimerState> {
           .clamp(0.0, 1.0);
       final e = t * t * (3 - 2 * t);
       await _engine.setVolume(1 - e);
-      await _setBrightness(1 - e * 0.85); // dim to 15%, not black
       if (t >= 1) {
         timer.cancel();
         await _engine.pause();
         await _engine.setVolume(1);
-        await _resetBrightness();
         _releaseScreen();
         state = const SleepTimerState();
       }
@@ -112,7 +108,6 @@ class SleepTimerNotifier extends Notifier<SleepTimerState> {
     _cancelTimers();
     _engine.pauseAtTrackEnd = false;
     state = const SleepTimerState();
-    _resetBrightness();
     if (wasFading) {
       final stopwatch = Stopwatch()..start();
       Timer.periodic(const Duration(milliseconds: 50), (timer) async {
@@ -124,23 +119,8 @@ class SleepTimerNotifier extends Notifier<SleepTimerState> {
     }
   }
 
-  // App-level brightness only — never touches the system setting.
-  // Best-effort: some ROMs deny it, and that shouldn't break the fade.
-  // Desktop monitors aren't ours to dim — the volume fade carries it.
-  Future<void> _setBrightness(double value) async {
-    if (!Platform.isAndroid) return;
-    try {
-      await ScreenBrightness.instance
-          .setApplicationScreenBrightness(value.clamp(0.05, 1.0));
-    } catch (_) {}
-  }
-
-  Future<void> _resetBrightness() async {
-    if (!Platform.isAndroid) return;
-    try {
-      await ScreenBrightness.instance.resetApplicationScreenBrightness();
-    } catch (_) {}
-  }
+  // Browser tabs can't dim the monitor — the volume fade carries the
+  // goodnight on its own here.
 
   /// When the music sleeps, let the screen sleep too: drop Blackout's
   /// keep-awake window flag and any Caffeine hold, so the display can

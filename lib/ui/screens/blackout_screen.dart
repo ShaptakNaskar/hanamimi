@@ -1,10 +1,8 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../library/models/track.dart';
@@ -77,9 +75,6 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
     super.initState();
     _scheduleClock();
     PowerChannel.setKeepScreenOn(true);
-    if (Platform.isAndroid) {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    }
     // The dimming is a scrim INSIDE this screen (see build), not a
     // window-brightness override. The screen_brightness override left
     // Nothing OS refusing slider input after exit — "the top app is
@@ -96,9 +91,6 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
   void _restoreSystem() {
     if (_restored) return;
     _restored = true;
-    if (Platform.isAndroid) {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    }
     if (!_caffeineOn) PowerChannel.setKeepScreenOn(false);
   }
 
@@ -685,8 +677,7 @@ class _ArtWash extends StatelessWidget {
   ImageProvider? _art() {
     final artPath = track.albumArtPath;
     if (artPath == null) return null;
-    ImageProvider image = FileImage(File(artPath));
-    return ResizeImage(image, width: 200);
+    return ResizeImage(NetworkImage(artPath), width: 200);
   }
 
   @override

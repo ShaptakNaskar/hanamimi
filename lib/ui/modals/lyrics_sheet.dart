@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
 
@@ -9,7 +8,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../library/models/track.dart';
 import '../../lyrics/lyrics_service.dart';
 import '../../lyrics/models/lyric_line.dart';
-import '../../providers/library_provider.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/lyrics_provider.dart';
 import '../../providers/power_provider.dart';
@@ -18,7 +16,6 @@ import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
 import '../components/mascot/hanamimi_widget.dart';
-import 'share_lyrics_sheet.dart';
 
 /// Slide-up sheet (85% height) with the blurred album art as backdrop
 /// and karaoke-style synced lines: the active line fills word by word,
@@ -111,15 +108,18 @@ class _LyricsSheetBodyState extends ConsumerState<_LyricsSheetBody> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          if (track.albumArtPath != null &&
-              File(track.albumArtPath!).existsSync())
+          if (track.albumArtPath != null)
             ImageFiltered(
               imageFilter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
               // Small decode: it's blurred to a wash anyway, and full-res
               // art here makes the raster thread struggle (freezes on
               // surface re-creation, e.g. after the notification shade).
-              child: Image.file(File(track.albumArtPath!),
-                  fit: BoxFit.cover, cacheWidth: 200, gaplessPlayback: true),
+              child: Image.network(track.albumArtPath!,
+                  fit: BoxFit.cover,
+                  cacheWidth: 200,
+                  gaplessPlayback: true,
+                  errorBuilder: (_, __, ___) =>
+                      ColoredBox(color: theme.background)),
             )
           else
             ColoredBox(color: theme.background),
@@ -163,32 +163,6 @@ class _LyricsSheetBodyState extends ConsumerState<_LyricsSheetBody> {
                               _adjustOffset(track.id, delta),
                         ),
                       ],
-                      const SizedBox(width: Space.s2),
-                      // Share a lyrics card (Spotify-style, with mascot).
-                      InkResponse(
-                        onTap: () => showShareLyricsSheet(
-                          context,
-                          track,
-                          [
-                            for (final l in lyrics.value!.lines)
-                              if (l.text.trim().isNotEmpty) l.text,
-                          ],
-                          theme,
-                        ),
-                        radius: 18,
-                        child: Container(
-                          padding: const EdgeInsets.all(Space.s1),
-                          decoration: BoxDecoration(
-                            color: theme.surface.withValues(alpha: 0.95),
-                            borderRadius: BorderRadius.circular(Radii.sm),
-                            border: Border.all(
-                                color: theme.divider.withValues(alpha: 0.8),
-                                width: 1),
-                          ),
-                          child: Icon(Icons.ios_share,
-                              size: 14, color: theme.textPrimary),
-                        ),
-                      ),
                     ],
                   ),
                 ],
@@ -959,8 +933,7 @@ class _SourcePickerSheetState extends ConsumerState<_SourcePickerSheet> {
   }
 
   Future<void> _probe() async {
-    final repo = await ref.read(libraryRepositoryProvider.future);
-    final service = LyricsService(repo);
+    final service = LyricsService();
     for (final source in LyricsSource.values) {
       // Fire concurrently; each row updates as its answer lands.
       service.fetchFromSource(widget.track, source).then((lyrics) {
