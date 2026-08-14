@@ -473,7 +473,9 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   final engine = ref.read(audioHandlerProvider).engine;
   var settled = false;
   var tick = 0;
-  final timer = Timer.periodic(const Duration(milliseconds: 16), (_) {
+  // The FFT store itself is 60 fps. 16 ms runs at 62.5 Hz and slowly beats
+  // against display vsync; 16,667 us keeps sampling on the source cadence.
+  final timer = Timer.periodic(const Duration(microseconds: 16667), (_) {
     // Minimized: freeze the stream — every emission rebuilds all the
     // band listeners and keeps the render pipeline hot for a window
     // nobody can see. Unfocused (visible on a second monitor, another

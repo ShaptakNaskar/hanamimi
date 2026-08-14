@@ -281,53 +281,7 @@ class NowPlayingScreen extends ConsumerWidget {
                         child: SizedBox(
                           width: double.infinity,
                           child: Stack(
-                            children: [
-                              if (ref.watch(buddyEnabledProvider('beagle')))
-                                Align(
-                                  child: FittedBox(
-                                    fit: BoxFit.scaleDown,
-                                    child: HanamimiMascot(
-                                      state: ref.watch(mascotStateProvider),
-                                      amplitude: ref.watch(amplitudeProvider),
-                                      accessory:
-                                          ref.watch(catModeProvider).enabled
-                                              ? Accessory.catEars
-                                              : ref.watch(
-                                                activeAccessoryProvider,
-                                              ),
-                                      size: 90,
-                                      onTap: () {
-                                        final unlocked =
-                                            ref
-                                                .read(catModeProvider.notifier)
-                                                .registerMascotTap();
-                                        if (unlocked) {
-                                          ScaffoldMessenger.of(
-                                            context,
-                                          ).showSnackBar(
-                                            SnackBar(
-                                              behavior:
-                                                  SnackBarBehavior.floating,
-                                              shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(
-                                                      Radii.md,
-                                                    ),
-                                              ),
-                                              content: const Text(
-                                                'Meow?! Cat Mode unlocked 🐱',
-                                                style: TextStyle(
-                                                  fontFamily: 'Nunito',
-                                                ),
-                                              ),
-                                            ),
-                                          );
-                                        }
-                                      },
-                                    ),
-                                  ),
-                                ),
-                            ],
+                            children: const [_NowPlayingMascot()],
                           ),
                         ),
                       ),
@@ -340,6 +294,52 @@ class NowPlayingScreen extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Keeps the 60 Hz amplitude subscription out of [NowPlayingScreen].
+/// Watching it in the parent rebuilt the complete player panel for every FFT
+/// sample. Only this small mascot subtree needs the value.
+class _NowPlayingMascot extends ConsumerWidget {
+  const _NowPlayingMascot();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!ref.watch(buddyEnabledProvider('beagle'))) {
+      return const SizedBox.shrink();
+    }
+    final accessory = ref.watch(catModeProvider).enabled
+        ? Accessory.catEars
+        : ref.watch(activeAccessoryProvider);
+    return Align(
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: HanamimiMascot(
+          state: ref.watch(mascotStateProvider),
+          amplitude: ref.watch(amplitudeProvider),
+          accessory: accessory,
+          size: 90,
+          onTap: () {
+            final unlocked = ref
+                .read(catModeProvider.notifier)
+                .registerMascotTap();
+            if (!unlocked) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(Radii.md),
+                ),
+                content: const Text(
+                  'Meow?! Cat Mode unlocked 🐱',
+                  style: TextStyle(fontFamily: 'Nunito'),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 }
