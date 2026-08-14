@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'history/listen_history_tracker.dart';
 import 'providers/audio_provider.dart';
 import 'providers/companion_provider.dart';
+import 'providers/discord_presence_provider.dart';
 import 'providers/night_mode_provider.dart';
 import 'providers/online_settings_provider.dart';
 import 'providers/open_with_provider.dart';
@@ -41,6 +42,7 @@ class HanamimiApp extends ConsumerWidget {
     ref.watch(listenStatsProvider); // per-platform listen stats
     ref.watch(openWithProvider); // handles "open with Hanamimi" intents
     ref.watch(sessionPersistenceProvider); // saves what's playing for resume
+    ref.watch(discordPresencePusherProvider); // opt-in Discord now-playing
 
     SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,

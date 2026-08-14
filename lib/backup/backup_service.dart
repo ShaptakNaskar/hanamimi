@@ -53,6 +53,7 @@ class BackupService {
     'metered_quality',
     'stream_cache_mb',
     'download_quality',
+    'discord_presence',
     'deep_recs_card_dismissed',
     // Leaderboard identity: restoring clientId continues the SAME
     // server row instead of forking a duplicate (a device change used

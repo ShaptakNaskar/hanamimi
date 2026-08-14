@@ -6,13 +6,13 @@ import 'package:hanamimi/providers/window_activity_provider.dart';
 import 'package:hanamimi/theme/themes.dart';
 import 'package:hanamimi/ui/components/mascot/hanamimi_widget.dart';
 import 'package:hanamimi/ui/components/now_playing/album_art_widget.dart';
+import 'package:hanamimi/utils/app_frame_ticker.dart';
 
 /// Regression tests for the desktop constant-CPU bug: widgets whose
-/// vsync tickers never stopped kept the engine producing a frame every
-/// vsync forever — full render pipeline (raster, GL swap, compositor)
-/// hot even paused and idle. An active ticker registers a transient
-/// frame callback, so `binding.transientCallbackCount == 0` IS "no
-/// frames are being demanded".
+/// visual tickers never stopped kept the engine producing frames forever —
+/// full render pipeline (raster, GL swap, compositor) hot even paused and
+/// idle. Desktop visual animation now uses one shared 60 Hz timer, whose
+/// listener count must return to zero when nothing is moving.
 void main() {
   final track = Track(
     id: 1,
@@ -38,7 +38,7 @@ void main() {
       size: 100,
     )));
     await tester.pump(const Duration(seconds: 1));
-    expect(tester.binding.transientCallbackCount, 0,
+    expect(debugActiveDesktopVisualTickers, 0,
         reason: 'paused art must not keep a ticker alive');
 
     await tester.pumpWidget(host(AlbumArtWidget(
@@ -48,7 +48,7 @@ void main() {
       size: 100,
     )));
     await tester.pump(const Duration(milliseconds: 50));
-    expect(tester.binding.transientCallbackCount, greaterThan(0),
+    expect(debugActiveDesktopVisualTickers, greaterThan(0),
         reason: 'playing art wobbles');
 
     // Back to paused: the wobble eases out (~600 ms) and the ticker
@@ -62,7 +62,7 @@ void main() {
     for (var i = 0; i < 40; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
-    expect(tester.binding.transientCallbackCount, 0,
+    expect(debugActiveDesktopVisualTickers, 0,
         reason: 'wobble eased out — ticker must stop');
   });
 
@@ -75,18 +75,18 @@ void main() {
       size: 100,
     )));
     await tester.pump(const Duration(milliseconds: 50));
-    expect(tester.binding.transientCallbackCount, greaterThan(0));
+    expect(debugActiveDesktopVisualTickers, greaterThan(0));
 
     windowVisible.value = false;
     await tester.pump(const Duration(milliseconds: 50));
     await tester.pump(const Duration(milliseconds: 50));
-    expect(tester.binding.transientCallbackCount, 0,
+    expect(debugActiveDesktopVisualTickers, 0,
         reason: 'minimized window must not demand frames');
 
     // Restore: the listener restarts the wobble.
     windowVisible.value = true;
     await tester.pump(const Duration(milliseconds: 50));
-    expect(tester.binding.transientCallbackCount, greaterThan(0),
+    expect(debugActiveDesktopVisualTickers, greaterThan(0),
         reason: 'restore resumes the wobble');
   });
 
@@ -99,7 +99,7 @@ void main() {
     for (var i = 0; i < 25; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
-    expect(tester.binding.transientCallbackCount, 0,
+    expect(debugActiveDesktopVisualTickers, 0,
         reason: 'a paused mascot at rest must stop its ticker '
             '(a blink wake-up timer is fine; a running ticker is not)');
   });

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../library/models/track.dart';
 import '../reco/feature_extractor.dart';
 import '../theme/hanamimi_theme.dart';
+import '../utils/app_frame_ticker.dart';
 import '../visualizer/fft_channel.dart';
 import '../visualizer/fft_processor.dart';
 import 'audio_provider.dart';
@@ -497,7 +498,7 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
   final engine = ref.read(audioHandlerProvider).engine;
   var settled = false;
   var tick = 0;
-  final timer = Timer.periodic(const Duration(milliseconds: 16), (_) {
+  final timer = AppFrameTicker((_) {
     // Minimized: freeze the stream — every emission rebuilds all the
     // band listeners and keeps the render pipeline hot for a window
     // nobody can see. Unfocused (visible on a second monitor, another
@@ -603,10 +604,10 @@ final visualizerBandsProvider = StreamProvider<List<double>>((ref) {
     if (quiet && settled) return;
     settled = quiet;
     controller.add(bands);
-  });
+  }, nativeVsyncOnMobile: false)..start();
 
   ref.onDispose(() {
-    timer.cancel();
+    timer.dispose();
     frameSub.cancel();
     controller.close();
     FftChannel.cancel();

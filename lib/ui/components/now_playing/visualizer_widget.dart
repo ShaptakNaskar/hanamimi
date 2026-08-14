@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../providers/audio_provider.dart';
@@ -7,6 +6,7 @@ import '../../../providers/theme_provider.dart';
 import '../../../providers/visualizer_provider.dart';
 import '../../../providers/window_activity_provider.dart';
 import '../../../theme/hanamimi_theme.dart';
+import '../../../utils/app_frame_ticker.dart';
 import '../../../visualizer/visualizer_painter.dart';
 
 class VisualizerWidget extends ConsumerStatefulWidget {
@@ -27,9 +27,8 @@ class VisualizerWidget extends ConsumerStatefulWidget {
   ConsumerState<VisualizerWidget> createState() => _VisualizerWidgetState();
 }
 
-class _VisualizerWidgetState extends ConsumerState<VisualizerWidget>
-    with SingleTickerProviderStateMixin {
-  late final Ticker _ticker;
+class _VisualizerWidgetState extends ConsumerState<VisualizerWidget> {
+  late final AppFrameTicker _ticker;
   final _sim = VisualizerSim();
   double _time = 0;
   Duration _last = Duration.zero;
@@ -37,9 +36,9 @@ class _VisualizerWidgetState extends ConsumerState<VisualizerWidget>
   @override
   void initState() {
     super.initState();
-    // elapsed restarts at zero every Ticker.start(), so advance _time
+    // Elapsed restarts at zero every ticker start, so advance _time
     // by deltas — motion stays continuous across stop/start cycles.
-    _ticker = createTicker((elapsed) {
+    _ticker = AppFrameTicker((elapsed) {
       final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 0.1);
       _last = elapsed;
       setState(() => _time += dt);

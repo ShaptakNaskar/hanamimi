@@ -15,6 +15,7 @@ import '../../providers/cat_mode_provider.dart';
 import '../../providers/companion_provider.dart';
 import '../../date/date_room.dart';
 import '../../providers/dev_provider.dart';
+import '../../providers/discord_presence_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/mascot_provider.dart';
@@ -143,6 +144,13 @@ class YouScreen extends ConsumerWidget {
           Text('ONLINE'.whisper(night), style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
           const _OnlineSettings(),
+          if (isDesktop) ...[
+            const SizedBox(height: Space.s8),
+            Text('SOCIAL'.whisper(night),
+                style: AppText.sectionLabel(theme)),
+            const SizedBox(height: Space.s3),
+            const _SocialSettings(),
+          ],
           const SizedBox(height: Space.s8),
           Text('LIBRARY'.whisper(night), style: AppText.sectionLabel(theme)),
           const SizedBox(height: Space.s3),
@@ -1132,6 +1140,31 @@ class _YtMusicTile extends ConsumerWidget {
   }
 }
 
+/// SOCIAL — optional desktop integrations that publish listening metadata.
+class _SocialSettings extends ConsumerWidget {
+  const _SocialSettings();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(currentThemeProvider);
+    return _SettingsCard(
+      theme: theme,
+      children: [
+        _SwitchRow(
+          label: 'Discord listening status',
+          subtitle: 'Share the song, artist, album and progress with '
+              'the Discord desktop app',
+          value: ref.watch(discordPresenceEnabledProvider),
+          onChanged: (enabled) => ref
+              .read(discordPresenceEnabledProvider.notifier)
+              .set(enabled),
+          theme: theme,
+        ),
+      ],
+    );
+  }
+}
+
 /// Settings row with a real dropdown — every enumerated choice uses
 /// this now (3.0 feedback: the old tap-to-cycle rows read as labels,
 /// not controls, and nobody found the third option).
@@ -1689,4 +1722,3 @@ const _visualizerStyleNames = <VisualizerStyle, String>{
   VisualizerStyle.vuMeters: 'VU meters',
   VisualizerStyle.ledVu: 'LED VU meter',
 };
-

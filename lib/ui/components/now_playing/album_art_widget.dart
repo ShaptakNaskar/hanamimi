@@ -1,12 +1,12 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 
 import '../../../library/models/track.dart';
 import '../../../providers/window_activity_provider.dart';
 import '../../../theme/hanamimi_theme.dart';
 import '../../../theme/theme_tokens.dart';
+import '../../../utils/app_frame_ticker.dart';
 import '../library/art_thumb.dart';
 
 /// Full-size album art: soft primary ambient shadow, gentle cross-dissolve
@@ -29,9 +29,8 @@ class AlbumArtWidget extends StatefulWidget {
   State<AlbumArtWidget> createState() => _AlbumArtWidgetState();
 }
 
-class _AlbumArtWidgetState extends State<AlbumArtWidget>
-    with SingleTickerProviderStateMixin {
-  late final Ticker _ticker;
+class _AlbumArtWidgetState extends State<AlbumArtWidget> {
+  late final AppFrameTicker _ticker;
   double _phase = 0; // seconds
   double _amplitude = 0; // 0..1, eases in/out with play state
   Duration _last = Duration.zero;
@@ -39,7 +38,7 @@ class _AlbumArtWidgetState extends State<AlbumArtWidget>
   @override
   void initState() {
     super.initState();
-    _ticker = createTicker(_tick);
+    _ticker = AppFrameTicker(_tick);
     windowVisible.addListener(_onWindowVisible);
     if (widget.isPlaying) _ticker.start();
   }

@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../library/models/track.dart';
@@ -18,6 +17,7 @@ import '../../providers/theme_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/hanamimi_theme.dart';
 import '../../theme/theme_tokens.dart';
+import '../../utils/app_frame_ticker.dart';
 import '../components/mascot/hanamimi_widget.dart';
 import 'share_lyrics_sheet.dart';
 
@@ -525,10 +525,9 @@ class _KaraokeLines extends ConsumerStatefulWidget {
   ConsumerState<_KaraokeLines> createState() => _KaraokeLinesState();
 }
 
-class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
-    with SingleTickerProviderStateMixin {
+class _KaraokeLinesState extends ConsumerState<_KaraokeLines> {
   final _scroll = ScrollController();
-  late final Ticker _ticker;
+  late final AppFrameTicker _ticker;
   late final List<List<_TimedWord>> _timedLines;
   late final List<_Entry> _entries;
 
@@ -564,7 +563,7 @@ class _KaraokeLinesState extends ConsumerState<_KaraokeLines>
 
     // Skip frames where the position hasn't moved (paused, buffering)
     // instead of rebuilding the whole line list at the display rate.
-    _ticker = createTicker((_) {
+    _ticker = AppFrameTicker((_) {
       final pos = _smoothPosition;
       if (pos == _builtPosition) return;
       _builtPosition = pos;

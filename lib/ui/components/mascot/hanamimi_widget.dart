@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 
 import '../../../providers/window_activity_provider.dart';
+import '../../../utils/app_frame_ticker.dart';
 import 'mascot_painter.dart';
 
 enum MascotState { idle, playing, paused, changing, sleeping, loading }
@@ -72,9 +72,8 @@ class HanamimiMascot extends StatefulWidget {
   State<HanamimiMascot> createState() => _HanamimiMascotState();
 }
 
-class _HanamimiMascotState extends State<HanamimiMascot>
-    with SingleTickerProviderStateMixin {
-  late final Ticker _ticker;
+class _HanamimiMascotState extends State<HanamimiMascot> {
+  late final AppFrameTicker _ticker;
   final _rng = math.Random();
 
   double _time = 0;
@@ -89,7 +88,7 @@ class _HanamimiMascotState extends State<HanamimiMascot>
   @override
   void initState() {
     super.initState();
-    _ticker = createTicker(_tick)..start();
+    _ticker = AppFrameTicker(_tick)..start();
     windowVisible.addListener(_onWindowVisible);
   }
 

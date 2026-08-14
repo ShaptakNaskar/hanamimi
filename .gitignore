@@ -26,6 +26,7 @@ PROGRESS.md
 ARCHITECTURE*.md
 DESIGN.md
 design/
+CLAUDE.md
 
 # --- Misc ---
 Hanamimi-handoff.zip
@@ -36,3 +37,4 @@ Hanamimi-handoff.zip
 dist/
 IDEAS-APPROVED.md
 .env
+AGENTS.md
