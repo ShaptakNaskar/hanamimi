@@ -27,7 +27,7 @@ class DesktopLibrary {
   /// Windows '\'. Directory.list returns native separators, so a
   /// hardcoded '/' finds nothing on Windows (and substring(0, -1)
   /// throws) — which silently emptied the library there.
-  static int _lastSep(String path) {
+  static int lastSep(String path) {
     final slash = path.lastIndexOf('/');
     final back = path.lastIndexOf('\\');
     return slash > back ? slash : back;
@@ -49,7 +49,7 @@ class DesktopLibrary {
           .handleError((_) {})) {
         if (entry is! File) continue;
         final path = entry.path;
-        final name = path.substring(_lastSep(path) + 1);
+        final name = path.substring(lastSep(path) + 1);
         if (name.startsWith('.')) continue;
         final dot = name.lastIndexOf('.');
         if (dot < 0) continue;
@@ -138,7 +138,7 @@ class DesktopLibrary {
               double.tryParse(audio['duration'] as String? ?? '') ??
               0.0;
 
-      final sep = _lastSep(path);
+      final sep = lastSep(path);
       final dir = path.substring(0, sep);
       final dot = path.lastIndexOf('.');
       final fileName = path.substring(sep + 1, dot > sep ? dot : path.length);
@@ -194,7 +194,7 @@ class DesktopLibrary {
     // -frames:v 1 + scale handles any source format/size.
     if (await _ffmpegThumb(filePath, out.path)) return out.path;
 
-    final dir = filePath.substring(0, _lastSep(filePath));
+    final dir = filePath.substring(0, lastSep(filePath));
     for (final name in [
       'cover.jpg', 'cover.png', 'folder.jpg', 'folder.png',
       'front.jpg', 'front.png', 'album.jpg', 'AlbumArt.jpg',

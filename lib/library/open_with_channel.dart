@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import '../platform/desktop/desktop_library.dart';
+
 /// Dart side of MainActivity's "open with Hanamimi" handling.
 ///
 /// Desktop: the ACTION_VIEW equivalent is file paths handed to main()
@@ -21,7 +23,7 @@ class OpenWithChannel {
     _desktopPending = {
       'uri': Uri.file(path).toString(),
       'path': path,
-      'title': path.substring(path.lastIndexOf('/') + 1),
+      'title': path.substring(DesktopLibrary.lastSep(path) + 1),
     };
   }
 

@@ -557,7 +557,7 @@ class _MusicFoldersSheet extends ConsumerWidget {
                       itemBuilder: (context, i) {
                         final path = folders[i];
                         final name =
-                            path.substring(path.lastIndexOf('/') + 1);
+                            path.substring(DesktopLibrary.lastSep(path) + 1);
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
                           leading: Icon(Icons.folder_outlined,
@@ -661,7 +661,7 @@ class _ExcludedFoldersSheetState
               ref.read(musicFoldersProvider));
       final counts = <String, int>{};
       for (final path in paths) {
-        final slash = path.lastIndexOf('/');
+        final slash = DesktopLibrary.lastSep(path);
         final dir = slash <= 0 ? '/' : path.substring(0, slash);
         counts[dir] = (counts[dir] ?? 0) + 1;
       }
@@ -670,7 +670,7 @@ class _ExcludedFoldersSheetState
         counts.putIfAbsent(dir, () => 0);
       }
       final folders = counts.entries.map((e) {
-        final name = e.key.substring(e.key.lastIndexOf('/') + 1);
+        final name = e.key.substring(DesktopLibrary.lastSep(e.key) + 1);
         return (e.key, name.isEmpty ? '/' : name, e.value);
       }).toList()
         ..sort((a, b) => a.$2.toLowerCase().compareTo(b.$2.toLowerCase()));

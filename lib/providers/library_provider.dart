@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../library/library_repository.dart';
 import '../library/library_scanner.dart';
+import '../platform/desktop/desktop_library.dart';
 import '../library/models/playlist.dart';
 import '../library/models/track.dart';
 import '../online/models/online_search_result.dart';
@@ -259,12 +260,12 @@ final foldersProvider = Provider<List<MusicFolder>>((ref) {
     // storage and don't belong in folder browsing.
     final path = t.filePath;
     if (!t.isLocal || path == null) continue;
-    final slash = path.lastIndexOf('/');
+    final slash = DesktopLibrary.lastSep(path);
     final dir = slash <= 0 ? '/' : path.substring(0, slash);
     byDir.putIfAbsent(dir, () => []).add(t);
   }
   final folders = byDir.entries.map((e) {
-    final name = e.key.substring(e.key.lastIndexOf('/') + 1);
+    final name = e.key.substring(DesktopLibrary.lastSep(e.key) + 1);
     return MusicFolder(
       path: e.key,
       name: name.isEmpty ? '/' : name,

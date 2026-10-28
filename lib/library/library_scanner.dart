@@ -35,7 +35,7 @@ class LibraryScanner {
   final Set<String> musicFolders;
 
   bool _isExcluded(String filePath) {
-    final slash = filePath.lastIndexOf('/');
+    final slash = DesktopLibrary.lastSep(filePath);
     final dir = slash <= 0 ? '/' : filePath.substring(0, slash);
     return excludedDirs.contains(dir);
   }
