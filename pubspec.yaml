@@ -71,7 +71,7 @@ dependencies:
   smtc_windows: ^1.1.0
   ffi: ^2.1.0 # Windows named-pipe half of the desktop Discord RPC client
   gamepads: ^0.1.7
-  device_info_plus: ^12.4.0 # device make/model for the opt-in stats leaderboard
+  device_info_plus: 12.3.0 # 12.4 requires Xcode 26.1; CI uses Xcode 16.4.
   archive: ^4.0.9
 
 # smtc_windows 1.1.0 ships Rust code generated with flutter_rust_bridge
