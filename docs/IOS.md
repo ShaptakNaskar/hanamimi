@@ -1,6 +1,6 @@
 # iOS implementation checkpoint
 
-Implemented on `plus` from the committed 3.2 baseline after saving the Living Music work in the named `pre-ios` stash. The current version is 3.3.0. The `ios-build` workflow now builds an unsigned IPA on a GitHub-hosted Mac; native acceptance and the `main` port remain pending.
+Implemented on `plus` from the committed 3.2 baseline after saving the Living Music work in the named `pre-ios` stash. The current version is 3.4.0. The release workflow now builds and attaches an unsigned IPA on a GitHub-hosted Mac; native acceptance and the `main` port remain pending.
 
 ## Provider audit
 
@@ -15,10 +15,10 @@ Implemented on `plus` from the committed 3.2 baseline after saving the Living Mu
 You → Import music, or the empty Library action:
 
 1. Import from Files copies selected audio into Documents/Music.
-2. Receive over Wi-Fi binds only the iOS Wi-Fi interface (`en0`, IPv4), shows a temporary capability link, and serves a self-contained browser uploader. Copy the entire link, including its fragment. Select up to 100 files; the browser uploads sequentially with progress and cancellation.
+2. Receive over Wi-Fi binds only the iOS Wi-Fi interface (`en0`, IPv4), shows a plain local address such as `192.168.1.20:54321`, and serves a self-contained browser uploader. Open that address directly. The browser manages the upload session using an HttpOnly, SameSite=Strict cookie; no token appears in the address or JavaScript. Select up to 100 files; the browser uploads sequentially with progress and cancellation.
 3. Files/Finder sharing exposes Documents. Place audio in Music and rescan to validate and adopt it.
 
-Limits: MP3, AAC/M4A, FLAC, WAV and AIFF candidates, native AVFoundation validation, 2 GiB per upload, bounded streaming, no archives/resume. Format support is conditional on Apple's decoder and has not yet been measured on a device. The first version has file selection rather than a custom drag/drop target. Receiving lasts at most 30 minutes, requires the import sheet to remain open, prevents auto-lock, and stops on backgrounding, sheet close or detected address changes. A fresh start requires a fresh link. HTTP is unencrypted: use trusted Wi-Fi. IPv6-only networks, hotspot interface variants, Bonjour and TLS are deferred.
+Limits: MP3, AAC/M4A, FLAC, WAV and AIFF candidates, native AVFoundation validation, 2 GiB per upload, bounded streaming, no archives/resume. Format support is conditional on Apple's decoder and has not yet been measured on a device. The first version has file selection rather than a custom drag/drop target. Receiving lasts at most 30 minutes, requires the import sheet to remain open, prevents auto-lock, and stops on backgrounding, sheet close or detected address changes. Restarting receiving invalidates the previous browser session; reopen the displayed address. HTTP is unencrypted: use trusted Wi-Fi. IPv6-only networks, hotspot interface variants, Bonjour and TLS are deferred.
 
 A SHA-256 filename prefix identifies a recording across retries, renames and sandbox relocation; different content with the same filename is retained separately. Original filenames remain readable after the prefix. Completed files move atomically from private staging and are recovered by rescanning if indexing was interrupted. No partial file enters the library. Missing iOS recordings keep their DB relationships; replay fails through the existing unreadable-file handling until the recording is restored. Metadata/artwork come from AVFoundation. The database, credentials and staging remain outside the exposed Documents directory. Actual music is durable user data; keep a separate copy before deleting/re-signing the app.
 
@@ -30,7 +30,7 @@ The runner uses bundle ID `com.hanamimi.app.plus`, iOS 15+, CocoaPods and Swift,
 
 On the authorized Mac: install the agreed Flutter SDK and CocoaPods, run `flutter pub get`, then `cd ios && pod install`, and compile with `flutter build ios --release --no-codesign`. Configure signing before generating a device-installable IPA. [Flutter's iOS build documentation](https://docs.flutter.dev/deployment/ios) requires macOS/Xcode. An unsigned `.app` zipped as an IPA is not proof of installability.
 
-No Xcode/Swift typecheck, signed device install, provider playback, LAN reachability, background/lock-screen audio, codec/FFT parity, Bluetooth, file protection or upgrade/re-sign preservation has been verified here. These are acceptance work for the Mac/device stage, not completed V4-15 gates. The existing release workflow is untouched; iOS builds are separate Actions artifacts.
+The 3.3.0 runner compiled successfully with Xcode 16.4 and Flutter 3.29.3 in Actions run 42783220267. Signed device install, provider playback, LAN reachability, background/lock-screen audio, codec/FFT parity, Bluetooth, file protection and upgrade/re-sign preservation still require device acceptance. V4-15 is not complete.
 
 Linux regression verification uses a separately installed preview and isolated profile because the stashed 4.0 application owns a newer DB schema. Never launch this 3.2-based checkpoint against that 4.0 profile. Restore the named stash only after reconciling the overlapping audio/library/UI edits.
 
@@ -40,13 +40,13 @@ Linux regression verification uses a separately installed preview and isolated p
 
 These checks used the installed Flutter 3.47.4/Dart 3.13.3. There are no new dependencies; the committed dependency lock is preserved. Compatibility with CI's older pinned Flutter 3.29.3 still needs checking on the Mac build path; the local build is not evidence of that compatibility. No Swift compiler/Xcode or iOS device is available here. This original checkpoint preceded the 3.3.0 version bump and Mac CI workflow. No push, tag or release was performed.
 
-## Unsigned IPA workflow (3.3.0)
+## Unsigned IPA releases (3.4.0)
 
-`.github/workflows/ios-build.yml` runs on relevant pushes to `plus` and supports manual **Run workflow** dispatch. It uses `macos-15`, Xcode 16.4 and the existing CI pin of Flutter 3.29.3. It resolves packages, runs Flutter tests, builds the physical-device release app with `--no-codesign`, and packages `Payload/Runner.app` into an IPA. The iOS build number is this workflow's run number, independent of Android release numbering. No Apple certificates, provisioning profiles or signing secrets are required by CI.
+Following SpeedoME's release pattern, `release.yml` calls `ios-build.yml` after creating the plus draft release. The Mac job receives the exact release version, build number and tag, runs tests, builds the unsigned physical-device app, packages `Payload/Runner.app` and uploads `hanamimi-plus-<version>-unsigned.ipa` directly to that draft release. Plus publication waits for Android, Windows, Linux and iOS; it also checks that the expected `.ipa` asset exists before making the release public. The iOS job no longer starts a duplicate independent build on every push.
 
-Download the `hanamimi-plus-3.3.0-ios-unsigned-<run>` artifact from the successful workflow run and extract GitHub's artifact ZIP to get `hanamimi-plus-3.3.0-unsigned.ipa`. Import that IPA into your external signing/sideloading tool (for example, AltStore or Sideloadly), which must sign the app and its embedded frameworks with a valid identity/profile before installation. The raw unsigned IPA cannot be installed directly. Account limits, provisioning renewal and device compatibility still apply; app data preservation must be checked before replacing an existing sideload.
+Download the `.ipa` directly from **GitHub Releases → Assets**. It still needs external signing before sideloading. CI uses no Apple certificates or provisioning profiles. The matching IPA remains available as an Actions artifact for 14 days; manual **Run workflow** builds produce an artifact without publishing a release. A manual build uses the pubspec version and workflow run number.
 
-Artifacts are retained for 14 days. The workflow has read-only repository permissions and does not create tags or publish a GitHub Release. A successful Actions run establishes native compilation and IPA packaging; actual signing/sideloading still requires a device test.
+The reusable Mac job retains `macos-15`, Xcode 16.4 and Flutter 3.29.3. Screen brightness's iOS implementation stays at 2.1.2 and device_info_plus at 12.3.0 to match that toolchain. Account limits, provisioning renewal and device compatibility still apply; check data preservation before replacing an existing sideload.
 
 The 3.3.0 workflow passed actionlint and a packaging self-check for version extraction, IPA layout, ZIP integrity and symlink preservation. The 3.3.0 Linux preview was rebuilt and installed alongside the existing 4.0 host package using its separate profile.
 

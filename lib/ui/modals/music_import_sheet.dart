@@ -124,7 +124,7 @@ class _MusicImportSheetState extends ConsumerState<MusicImportSheet>
     setState(() {
       _url = url;
       _status =
-          'Open this link on a trusted Wi-Fi network. Keep this screen open. Stops after 30 minutes or when backgrounded. HTTP transfer is unencrypted.';
+          'Open this address in a browser on the same trusted Wi-Fi network. Keep this screen open. Stops after 30 minutes or when backgrounded.';
     });
     await PowerChannel.setKeepScreenOn(true);
     if (!mounted || generation != _generation) {
@@ -189,7 +189,7 @@ class _MusicImportSheetState extends ConsumerState<MusicImportSheet>
             label: Text(_url == null ? 'Receive over Wi-Fi' : 'Stop receiving'),
           ),
           if (_url != null) ...[
-            SelectableText(_url.toString()),
+            SelectableText(_url!.authority),
             TextButton(
               onPressed:
                   () => Clipboard.setData(ClipboardData(text: _url.toString())),

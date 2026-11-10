@@ -1,12 +1,24 @@
-import 'dart:io';
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hanamimi/transfer/local_upload_server.dart';
 
+Future<Cookie> _openPage(HttpClient client, Uri link) async {
+  expect(link.fragment, isEmpty);
+  expect(link.query, isEmpty);
+  final response = await (await client.getUrl(link)).close();
+  expect(response.statusCode, 200);
+  final cookie = response.cookies.single;
+  expect(cookie.httpOnly, isTrue);
+  expect(cookie.sameSite, SameSite.strict);
+  await response.drain<void>();
+  return cookie;
+}
+
 void main() {
   test(
-    'receiver fences authentication, origin and revoked links',
+    'plain address opens the uploader; session and origin fence uploads',
     () async {
       var imports = 0;
       final server = LocalUploadServer(
@@ -23,62 +35,72 @@ void main() {
         client.close(force: true);
         await server.stop();
       });
-      Future<int> upload({String? token, String? origin}) async {
-        final req = await client.postUrl(
-          link.replace(fragment: '', path: '/upload', query: 'name=song.mp3'),
+      final session = await _openPage(client, link);
+      Future<int> upload({Cookie? cookie, String? origin}) async {
+        final request = await client.postUrl(
+          link.replace(path: '/upload', query: 'name=song.mp3'),
         );
-        if (token != null) req.headers.set('Authorization', 'Bearer $token');
-        if (origin != null) req.headers.set('Origin', origin);
-        req.contentLength = 3;
-        req.add([1, 2, 3]);
-        final response = await req.close();
+        if (cookie != null) request.cookies.add(cookie);
+        if (origin != null) request.headers.set('Origin', origin);
+        request.contentLength = 3;
+        request.add([1, 2, 3]);
+        final response = await request.close();
         await response.drain<void>();
         return response.statusCode;
       }
 
       expect(await upload(), 401);
-      expect(await upload(token: 'wrong'), 401);
+      expect(await upload(cookie: Cookie(session.name, 'wrong')), 401);
       expect(
-        await upload(token: link.fragment, origin: 'https://evil.example'),
+        await upload(cookie: session, origin: 'https://evil.example'),
         403,
       );
-      expect(await upload(token: link.fragment, origin: link.origin), 200);
+      expect(await upload(cookie: session, origin: link.origin), 200);
       expect(imports, 1);
-      final next = await server.start(InternetAddress.loopbackIPv4);
-      expect(next.fragment, isNot(link.fragment));
-    final revoked = link.fragment;
-    link = next;
-    expect(await upload(token: revoked), 401);
+      link = await server.start(InternetAddress.loopbackIPv4);
+      expect(await upload(cookie: session), 401);
+      final newSession = await _openPage(client, link);
+      expect(await upload(cookie: newSession), 200);
       await server.stop();
       expect(server.address, isNull);
     },
   );
+
   test('only one upload can commit at a time', () async {
     final entered = Completer<void>();
     final release = Completer<void>();
-    final server = LocalUploadServer(onImported: () async {}, importFile: (_, bytes) async {
-      await bytes.drain<void>();
-      entered.complete();
-      await release.future;
-      return File('/unused');
-    });
+    final server = LocalUploadServer(
+      onImported: () async {},
+      importFile: (_, bytes) async {
+        await bytes.drain<void>();
+        entered.complete();
+        await release.future;
+        return File('/unused');
+      },
+    );
     final link = await server.start(InternetAddress.loopbackIPv4);
     final client = HttpClient();
-    addTearDown(() async { client.close(force: true); await server.stop(); });
+    addTearDown(() async {
+      client.close(force: true);
+      await server.stop();
+    });
+    final session = await _openPage(client, link);
     Future<int> upload() async {
-      final request = await client.postUrl(link.replace(fragment: '', path: '/upload', query: 'name=song.mp3'));
-      request.headers.set('Authorization', 'Bearer ${link.fragment}');
+      final request = await client.postUrl(
+        link.replace(path: '/upload', query: 'name=song.mp3'),
+      );
+      request.cookies.add(session);
       request.contentLength = 1;
       request.add([1]);
       final response = await request.close();
       await response.drain<void>();
       return response.statusCode;
     }
+
     final first = upload();
     await entered.future;
     expect(await upload(), 409);
     release.complete();
     expect(await first, 200);
   });
-
 }

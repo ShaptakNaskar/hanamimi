@@ -1,25 +1,25 @@
-# Produces a device (arm64) IPA for external signing, without release publication.
+# Builds a device IPA for external signing; release.yml supplies its version and draft tag.
 name: ios-build
 
 on:
-  push:
-    branches: [plus]
-    paths:
-      - 'ios/**'
-      - 'lib/**'
-      - 'assets/**'
-      - 'test/**'
-      - 'dart_test.yaml'
-      - 'pubspec.yaml'
-      - 'pubspec.lock'
-      - '.github/workflows/ios-build.yml'
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        default: ''
+      build_number:
+        type: string
+        default: ''
+      release_tag:
+        type: string
+        default: ''
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # attach the IPA when called by the release workflow
 
 concurrency:
-  group: ios-build-${{ github.ref }}
+  group: ios-build-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -28,7 +28,7 @@ jobs:
     timeout-minutes: 45
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
-      BUILD_NUMBER: ${{ github.run_number }}
+      BUILD_NUMBER: ${{ inputs.build_number || format('{0}', github.run_number) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -49,14 +49,24 @@ jobs:
           flutter pub get
           flutter test --no-pub
 
-      - name: Build unsigned device app
+      - name: Resolve app version
+        id: version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          flutter build ios --release --no-pub --no-codesign --build-number="$BUILD_NUMBER"
+          VERSION="${RELEASE_VERSION:-$(sed -n 's/^version: *\([^ +#]*\).*/\1/p' pubspec.yaml)}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build unsigned device app
+        env:
+          BUILD_NAME: ${{ steps.version.outputs.version }}
+        run: |
+          flutter build ios --release --no-pub --no-codesign --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
 
       - name: Package unsigned IPA
-        id: package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION=$(sed -n 's/^version: *\([^ +#]*\).*/\1/p' pubspec.yaml)
           APP_PATH=build/ios/iphoneos/Runner.app
           test -f "$APP_PATH/Info.plist"
           test -f "$APP_PATH/Runner"
@@ -68,11 +78,18 @@ jobs:
             zip -qry "$IPA_PATH" Payload
           )
           unzip -t "$IPA_PATH"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: hanamimi-plus-${{ steps.package.outputs.version }}-ios-unsigned-${{ github.run_number }}
+          name: hanamimi-plus-${{ steps.version.outputs.version }}-ios-unsigned-${{ github.run_number }}
           path: dist/*-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
+
+      - name: Attach IPA to draft release
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: gh release upload "$RELEASE_TAG" dist/*-unsigned.ipa --clobber

@@ -5,7 +5,7 @@ import 'dart:math';
 
 import '../platform/ios/ios_library.dart';
 
-/// A temporary, capability-authenticated receiver. No library files are served.
+/// A temporary receiver with a browser-managed upload session. No library files are served.
 class LocalUploadServer {
   LocalUploadServer({
     required this.onImported,
@@ -34,7 +34,7 @@ class LocalUploadServer {
       (request) => unawaited(_handle(request)),
       onError: (_) => unawaited(stop()),
     );
-    return address!.replace(fragment: _token);
+    return address!;
   }
 
   Future<void> stop() async {
@@ -69,9 +69,17 @@ class LocalUploadServer {
         response.statusCode = HttpStatus.forbidden;
       } else if (request.method == 'GET' && request.uri.path == '/') {
         response.headers.contentType = ContentType.html;
+        response.cookies.add(
+          Cookie('hanamimi-upload', token)
+            ..httpOnly = true
+            ..sameSite = SameSite.strict
+            ..path = '/',
+        );
         response.write(_page);
       } else if (request.method == 'POST' && request.uri.path == '/upload') {
-        if (request.headers.value('authorization') != 'Bearer $token') {
+        if (!request.cookies.any(
+          (cookie) => cookie.name == 'hanamimi-upload' && cookie.value == token,
+        )) {
           response.statusCode = HttpStatus.unauthorized;
         } else if (_busy) {
           response.statusCode = HttpStatus.conflict;
@@ -110,7 +118,6 @@ class LocalUploadServer {
 <label>Music files <input id="files" type="file" multiple accept=".mp3,.m4a,.aac,.flac,.wav,.aiff,.aif"></label>
 <button id="send">Import</button><button id="cancel">Cancel</button><progress id="progress" max="100" value="0"></progress><p id="status" role="status"></p>
 <script>
-const token=location.hash.slice(1);history.replaceState(null,'',location.pathname);
 let active=null,cancelled=false;
 const status=document.getElementById('status'),send=document.getElementById('send');
 document.getElementById('cancel').onclick=()=>{cancelled=true;active?.abort()};
@@ -118,7 +125,7 @@ send.onclick=async()=>{cancelled=false;send.disabled=true;
 try { const files=Array.from(document.getElementById('files').files); if(files.length>100)throw Error('Choose at most 100 files.');
 for(const file of files){if(cancelled)break;
 status.textContent='Receiving '+file.name;
-await new Promise((resolve,reject)=>{const x=active=new XMLHttpRequest();x.open('POST','/upload?name='+encodeURIComponent(file.name));x.setRequestHeader('Authorization','Bearer '+token);x.upload.onprogress=e=>{if(e.lengthComputable)document.getElementById('progress').value=100*e.loaded/e.total};x.onload=()=>x.status===200?resolve():reject(Error(x.responseText||'Import failed'));x.onerror=()=>reject(Error('Connection lost. Keep Hanamimi open and retry.'));x.onabort=()=>reject(Error('Cancelled'));x.send(file)});
+await new Promise((resolve,reject)=>{const x=active=new XMLHttpRequest();x.open('POST','/upload?name='+encodeURIComponent(file.name));x.upload.onprogress=e=>{if(e.lengthComputable)document.getElementById('progress').value=100*e.loaded/e.total};x.onload=()=>x.status===200?resolve():reject(Error(x.responseText||'Import failed'));x.onerror=()=>reject(Error('Connection lost. Keep Hanamimi open and retry.'));x.onabort=()=>reject(Error('Cancelled'));x.send(file)});
 status.textContent='Imported '+file.name;
 }}catch(e){status.textContent=e.message}finally{active=null;send.disabled=false}};
 </script></html>''';

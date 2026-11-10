@@ -5,9 +5,9 @@
 # commit message), publishes a GitHub Release tagged <branch>-v<version>,
 # and posts the arm64 APK to Telegram when bot secrets are configured.
 #
-# plus also builds Linux + Windows. On plus the release is created as a
-# DRAFT and only goes live (publish-plus job) once APK + Linux + Windows
-# ALL succeed — so a failed desktop build never ships a partial release,
+# plus also builds Linux + Windows + an unsigned iOS IPA. The plus release
+# is created as a DRAFT and only goes live (publish-plus job) once APK + Linux + Windows + iOS
+# ALL succeed — so a failed platform build never ships a partial release,
 # and the tag/version isn't burned until it actually publishes.
 #
 # Versioning: versionCode = the workflow run number (monotonic across
@@ -216,11 +216,11 @@ jobs:
           # nonsense). Pin the tag to the commit that was actually built.
           target_commitish: ${{ github.sha }}
           files: build/app/outputs/flutter-apk/hanamimi-*.apk
-          # plus ships APKs + Linux AppImage + Windows installer together.
+          # plus ships APKs + Linux AppImage + Windows installer + iOS IPA together.
           # Create the release as a DRAFT so it stays invisible (and its
-          # tag isn't minted) until the desktop jobs finish — the
-          # publish-plus job flips it live only when all three builds are
-          # green. A failed desktop build then leaves a draft, not a
+          # tag isn't minted) until the remaining platform jobs finish — the
+          # publish-plus job flips it live only when all four builds are
+          # green. A failed platform build then leaves a draft, not a
           # public release with missing artifacts (and no version is
           # burned, since the tag only appears on publish).
           draft: ${{ github.ref_name == 'plus' }}
@@ -390,15 +390,24 @@ jobs:
             dist/*.rpm
 
 
+  build-ios:
+    if: github.ref_name == 'plus'
+    needs: build-android
+    uses: ./.github/workflows/ios-build.yml
+    with:
+      version: ${{ needs.build-android.outputs.semver }}
+      build_number: ${{ needs.build-android.outputs.code }}
+      release_tag: ${{ needs.build-android.outputs.tag }}
+
   # One Telegram drop per plus release: APK + Windows installer +
   # AppImage (with the main run's APK that makes the full set of four).
   # All three stay under the Bot API's 50 MB document cap — that's WHY
   # the desktop artifacts ship slim and self-fetch ffmpeg/yt-dlp.
   publish-plus:
     if: github.ref_name == 'plus'
-    # Only reached when APK + Windows + Linux ALL succeed — that's the gate
+    # Only reached when APK + Windows + Linux + iOS ALL succeed — that's the gate
     # for making the release public / posting it out.
-    needs: [build-android, build-windows, build-linux]
+    needs: [build-android, build-windows, build-linux, build-ios]
     runs-on: ubuntu-latest
     steps:
       # Flip the draft live now that every artifact is attached. This is
@@ -408,6 +417,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          gh release view '${{ needs.build-android.outputs.tag }}' \
+            --repo '${{ github.repository }}' --json assets --jq '.assets[].name' \
+            | grep -Fx 'hanamimi-plus-${{ needs.build-android.outputs.semver }}-unsigned.ipa'
           gh release edit '${{ needs.build-android.outputs.tag }}' \
             --repo '${{ github.repository }}' \
             --draft=false --latest
