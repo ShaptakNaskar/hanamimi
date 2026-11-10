@@ -22,6 +22,7 @@ class YtDlpChannel {
   /// `n` param itself, so the returned URL downloads at full speed.
   static Future<ResolvedStream?> resolve(
       String videoId, StreamQuality quality) async {
+    if (Platform.isIOS) return null;
     if (!Platform.isAndroid) return DesktopYtDlp.resolve(videoId, quality);
     try {
       final map = await _ch.invokeMapMethod<String, dynamic>('resolve', {
@@ -56,6 +57,7 @@ class YtDlpChannel {
   /// Pulls a fresh yt-dlp at runtime (the "Update extractor" settings
   /// action). Returns the new version string, or null on failure.
   static Future<String?> update() async {
+    if (Platform.isIOS) return null;
     if (!Platform.isAndroid) return DesktopYtDlp.update();
     try {
       return await _ch.invokeMethod<String>('update');
@@ -71,7 +73,7 @@ class YtDlpChannel {
   /// returns null there.
   static Future<String?> cookiesFromBrowser(String browser,
       {String? profile}) async {
-    if (Platform.isAndroid) return null;
+    if (Platform.isAndroid || Platform.isIOS) return null;
     return DesktopYtDlp.cookiesFromBrowser(browser, profile: profile);
   }
 
@@ -87,6 +89,7 @@ class YtDlpChannel {
 
   /// Current yt-dlp version (null if never initialized / unavailable).
   static Future<String?> version() async {
+    if (Platform.isIOS) return null;
     if (!Platform.isAndroid) return DesktopYtDlp.version();
     try {
       return await _ch.invokeMethod<String>('version');

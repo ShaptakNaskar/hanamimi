@@ -78,7 +78,7 @@ class QueueManager {
   /// Desktop has no mobile-style audio focus — no session at all. Media
   /// keys arrive via MPRIS/SMTC instead (lib/platform/desktop/).
   Future<void> _initAudioSession() async {
-    if (!Platform.isAndroid) return;
+    if (!(Platform.isAndroid || Platform.isIOS)) return;
     try {
       final session = await AudioSession.instance;
       _session = session;

@@ -102,6 +102,7 @@ int compareSemver(String a, String b) {
 /// the updater downloads) look newer than every release — the 1.0.6
 /// "no updates found" bug.
 final updateCheckProvider = FutureProvider<AppUpdate?>((ref) async {
+  if (Platform.isIOS) return null; // iOS installs are signed externally.
   try {
     final info = await PackageInfo.fromPlatform();
     final currentCode = (int.tryParse(info.buildNumber) ?? 0) % 1000;

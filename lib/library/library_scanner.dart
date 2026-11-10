@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../platform/desktop/desktop_library.dart';
+import '../platform/ios/ios_library.dart';
 import 'library_repository.dart';
 import 'media_store_channel.dart';
 
@@ -55,6 +56,8 @@ class LibraryScanner {
     final List<Map<String, Object?>> scanned;
     if (Platform.isAndroid) {
       scanned = await MediaStoreChannel.queryTracks();
+    } else if (Platform.isIOS) {
+      scanned = await IosLibrary.queryTracks();
     } else {
       // Files already in the DB skip the ffprobe (their row carries the
       // metadata; sync only needs their id to keep them alive).
@@ -71,7 +74,7 @@ class LibraryScanner {
     await _repo.syncScannedTracks(kept);
     // The index can still list files the user deleted; drop any local
     // track whose file is actually gone from disk.
-    await _repo.pruneMissingLocalFiles();
+    if (!Platform.isIOS) await _repo.pruneMissingLocalFiles();
 
     // Fetch art once per album that has tracks without an art path. A
     // local file from the album rides along so the extractor can read the
@@ -79,7 +82,10 @@ class LibraryScanner {
     final tracks = await _repo.allTracks();
     final missingArt = <int, String?>{};
     for (final t in tracks) {
-      if (t.albumArtPath != null) continue;
+      if (t.albumArtPath != null &&
+          (!Platform.isIOS || File(t.albumArtPath!).existsSync())) {
+        continue;
+      }
       missingArt.putIfAbsent(t.albumId, () => null);
       if (t.isLocal && t.filePath != null) missingArt[t.albumId] = t.filePath;
     }
@@ -87,7 +93,9 @@ class LibraryScanner {
       try {
         final path = Platform.isAndroid
             ? await MediaStoreChannel.getAlbumArt(e.key, filePath: e.value)
-            : await DesktopLibrary.extractAlbumArt(e.key, filePath: e.value);
+            : Platform.isIOS
+                ? await MediaStoreChannel.getAlbumArt(e.key, filePath: e.value)
+                : await DesktopLibrary.extractAlbumArt(e.key, filePath: e.value);
         if (path != null) await _repo.setAlbumArt(e.key, path);
       } catch (_) {
         // One album's art must never abort the scan — the track sync

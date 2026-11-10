@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
@@ -383,7 +384,7 @@ class YouTubeProvider implements MusicProvider {
       try {
         final manifest =
             await _yt.videos.streams.getManifest(sourceId, ytClients: clients);
-        final audio = manifest.audioOnly.toList();
+        final audio = manifest.audioOnly.where((s) => !Platform.isIOS || s.container.name == 'mp4').toList();
         if (audio.isEmpty) continue;
 
         // High: best available (opus/webm tops out ~160k). Low: closest

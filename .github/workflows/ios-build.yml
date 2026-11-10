@@ -1,0 +1,78 @@
+# Produces a device (arm64) IPA for external signing, without release publication.
+name: ios-build
+
+on:
+  push:
+    branches: [plus]
+    paths:
+      - 'ios/**'
+      - 'lib/**'
+      - 'assets/**'
+      - 'test/**'
+      - 'dart_test.yaml'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/ios-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unsigned-ipa:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.29.3
+          channel: stable
+          cache: true
+
+      - name: Check toolchain
+        run: |
+          flutter --version
+          xcodebuild -version
+          pod --version
+
+      - name: Resolve dependencies and test
+        run: |
+          flutter pub get
+          flutter test --no-pub
+
+      - name: Build unsigned device app
+        run: |
+          flutter build ios --release --no-pub --no-codesign --build-number="$BUILD_NUMBER"
+
+      - name: Package unsigned IPA
+        id: package
+        run: |
+          VERSION=$(sed -n 's/^version: *\([^ +#]*\).*/\1/p' pubspec.yaml)
+          APP_PATH=build/ios/iphoneos/Runner.app
+          test -f "$APP_PATH/Info.plist"
+          test -f "$APP_PATH/Runner"
+          mkdir -p "$RUNNER_TEMP/unsigned-ipa/Payload" dist
+          ditto "$APP_PATH" "$RUNNER_TEMP/unsigned-ipa/Payload/Runner.app"
+          IPA_PATH="$GITHUB_WORKSPACE/dist/hanamimi-plus-${VERSION}-unsigned.ipa"
+          (
+            cd "$RUNNER_TEMP/unsigned-ipa"
+            zip -qry "$IPA_PATH" Payload
+          )
+          unzip -t "$IPA_PATH"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hanamimi-plus-${{ steps.package.outputs.version }}-ios-unsigned-${{ github.run_number }}
+          path: dist/*-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14

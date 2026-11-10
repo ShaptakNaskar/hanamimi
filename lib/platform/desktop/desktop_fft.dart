@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
 
 import 'desktop_binaries.dart';
+import '../ios/ios_library.dart';
 
 /// Desktop port of FftExtractorChannel.kt (ARCHITECTURE-DESKTOP.md
 /// §2.1): ffmpeg decodes the file (or full-speed stream URL) to stereo
@@ -34,6 +35,7 @@ class DesktopFft {
   static Isolate? _isolate;
   static ReceivePort? _receive;
   static SendPort? _cancelPort;
+  static RawReceivePort? _errors;
   static int _job = 0;
 
   /// Kicks off (or resumes from cache) extraction for [path] — a local
@@ -42,9 +44,9 @@ class DesktopFft {
   static Future<void> start(String path, String key) async {
     await cancel();
     final job = ++_job;
-    final cacheDir =
-        '${(await getApplicationSupportDirectory()).path}/fft';
+    final cacheDir = '${(await getApplicationSupportDirectory()).path}/fft';
 
+    late final RawReceivePort onError;
     final receive = ReceivePort();
     _receive = receive;
     receive.listen((message) {
@@ -54,34 +56,70 @@ class DesktopFft {
         return;
       }
       _frames.add(message);
+      if (message['done'] == true) { receive.close(); onError.close(); }
     });
     // Errors in the isolate must surface as a terminal "done" event —
     // otherwise the watchdog retries against a silent corpse.
-    final onError = RawReceivePort((List<dynamic> pair) {
+    onError = RawReceivePort((List<dynamic> pair) {
       assert(() {
         // ignore: avoid_print
         print('DesktopFft isolate error: ${pair.first}\n${pair.last}');
         return true;
       }());
       if (job == _job) {
-        _frames.add({'key': key, 'offset': 0, 'bands': <double>[], 'done': true});
+        _frames.add({
+          'key': key,
+          'offset': 0,
+          'bands': <double>[],
+          'done': true,
+        });
       }
     });
-    _isolate = await Isolate.spawn(
-      _extractEntry,
-      [
+    _errors = onError;
+    // shortcut: iOS PCM is staged on disk; stream native chunks if device measurements require it.
+    String? pcmPath;
+    if (Platform.isIOS && !await File('$cacheDir/$key.bin').exists()) {
+      try {
+        pcmPath = await IosLibrary.channel.invokeMethod<String>('decode', {
+          'path': path,
+        });
+        if (pcmPath == null) throw const FormatException('No decoded audio');
+      } catch (_) {
+        if (job == _job) {
+          _frames.add({
+            'key': key,
+            'offset': 0,
+            'bands': <double>[],
+            'done': true,
+          });
+        }
+        receive.close();
+        onError.close();
+        return;
+      }
+      if (job != _job) {
+        await File(pcmPath).delete();
+        receive.close();
+        onError.close();
+        return;
+      }
+    }
+    if (job != _job) { receive.close(); onError.close(); return; }
+    _isolate = await Isolate.spawn(_extractEntry, [
         receive.sendPort,
         path,
         key,
         cacheDir,
-        DesktopBinaries.find('ffmpeg'),
-      ],
-      onError: onError.sendPort,
-    );
+      Platform.isIOS ? '' : DesktopBinaries.find('ffmpeg'),
+      pcmPath,
+    ], onError: onError.sendPort);
   }
 
   static Future<void> cancel() async {
     _job++;
+    _errors?.close();
+    _errors = null;
+    if (Platform.isIOS) await IosLibrary.channel.invokeMethod('cancelDecode');
     // Cooperative: the isolate owns an ffmpeg child a hard kill would
     // orphan, so ask it to stop (it kills the child and drains out). A
     // delayed hard kill backstops an isolate wedged on a dead stream.
@@ -90,8 +128,10 @@ class DesktopFft {
     final isolate = _isolate;
     _isolate = null;
     if (isolate != null) {
-      Timer(const Duration(seconds: 3),
-          () => isolate.kill(priority: Isolate.immediate));
+      Timer(
+        const Duration(seconds: 3),
+        () => isolate.kill(priority: Isolate.immediate),
+      );
     }
     _receive?.close();
     _receive = null;
@@ -105,6 +145,7 @@ class DesktopFft {
     final key = args[2] as String;
     final cacheDir = args[3] as String;
     final ffmpeg = args[4] as String;
+    final pcmPath = args[5] as String?;
 
     var cancelled = false;
     Process? proc;
@@ -122,6 +163,7 @@ class DesktopFft {
         return;
       }
 
+      if (pcmPath == null) {
       proc = await Process.start(ffmpeg, [
         '-v', 'quiet',
         '-i', path,
@@ -133,10 +175,12 @@ class DesktopFft {
       ]);
       // Unread stderr can fill the pipe and wedge ffmpeg.
       unawaited(proc.stderr.drain<void>());
+      }
 
       final analyzer = _Analyzer(send, key);
       final carry = BytesBuilder(copy: true); // partial trailing L/R pair
-      await for (final chunk in proc.stdout) {
+      await for (final chunk
+          in (pcmPath == null ? proc!.stdout : File(pcmPath).openRead())) {
         if (cancelled) break;
         carry.add(chunk);
         final bytes = carry.takeBytes();
@@ -150,7 +194,7 @@ class DesktopFft {
         }
         if (usable < bytes.length) carry.add(bytes.sublist(usable));
       }
-      final exit = await proc.exitCode;
+      final exit = proc == null ? 0 : await proc.exitCode;
 
       if (!cancelled && exit == 0) {
         await analyzer.finish(cacheDir, key);
@@ -167,6 +211,11 @@ class DesktopFft {
         send.send({'key': key, 'offset': 0, 'bands': <double>[], 'done': true});
       }
     } finally {
+      if (pcmPath != null) {
+        try {
+          await File(pcmPath).delete();
+        } catch (_) {}
+      }
       ctrl.close();
     }
   }
@@ -175,20 +224,25 @@ class DesktopFft {
   /// big-endian. v3 keys only — 12-float v2 files are unreachable
   /// (different filename) and age out of the LRU.
   static Future<void> _streamCached(
-      SendPort send, String key, File file, bool Function() cancelled) async {
+    SendPort send,
+    String key,
+    File file,
+    bool Function() cancelled,
+  ) async {
     final bytes = await file.readAsBytes();
     final data = ByteData.sublistView(bytes);
     final frameCount = data.getInt32(0);
-    if (frameCount <= 0 ||
-        bytes.length < 4 + frameCount * _frameFloats * 4) {
+    if (frameCount <= 0 || bytes.length < 4 + frameCount * _frameFloats * 4) {
       send.send({'key': key, 'offset': 0, 'bands': <double>[], 'done': true});
       return;
     }
     var offset = 0;
     while (offset < frameCount && !cancelled()) {
       final n = math.min(_chunkFrames * 4, frameCount - offset);
-      final chunk = List<double>.generate(n * _frameFloats,
-          (i) => data.getFloat32(4 + (offset * _frameFloats + i) * 4));
+      final chunk = List<double>.generate(
+        n * _frameFloats,
+        (i) => data.getFloat32(4 + (offset * _frameFloats + i) * 4),
+      );
       send.send({
         'key': key,
         'offset': offset,
@@ -207,8 +261,9 @@ class DesktopFft {
     try {
       final files = Directory(cacheDir).listSync().whereType<File>().toList();
       if (files.length <= _maxCacheFiles) return;
-      files.sort((a, b) =>
-          a.statSync().modified.compareTo(b.statSync().modified));
+      files.sort(
+        (a, b) => a.statSync().modified.compareTo(b.statSync().modified),
+      );
       for (final f in files.take(files.length - _maxCacheFiles)) {
         f.deleteSync();
       }
@@ -231,8 +286,8 @@ class _Analyzer {
   final _fft = _Fft(DesktopFft._window);
   final _hann = List<double>.generate(
       DesktopFft._window,
-      (i) =>
-          0.5 * (1 - math.cos(2 * math.pi * i / (DesktopFft._window - 1))));
+    (i) => 0.5 * (1 - math.cos(2 * math.pi * i / (DesktopFft._window - 1))),
+  );
   final _ring = Float32List(DesktopFft._window);
   var _written = 0; // total mono samples seen
   var _nextFrameAt = _hop;
@@ -259,9 +314,10 @@ class _Analyzer {
     final hi = math.min(14000.0, DesktopFft._sampleRate / 2 * 0.9);
     return [
       for (var i = 0; i <= DesktopFft._bands; i++)
-        (lo * math.pow(hi / lo, i / DesktopFft._bands) / binHz)
-            .toInt()
-            .clamp(1, DesktopFft._window ~/ 2 - 1),
+        (lo * math.pow(hi / lo, i / DesktopFft._bands) / binHz).toInt().clamp(
+          1,
+          DesktopFft._window ~/ 2 - 1,
+        ),
     ];
   }
 
@@ -303,10 +359,8 @@ class _Analyzer {
       _pending.add(v);
       frame.setFloat32(b * 4, v);
     }
-    final rmsL =
-        _hopSamples > 0 ? math.sqrt(_sumL2 / _hopSamples) : 0.0;
-    final rmsR =
-        _hopSamples > 0 ? math.sqrt(_sumR2 / _hopSamples) : 0.0;
+    final rmsL = _hopSamples > 0 ? math.sqrt(_sumL2 / _hopSamples) : 0.0;
+    final rmsR = _hopSamples > 0 ? math.sqrt(_sumR2 / _hopSamples) : 0.0;
     _sumL2 = 0;
     _sumR2 = 0;
     _hopSamples = 0;
@@ -317,8 +371,7 @@ class _Analyzer {
     frame.setFloat32((DesktopFft._bands + 1) * 4, rmsR);
     _cacheData.add(frame.buffer.asUint8List());
     _frameCount++;
-    if (_pending.length >=
-        DesktopFft._chunkFrames * DesktopFft._frameFloats) {
+    if (_pending.length >= DesktopFft._chunkFrames * DesktopFft._frameFloats) {
       _flush(false);
     }
   }

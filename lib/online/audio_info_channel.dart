@@ -35,7 +35,7 @@ class AudioInfoChannel {
   static const _ch = MethodChannel('hanamimi/audio_info');
 
   static Future<AudioOutput?> output() async {
-    if (!Platform.isAndroid) return DesktopAudioInfo.output();
+    if (!Platform.isAndroid && !Platform.isIOS) return DesktopAudioInfo.output();
     try {
       final m = await _ch.invokeMapMethod<String, dynamic>('output');
       if (m == null) return null;
@@ -52,7 +52,7 @@ class AudioInfoChannel {
   /// Probes a local file's audio track via MediaExtractor (ffprobe on
   /// desktop).
   static Future<FileAudioInfo?> probe(String path) async {
-    if (!Platform.isAndroid) return DesktopAudioInfo.probe(path);
+    if (!Platform.isAndroid && !Platform.isIOS) return DesktopAudioInfo.probe(path);
     try {
       final m = await _ch
           .invokeMapMethod<String, dynamic>('probe', {'path': path});

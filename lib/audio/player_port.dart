@@ -40,7 +40,7 @@ abstract class AudioPlayerPort {
   /// Android keeps ExoPlayer (battery-friendly, audio-focus native);
   /// desktop runs libmpv via media_kit.
   factory AudioPlayerPort.create() =>
-      Platform.isAndroid ? JustAudioPlayer() : MediaKitPlayer();
+      (Platform.isAndroid || Platform.isIOS) ? JustAudioPlayer() : MediaKitPlayer();
 
   Future<void> setSource(PlaybackSource source);
   Future<void> play();

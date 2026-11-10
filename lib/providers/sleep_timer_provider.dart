@@ -128,7 +128,7 @@ class SleepTimerNotifier extends Notifier<SleepTimerState> {
   // Best-effort: some ROMs deny it, and that shouldn't break the fade.
   // Desktop monitors aren't ours to dim — the volume fade carries it.
   Future<void> _setBrightness(double value) async {
-    if (!Platform.isAndroid) return;
+    if (!(Platform.isAndroid || Platform.isIOS)) return;
     try {
       await ScreenBrightness.instance
           .setApplicationScreenBrightness(value.clamp(0.05, 1.0));
@@ -136,7 +136,7 @@ class SleepTimerNotifier extends Notifier<SleepTimerState> {
   }
 
   Future<void> _resetBrightness() async {
-    if (!Platform.isAndroid) return;
+    if (!(Platform.isAndroid || Platform.isIOS)) return;
     try {
       await ScreenBrightness.instance.resetApplicationScreenBrightness();
     } catch (_) {}

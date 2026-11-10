@@ -1,3 +1,4 @@
+import '../modals/music_import_sheet.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -328,8 +329,8 @@ class _SongsTab extends ConsumerWidget {
                 ? 'Hanamimi needs permission to find your music'
                 : 'No songs found on this device',
             theme: theme,
-            actionLabel: denied ? 'Grant access' : 'Rescan',
-            onAction: () => ref.read(libraryProvider.notifier).rescan(),
+            actionLabel: Platform.isIOS ? 'Import music' : denied ? 'Grant access' : 'Rescan',
+            onAction: () => Platform.isIOS ? showMusicImportSheet(context) : ref.read(libraryProvider.notifier).rescan(),
           );
         }
         final playingId =
@@ -1202,7 +1203,7 @@ class _PlaylistsTabState extends ConsumerState<_PlaylistsTab> {
 
     // Android Photo Picker on mobile; a plain file dialog on desktop.
     final String? pickedPath;
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid || Platform.isIOS) {
       final picked = await ImagePicker()
           .pickImage(source: ImageSource.gallery, maxWidth: 1024);
       pickedPath = picked?.path;

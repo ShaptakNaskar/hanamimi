@@ -89,7 +89,7 @@ class LibraryNotifier extends AsyncNotifier<List<Track>> {
   Future<List<Track>> build() async {
     final repo = await ref.watch(libraryRepositoryProvider.future);
     var tracks = await repo.allTracks();
-    if (tracks.isEmpty) {
+    if (tracks.isEmpty || Platform.isIOS) {
       final result = await _scanner(repo).scan();
       _permissionDenied = result == ScanResult.permissionDenied;
       tracks = await repo.allTracks();

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
+import 'platform/ios/ios_library.dart';
 import 'audio/audio_handler.dart';
 import 'audio/queue_manager.dart';
 import 'library/models/track.dart';
@@ -20,6 +21,7 @@ import 'providers/theme_provider.dart';
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
+  if (Platform.isIOS) await IosLibrary.initialize();
 
   // Online catalogs (plus build). StreamResolver and the search scopes
   // read this registry.
@@ -27,7 +29,7 @@ Future<void> main(List<String> args) async {
   musicProviderRegistry[TrackSource.saavn] = SaavnProvider();
 
   final HanamimiAudioHandler audioHandler;
-  if (Platform.isAndroid) {
+  if ((Platform.isAndroid || Platform.isIOS)) {
     audioHandler = await AudioService.init(
       builder: () => HanamimiAudioHandler(QueueManager()),
       config: const AudioServiceConfig(

@@ -77,7 +77,7 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
     super.initState();
     _scheduleClock();
     PowerChannel.setKeepScreenOn(true);
-    if (Platform.isAndroid) {
+    if ((Platform.isAndroid || Platform.isIOS)) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     }
     // The dimming is a scrim INSIDE this screen (see build), not a
@@ -96,7 +96,7 @@ class _BlackoutScreenState extends ConsumerState<BlackoutScreen> {
   void _restoreSystem() {
     if (_restored) return;
     _restored = true;
-    if (Platform.isAndroid) {
+    if ((Platform.isAndroid || Platform.isIOS)) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
     if (!_caffeineOn) PowerChannel.setKeepScreenOn(false);

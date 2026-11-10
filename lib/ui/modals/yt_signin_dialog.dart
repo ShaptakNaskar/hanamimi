@@ -134,7 +134,7 @@ class _YtSignInDialogState extends ConsumerState<_YtSignInDialog> {
                   style: AppText.caption(theme)
                       .copyWith(color: theme.accent)),
             ],
-            if (!Platform.isAndroid) ...[
+            if (!Platform.isAndroid && !Platform.isIOS) ...[
               const SizedBox(height: Space.s3),
               Text('Import your session from a browser you’re logged in on:',
                   style: AppText.caption(theme)),
@@ -249,7 +249,7 @@ class _YtSignInDialogState extends ConsumerState<_YtSignInDialog> {
               style: AppText.rowSongTitle(theme)
                   .copyWith(color: theme.textMuted)),
         ),
-        if (Platform.isAndroid)
+        if (Platform.isAndroid || Platform.isIOS)
           TextButton(
             onPressed: _busy ? null : _androidLogin,
             child: Text('Continue',

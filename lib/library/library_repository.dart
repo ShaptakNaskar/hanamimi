@@ -257,11 +257,16 @@ class LibraryRepository {
             'track_number': s['trackNumber'] as int?,
           });
           changes++;
+        } else if (Platform.isIOS) {
+          // Container paths change after restore; preserve row and playlist identity.
+          await txn.update('tracks', {'file_path': s['filePath']},
+              where: 'media_id = ?', whereArgs: [mediaId]);
         }
       }
 
       final removed = existingIds.difference(scannedIds);
       for (final mediaId in removed) {
+        if (Platform.isIOS) continue; // Files removal must preserve likes/history/playlists.
         await txn.delete('tracks',
             where: "media_id = ? AND source = 'local'", whereArgs: [mediaId]);
         changes++;

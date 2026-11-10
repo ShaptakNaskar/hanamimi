@@ -1,3 +1,5 @@
+import '../../platform/ios/ios_library.dart';
+import '../modals/music_import_sheet.dart';
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
@@ -652,9 +654,9 @@ class _ExcludedFoldersSheetState
     try {
       // Fresh index query (not the DB) so already-excluded folders stay
       // listed: MediaStore on Android, a plain walk on desktop.
-      final paths = Platform.isAndroid
+      final paths = (Platform.isAndroid || Platform.isIOS)
           ? [
-              for (final s in await MediaStoreChannel.queryTracks())
+              for (final s in await (Platform.isIOS ? IosLibrary.queryTracks() : MediaStoreChannel.queryTracks()))
                 s['filePath'] as String? ?? '',
             ]
           : await DesktopLibrary.listAudioFiles(
@@ -971,7 +973,7 @@ class _OnlineSettings extends ConsumerWidget {
                         theme: theme,
                       ),
                       Divider(height: Space.s6, color: theme.divider),
-                      const _UpdateExtractorTile(),
+                      if (!Platform.isIOS) const _UpdateExtractorTile(),
                       Divider(height: Space.s6, color: theme.divider),
                       const _YtMusicTile(),
                     ],
@@ -1575,8 +1577,11 @@ class _LibraryCard extends ConsumerWidget {
               ));
             },
           ),
+          if (Platform.isIOS)
+            ListTile(leading: const Icon(Icons.audio_file), title: const Text('Import music'),
+              onTap: () => showMusicImportSheet(context)),
           // Desktop points at folders (no MediaStore to index for us).
-          if (!Platform.isAndroid) ...[
+          if (isDesktop) ...[
             Divider(height: 0.5, color: theme.divider),
             ListTile(
               leading: Icon(Icons.create_new_folder_outlined,
