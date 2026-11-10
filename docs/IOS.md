@@ -49,3 +49,5 @@ Download the `hanamimi-plus-3.3.0-ios-unsigned-<run>` artifact from the successf
 Artifacts are retained for 14 days. The workflow has read-only repository permissions and does not create tags or publish a GitHub Release. A successful Actions run establishes native compilation and IPA packaging; actual signing/sideloading still requires a device test.
 
 The 3.3.0 workflow passed actionlint and a packaging self-check for version extraction, IPA layout, ZIP integrity and symlink preservation. The 3.3.0 Linux preview was rebuilt and installed alongside the existing 4.0 host package using its separate profile.
+
+The first Mac run passed its Flutter tests (89 passed, 2 skipped) but failed native compilation in screen_brightness_ios 2.1.4, which uses Flutter scene-delegate APIs absent from Flutter 3.29.3. The iOS implementation is pinned to 2.1.2 through dependency_overrides; the parent package and other platforms retain their existing versions. Native compilation must be rerun to validate the fix.
